@@ -1,0 +1,6 @@
+numpy
+pyEDFlib>=0.1.36
+pandas
+beautifulsoup4
+lxml
+tqdm
