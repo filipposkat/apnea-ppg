@@ -13,7 +13,7 @@ if config is not None:
     PATH_TO_OUTPUT = config["paths"]["local"]["csv_directory"]
 else:
     PATH_TO_OBJECTS = os.path.join(os.curdir, "data", "serialized-objects")
-    PATH_TO_OUTPUT = os.path.join(os.curdir, "data")
+    PATH_TO_OUTPUT = os.path.join(os.curdir, "data", "csvs")
 
 obj_path_dict = {}  # key: subject id. value: path to the object file of the corresponding subject
 
@@ -29,7 +29,7 @@ def get_all_subjects(export_to_csvs=False) -> dict[int: Subject]:
     # Load all objects to a dictionary
     subject_dict = {}
     for subject_id, obj_file in tqdm(obj_path_dict.items()):
-        path_obj = os.path.join(PATH_TO_OUTPUT, "serialized-objects", str(subject_id).zfill(4) + ".bin")
+        path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
         binary_file = open(path_obj, mode='rb')
         sub = pickle.load(binary_file)
         binary_file.close()
@@ -52,7 +52,7 @@ def get_subjects_by_id(first_subject_id: int, last_subject_id: int, export_to_cs
     subject_dict = {}
     for subject_id, obj_file in tqdm(obj_path_dict.items()):
         if first_subject_id <= subject_id <= last_subject_id:
-            path_obj = os.path.join(PATH_TO_OUTPUT, "serialized-objects", str(subject_id).zfill(4) + ".bin")
+            path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
             binary_file = open(path_obj, mode='rb')
             sub = pickle.load(binary_file)
             binary_file.close()
