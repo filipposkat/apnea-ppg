@@ -3,6 +3,8 @@ import pandas as pd
 from itertools import islice
 from bs4 import BeautifulSoup
 from pyedflib import highlevel
+
+
 def downsample_to_proportion(sequence, proportion: int) -> list:
     """Down-samples thr given sequence so that the returned sequence length is a proportion of the given sequence length
 

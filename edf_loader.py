@@ -1,4 +1,6 @@
 import os
+
+import yaml
 from tqdm import tqdm
 from pyedflib import highlevel
 import pickle
@@ -6,9 +8,17 @@ import pickle
 # Local imports:
 from common import Subject
 
-PATH_TO_EDFS = "D:\mesa\mesa\polysomnography\edfs"
-PATH_TO_ANNOTATIONS = "G:\\filip\Documents\Data Science Projects\Thesis\mesa\polysomnography\\annotations-events-nsrr"
-PATH_TO_OUTPUT = os.path.join(os.curdir, "data")
+with open("config.yml", 'r') as f:
+    config = yaml.safe_load(f)
+
+if config is not None:
+    PATH_TO_EDFS = config["paths"]["local"]["edf_directory"]
+    PATH_TO_ANNOTATIONS = config["paths"]["local"]["xml_annotations_directory"]
+    PATH_TO_OUTPUT = config["paths"]["local"]["subject_objects_directory"]
+else:
+    PATH_TO_EDFS = "D:\mesa\mesa\polysomnography\edfs"
+    PATH_TO_ANNOTATIONS = "G:\\filip\Documents\Data Science Projects\Thesis\mesa\polysomnography\\annotations-events-nsrr"
+    PATH_TO_OUTPUT = os.path.join(os.curdir, "data", "serialized-objects")
 
 edf_dict = {}  # key: subject id. value: path to the edf of the corresponding subject
 edf_list = []  # list with the paths of all edf files. Same as edf_dict.values()
@@ -46,7 +56,7 @@ for subject_id, edf in tqdm(edf_dict.items()):
     sub.import_signals_from_edf(edf)
     sub.import_annotations_from_xml(annots_dict[subject_id])
 
-    path_obj = os.path.join(PATH_TO_OUTPUT, "serialized-objects", str(subject_id).zfill(4) + ".bin")
+    path_obj = os.path.join(PATH_TO_OUTPUT, str(subject_id).zfill(4) + ".bin")
     binary_file = open(path_obj, mode='wb')
     pickle.dump(sub, binary_file)
     binary_file.close()

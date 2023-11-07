@@ -1,0 +1,9 @@
+#Comment: This is the configuration file for apnea-ppg
+#The indented use is the definition of constants (like paths) used in project code.
+---
+paths:
+  local: # relative or absolute paths
+    edf_directory: # Path to edf directory using system slash (\ for windows, / for linux) without: ""
+    xml_annotations_directory: # Path xmls directory using system slash (\ for windows, / for linux) without: ""
+    subject_objects_directory: # Path to objects directory using system slash (\ for windows, / for linux) without: ""
+    csv_directory: # Path to csvs directory using system slash (\ for windows, / for linux) without: ""

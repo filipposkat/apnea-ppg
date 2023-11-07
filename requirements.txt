@@ -1,6 +1,7 @@
-numpy
+numpy~=1.26.1
 pyEDFlib>=0.1.36
-pandas
-beautifulsoup4
+pandas~=2.1.2
+beautifulsoup4~=4.12.2
 lxml
-tqdm
+tqdm~=4.66.1
+PyYAML~=6.0.1
