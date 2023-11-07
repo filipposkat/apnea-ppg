@@ -1,2 +1,17 @@
 ^mesa-sleep-(51[0-9]{2}|5[2-9][0-9]{2}|[6-9][0-9]{3})\.edf$
 Regex that will select all files from mesa-sleep-5104.edf to mesa-sleep-9999.edf
+
+PyTorch installation:
+-Windows:
+--CPU-only: pip3 install torch torchvision torchaudio
+--CUDA: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+-Linux:
+--CPU-only: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+--CUDA: pip3 install torch torchvision torchaudio
+--ROCm: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.6
+
+-WSL2:
+--CPU-only: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+--CUDA: pip3 install torch torchvision torchaudio
+--For AMD gpu install cpu version and the package: "torch-directml" Read: https://learn.microsoft.com/en-us/windows/ai/directml/gpu-pytorch-wsl
