@@ -20,7 +20,7 @@ obj_path_dict = {}  # key: subject id. value: path to the object file of the cor
 # Find all object files and store their ids and paths:
 for filename in os.listdir(PATH_TO_OBJECTS):
     if filename.endswith(".bin"):
-        subject_id = int(filename[0:3])
+        subject_id = int(filename[0:4])
         path_to_file = os.path.join(PATH_TO_OBJECTS, filename)
         obj_path_dict[subject_id] = path_to_file
 
@@ -64,3 +64,6 @@ def get_subjects_by_id(first_subject_id: int, last_subject_id: int, export_to_cs
                 df.to_csv(path_csv)
 
     return subject_dict
+
+
+get_all_subjects()
