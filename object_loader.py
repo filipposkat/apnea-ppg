@@ -2,6 +2,7 @@ import os
 from tqdm import tqdm
 import pickle
 import yaml
+from collections.abc import Generator
 import matplotlib.pyplot as plt
 # Local imports:
 from common import Subject
@@ -49,7 +50,7 @@ def get_all_subjects(export_to_csvs=False) -> dict[int: Subject]:
     return subject_dict
 
 
-def all_subjects_generator() -> (int, Subject):
+def all_subjects_generator() -> Generator[tuple[int, Subject], None, None]:
     """
     Generator of Subjects
     :return: (int, Subject)
@@ -60,6 +61,33 @@ def all_subjects_generator() -> (int, Subject):
         sub = pickle.load(binary_file)
         binary_file.close()
         yield subject_id, sub
+
+
+def get_subject_by_id(subject_id: int, export_to_csvs=False) -> tuple[int: Subject]:
+    """
+    :param subject_id: Id of the desired subjected
+    :param export_to_csvs: if True then the subjects will be exported to csvs in the directory
+    csv_directory/all-signals-csvs, where PATH_TO_OUTPUT is a constant defined in config.yml
+    """
+    if subject_id < 1:
+        print(f"Illegal id.")
+        return None
+
+    # Load objects to a dictionary
+    subject_dict = {}
+    for id, obj_file in obj_path_dict.items():
+        if id == subject_id:
+            path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
+            binary_file = open(path_obj, mode='rb')
+            sub = pickle.load(binary_file)
+            binary_file.close()
+
+            if export_to_csvs:
+                df = sub.export_to_dataframe()
+                path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(subject_id).zfill(4), ".csv")
+                df.to_csv(path_csv)
+
+            return subject_id, sub
 
 
 def get_subjects_by_id(first_subject_id: int, last_subject_id: int, export_to_csvs=False) -> dict[int: Subject]:
@@ -83,7 +111,7 @@ def get_subjects_by_id(first_subject_id: int, last_subject_id: int, export_to_cs
 
             if export_to_csvs:
                 df = sub.export_to_dataframe()
-                path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", subject_id.zfill(4), ".csv")
+                path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(subject_id.zfill(4)), ".csv")
                 df.to_csv(path_csv)
 
     return subject_dict

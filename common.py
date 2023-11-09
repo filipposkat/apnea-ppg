@@ -56,31 +56,38 @@ class Subject:
                 if "Respiratory" in event_type:
                     if "Central apnea" in event_concept:
                         resp_events.append({"start": float(bs_event.find("Start").string),
-                                                "duration": float(bs_event.find("Duration").string),
-                                                "type": "respiratory",
-                                                "concept": "central_apnea"})
+                                            "duration": float(bs_event.find("Duration").string),
+                                            "type": "respiratory",
+                                            "concept": "central_apnea"})
                     elif "Obstructive apnea" in event_concept:
                         resp_events.append({"start": float(bs_event.find("Start").string),
-                                                "duration": float(bs_event.find("Duration").string),
-                                                "type": "respiratory",
-                                                "concept": "obstructive_apnea"})
+                                            "duration": float(bs_event.find("Duration").string),
+                                            "type": "respiratory",
+                                            "concept": "obstructive_apnea"})
                     elif "Hypopnea" in event_concept:
                         resp_events.append({"start": float(bs_event.find("Start").string),
-                                                "duration": float(bs_event.find("Duration").string),
-                                                "type": "respiratory",
-                                                "concept": "hypopnea"})
+                                            "duration": float(bs_event.find("Duration").string),
+                                            "type": "respiratory",
+                                            "concept": "hypopnea"})
                     elif "SpO2 desaturation" in event_concept:
                         resp_events.append({"start": float(bs_event.find("Start").string),
-                                                "duration": float(bs_event.find("Duration").string),
-                                                "type": "respiratory",
-                                                "concept": "spo2_desat"})
+                                            "duration": float(bs_event.find("Duration").string),
+                                            "type": "respiratory",
+                                            "concept": "spo2_desat"})
                     else:
                         resp_events.append({"start": float(bs_event.find("Start").string),
-                                                "duration": float(bs_event.find("Duration").string),
-                                                "type": "respiratory",
-                                                "concept": bs_event.find("EventConcept").string.replace(' ', '_').lower()})
+                                            "duration": float(bs_event.find("Duration").string),
+                                            "type": "respiratory",
+                                            "concept": bs_event.find("EventConcept").string.replace(' ', '_').lower()})
 
             self.respiratory_events = resp_events
+
+    def get_events_by_concept(self, concept: str) -> list[dict[str: str | float]]:
+        """
+        :param concept: Name of the event concept (e.g. central_apnea, obstructive_apnea, hypopnea, spo2_desat, etc.)
+        :return: List with all the events with the specified concept
+        """
+        return [event for event in self.respiratory_events if event[concept] == concept]
 
     def get_event_at_time(self, time: float) -> int:
         """
