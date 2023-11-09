@@ -26,7 +26,7 @@ class Subject:
     signal_headers: list[dict]
     start: int
     duration: float
-    events: list[dict]
+    respiratory_events: list[dict]
 
     def __init__(self, id):
         self.id = id
@@ -46,33 +46,48 @@ class Subject:
             self.duration = float(bs_data.find("Duration").string)
 
             bs_events = bs_data.findAll("ScoredEvent")
-            relevant_events = []
+            resp_events = []
             for bs_event in bs_events:
                 event_type = bs_event.find("EventType").string
                 event_concept = bs_event.find("EventConcept").string
-                if "Central apnea" in event_concept:
-                    relevant_events.append({"start": float(bs_event.find("Start").string),
-                                            "duration": float(bs_event.find("Duration").string),
-                                            "type": "respiratory",
-                                            "concept": "central_apnea"})
-                elif "Obstructive apnea" in event_concept:
-                    relevant_events.append({"start": float(bs_event.find("Start").string),
-                                            "duration": float(bs_event.find("Duration").string),
-                                            "type": "respiratory",
-                                            "concept": "obstructive_apnea"})
-                elif "Hypopnea" in event_concept:
-                    relevant_events.append({"start": float(bs_event.find("Start").string),
-                                            "duration": float(bs_event.find("Duration").string),
-                                            "type": "respiratory",
-                                            "concept": "hypopnea"})
-            self.events = relevant_events
+                if event_type is None:
+                    continue
+
+                if "Respiratory" in event_type:
+                    if "Central apnea" in event_concept:
+                        resp_events.append({"start": float(bs_event.find("Start").string),
+                                                "duration": float(bs_event.find("Duration").string),
+                                                "type": "respiratory",
+                                                "concept": "central_apnea"})
+                    elif "Obstructive apnea" in event_concept:
+                        resp_events.append({"start": float(bs_event.find("Start").string),
+                                                "duration": float(bs_event.find("Duration").string),
+                                                "type": "respiratory",
+                                                "concept": "obstructive_apnea"})
+                    elif "Hypopnea" in event_concept:
+                        resp_events.append({"start": float(bs_event.find("Start").string),
+                                                "duration": float(bs_event.find("Duration").string),
+                                                "type": "respiratory",
+                                                "concept": "hypopnea"})
+                    elif "SpO2 desaturation" in event_concept:
+                        resp_events.append({"start": float(bs_event.find("Start").string),
+                                                "duration": float(bs_event.find("Duration").string),
+                                                "type": "respiratory",
+                                                "concept": "spo2_desat"})
+                    else:
+                        resp_events.append({"start": float(bs_event.find("Start").string),
+                                                "duration": float(bs_event.find("Duration").string),
+                                                "type": "respiratory",
+                                                "concept": bs_event.find("EventConcept").string.replace(' ', '_').lower()})
+
+            self.respiratory_events = resp_events
 
     def get_event_at_time(self, time: float) -> int:
         """
         :param time: Time in seconds
-        :return: 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea
+        :return: 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation, 5=other event
         """
-        for event in self.events:
+        for event in self.respiratory_events:
             st = event["start"]
             fin = st + event["duration"]
             if st <= time <= fin:
@@ -82,6 +97,11 @@ class Subject:
                     return 2
                 elif event["concept"] == "hypopnea":
                     return 3
+                elif event["concept"] == "spo2_desat":
+                    return 4
+                else:
+                    # Other respiratory event
+                    return 5
             return 0
 
     def export_to_dataframe(self, signals_indices: list = None) -> pd.DataFrame:

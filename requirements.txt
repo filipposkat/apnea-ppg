@@ -5,3 +5,4 @@ beautifulsoup4~=4.12.2
 lxml
 tqdm~=4.66.1
 PyYAML~=6.0.1
+matplotlib~=3.8.1

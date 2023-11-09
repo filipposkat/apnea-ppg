@@ -1,5 +1,4 @@
 import os
-
 import yaml
 from tqdm import tqdm
 from pyedflib import highlevel
