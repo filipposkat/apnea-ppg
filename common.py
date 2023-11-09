@@ -38,6 +38,11 @@ class Subject:
         self.signal_headers = signal_headers
 
     def import_annotations_from_xml(self, xml_file):
+        """
+        Imports all respiratory event annotations and saves them in the events attribute of the object. If events object is already
+        :param xml_file: Path to xml annotations file
+        :return:
+        """
         with open(xml_file, 'r') as f:
             data = f.read()
             bs_data = BeautifulSoup(data, "xml")
@@ -87,7 +92,7 @@ class Subject:
         :param concept: Name of the event concept (e.g. central_apnea, obstructive_apnea, hypopnea, spo2_desat, etc.)
         :return: List with all the events with the specified concept
         """
-        return [event for event in self.respiratory_events if event[concept] == concept]
+        return [event for event in self.respiratory_events if event["concept"] == concept]
 
     def get_event_at_time(self, time: float) -> int:
         """
