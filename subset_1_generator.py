@@ -60,6 +60,6 @@ else:
     np.save(path, best_ids_arr)
 
 print(best_ids)
-
+print(len(best_ids))
 # for id in tqdm(best_ids):
 #     shutil.copy2(os.path.join(PATH_TO_OBJECTS, str(id).zfill(4)+".bin"), "D:\\mesa")
