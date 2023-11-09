@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import pickle
 import yaml
+import shutil
 
 # Local imports:
 from common import Subject
@@ -36,7 +37,6 @@ else:
             aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
             score_id_dict[aggregate_score] = id
 
-
     top_400_scores = sorted(score_id_dict, reverse=True)[0:400]
     best_ids = [score_id_dict[score] for score in top_400_scores]
     best_ids_arr = np.array(best_ids)
@@ -44,3 +44,6 @@ else:
     np.save(path, best_ids_arr)
 
 print(best_ids)
+
+for id in best_ids:
+    shutil.copy2(os.path.join(PATH_TO_OBJECTS, str(id).zfill(4), ".bin"), "D:\\mesa")
