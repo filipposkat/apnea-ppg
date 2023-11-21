@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 import pickle
@@ -29,12 +29,12 @@ if config is not None:
     PATH_TO_OBJECTS = config["paths"]["local"]["subject_objects_directory"]
     PATH_TO_SUBSET1 = config["paths"]["local"]["subset_1_directory"]
 else:
-    PATH_TO_OBJECTS = os.path.join(os.curdir, "data", "serialized-objects")
-    PATH_TO_SUBSET1 = os.path.join(os.curdir, "data", "subset-1")
+    PATH_TO_OBJECTS = Path(__file__).joinpath("data", "serialized-objects")
+    PATH_TO_SUBSET1 =Path(__file__).joinpath("data", "subset-1")
 # --- END OF CONSTANTS --- #
 
-path = os.path.join(PATH_TO_SUBSET1, "ids.npy")
-if os.path.isfile(path):
+path = Path(PATH_TO_SUBSET1).joinpath("ids.npy")
+if path.is_file():
     best_ids_arr = np.load(path)  # array to save the best subject ids
     best_ids = best_ids_arr.tolist()  # equivalent list
 else:
@@ -97,7 +97,7 @@ else:
         best_ids = [score_id_dict[score] for score in top_screened_scores]  # List with top 400 ids
 
     best_ids_arr = np.array(best_ids)  # Equivalent array
-    path = os.path.join(PATH_TO_SUBSET1, "ids")
+    path = Path(PATH_TO_SUBSET1).joinpath("ids")
     np.save(path, best_ids_arr)
 
 print(f"Final subset size: {len(best_ids)}")
@@ -162,10 +162,14 @@ if CREATE_ARRAYS:
         X_test_arr = np.array(X_test)    # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
         y_test_arr = np.array(y_test)    # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
 
-        X_train_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "X_train")
-        y_train_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "y_train")
-        X_test_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "X_test")
-        y_test_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "y_test")
+        # Create directory for subject:
+        subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
+        subject_arrs_path.mkdir(parents=True, exist_ok=True)
+
+        X_train_path = subject_arrs_path.joinpath("X_train")
+        y_train_path = subject_arrs_path.joinpath("y_train")
+        X_test_path = subject_arrs_path.joinpath("X_test")
+        y_test_path = subject_arrs_path.joinpath("y_test")
 
         np.save(X_train_path, X_train_arr)
         np.save(y_train_path, y_train_arr)
