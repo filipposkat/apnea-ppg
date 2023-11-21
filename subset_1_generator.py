@@ -4,6 +4,9 @@ from tqdm import tqdm
 import pickle
 import yaml
 import shutil
+import pandas as pd
+import random
+from sklearn.model_selection import train_test_split
 
 # Local imports:
 from common import Subject
@@ -13,8 +16,11 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+STEP = 2  # The step between each window
+CREATE_ARRAYS = True
+SEED = 33
+TEST_SIZE = 0.2
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
-STEP = 2
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -89,6 +95,7 @@ else:
         print(f"Screened dataset size: {len(score_id_dict.values())}")
         top_screened_scores = sorted(score_id_dict, reverse=True)[0:SUBSET_SIZE]  # List with top 400 scores
         best_ids = [score_id_dict[score] for score in top_screened_scores]  # List with top 400 ids
+
     best_ids_arr = np.array(best_ids)  # Equivalent array
     path = os.path.join(PATH_TO_SUBSET1, "ids")
     np.save(path, best_ids_arr)
@@ -96,19 +103,75 @@ else:
 print(f"Final subset size: {len(best_ids)}")
 print(best_ids)
 
-for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
-    sub_df = sub.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
-    sub_df.drop(["time_secs"], axis=1, inplace=True)
+if CREATE_ARRAYS:
+    random.seed(SEED)  # Set the seed
 
-    # Take equal-sized windows with a specified step:
 
-    # 1. Calculate the number of windows
-    num_windows = (len(sub_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
-    # Note that due to floor division the last WINDOW_SAMPLES_SIZE-1 samples might be dropped
+    def assign_window_label(window_labels: pd.Series) -> int:
+        """
+        :param window_labels: A pandas Series with the event labels for each sample in the window
+        :return: One label representing the whole window, specifically the label with most occurrences.
+        """
+        if window_labels.max() == 0:
+            return 0
+        else:
+            # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation, 5=other event
+            event_counts = window_labels.value_counts()  # Series containing counts of unique values.
+            prominent_event_index = event_counts.argmax()
+            prominent_event = event_counts.index[prominent_event_index]
+            # print(event_counts)
+            return int(prominent_event)
 
-    # 2. Generate equal-sized windows
-    windows_df = [sub_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows)]
 
-    # # Display the windows
-    # for i, window in enumerate(windows_df):
-    #     print(f"Window {i + 1}:\n{window}\n")
+    # from random import randrange
+    # test = pd.Series([randrange(5) for i in range(512)])
+    # print(assign_window_label(test))
+
+    # def train_test_split(X, y: list[int]):
+    #     num_of_events = np.count_nonzero(y)
+    #
+    #     # Shuffle X, y at once with same order:
+    #     c = list(zip(X, y))
+    #     random.shuffle(c)
+    #     X_s, y_s = zip(*c)
+
+    for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
+        sub_df = sub.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
+        sub_df.drop(["time_secs"], axis=1, inplace=True)
+
+        # Take equal-sized windows with a specified step:
+
+        # 1. Calculate the number of windows:
+        num_windows = (len(sub_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
+        # Note that due to floor division the last WINDOW_SAMPLES_SIZE-1 samples might be dropped
+
+        # 2. Generate equal-sized windows:
+        windows_dfs = [sub_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows)]
+        X = [window_df.loc[:, window_df.columns != "event_index"] for window_df in windows_dfs]
+        y = [assign_window_label(window_df["event_index"]) for window_df in windows_dfs]
+
+        # 3. Split into train and test:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
+                                                            random_state=SEED)
+        # print(f"Events train: {np.count_nonzero(y_train)}")
+        # print(f"Events test: {np.count_nonzero(y_test)}")
+
+        # 4. Save windows as a numpy array file:
+        X_train_arr = np.array(X_train)  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
+        y_train_arr = np.array(y_train)  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
+        X_test_arr = np.array(X_test)    # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
+        y_test_arr = np.array(y_test)    # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
+
+        X_train_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "X_train")
+        y_train_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "y_train")
+        X_test_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "X_test")
+        y_test_path = os.path.join(PATH_TO_SUBSET1, "arrays", str(id).zfill(4), "y_test")
+
+        np.save(X_train_path, X_train_arr)
+        np.save(y_train_path, y_train_arr)
+        np.save(X_test_path, X_test_arr)
+        np.save(y_test_path, y_test_arr)
+
+        # # Display the windows
+        # for i, window in enumerate(windows_dfs):
+        #     print(f"Window {i + 1}:\n{window}\n")
