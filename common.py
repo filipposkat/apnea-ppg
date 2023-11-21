@@ -116,28 +116,32 @@ class Subject:
                     return 5
             return 0
 
-    def export_to_dataframe(self, signals_indices: list = None) -> pd.DataFrame:
+    def export_to_dataframe(self, signal_labels: list[str] = None, print_downsampling_details=True) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
-        :param signals_indices: list with indices of the signals that will be exported. If None then all signals are exported
+        :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
+        exported.
         :return: Pandas dataframe
         """
         df = pd.DataFrame()
-        if signals_indices is None:
+        if signal_labels is None:
             retained_signals = self.signals
             retained_signal_headers = self.signal_headers
         else:
-            retained_signals = [self.signals[i] for i in signals_indices]
-            retained_signal_headers = [self.signal_headers[i] for i in signals_indices]
+            retained_signals = [self.signals[i] for i in range(len(self.signals))
+                                if self.signal_headers[i]["label"] in signal_labels]
+            retained_signal_headers = [self.signal_headers[i] for i in range(len(self.signals))
+                                       if self.signal_headers[i]["label"] in signal_labels]
 
         # First it is important to find which signal has the lowest frequency:
         min_freq_signal_header = min(retained_signal_headers, key=lambda h: float(h["sample_frequency"]))
         min_freq_signal_index = retained_signal_headers.index(min_freq_signal_header)
         min_freq = min_freq_signal_header["sample_frequency"]
         length = len(retained_signals[min_freq_signal_index])
-        print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
-              f"Down-sampling rest signals (if any), to match signal length: {length}")
+        if print_downsampling_details:
+            print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
+                  f"Down-sampling rest signals (if any), to match signal length: {length}")
 
         # Then the time column can be created
         time_seq = [i / min_freq for i in range(length)]

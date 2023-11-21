@@ -161,6 +161,34 @@ def get_subjects_by_ids(subject_ids: list[int], export_to_csvs=False) -> dict[in
     return subject_dict
 
 
+def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> Generator[
+    tuple[int, Subject], None, None]:
+    """
+    :param subject_ids: List with the desired subject ids
+    """
+    if len(subject_ids) < 1:
+        print(f"subjects_ids should contain at least one id.")
+        return None
+
+    # Yield objects one by one
+    if progress_bar:
+        for id, obj_file in tqdm(obj_path_dict.items()):
+            if id in subject_ids:
+                path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
+                binary_file = open(path_obj, mode='rb')
+                sub = pickle.load(binary_file)
+                binary_file.close()
+                yield id, sub
+    else:
+        for id, obj_file in obj_path_dict.items():
+            if id in subject_ids:
+                path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
+                binary_file = open(path_obj, mode='rb')
+                sub = pickle.load(binary_file)
+                binary_file.close()
+                yield id, sub
+
+
 # subs = get_subjects_by_id(133, 133)
 # print(subs[133].signal_headers)
 # subs[133].export_to_dataframe()["Pleth"][646284:646909].plot()

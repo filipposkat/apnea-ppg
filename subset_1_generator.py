@@ -7,10 +7,14 @@ import shutil
 
 # Local imports:
 from common import Subject
-from object_loader import get_all_subjects, all_subjects_generator, get_subjects_by_id_range
+from object_loader import all_subjects_generator, get_subjects_by_ids_generator
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
+WINDOW_SEC_SIZE = 16
+SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
+STEP = 2
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -76,7 +80,7 @@ else:
                 aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
                 extra_score_id_dict[aggregate_score] = id
 
-        print(f"Screened dataset size: {len(score_id_dict.values())+len(extra_score_id_dict)}")
+        print(f"Screened dataset size: {len(score_id_dict.values()) + len(extra_score_id_dict)}")
         # Rank the extra relaxed screened subjects that will supplement the strictly screened subjects:
         top_screened_scores = sorted(extra_score_id_dict, reverse=True)[0:(SUBSET_SIZE - len(score_id_dict.values()))]
         best_ids = list(score_id_dict.values())  # Add all the strictly screened subjects
@@ -92,5 +96,19 @@ else:
 print(f"Final subset size: {len(best_ids)}")
 print(best_ids)
 
-for id in tqdm(best_ids):
-    shutil.copy2(os.path.join(PATH_TO_OBJECTS, str(id).zfill(4)+".bin"), "D:\\mesa")
+for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
+    sub_df = sub.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
+    sub_df.drop(["time_secs"], axis=1, inplace=True)
+
+    # Take equal-sized windows with a specified step:
+
+    # 1. Calculate the number of windows
+    num_windows = (len(sub_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
+    # Note that due to floor division the last WINDOW_SAMPLES_SIZE-1 samples might be dropped
+
+    # 2. Generate equal-sized windows
+    windows_df = [sub_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows)]
+
+    # # Display the windows
+    # for i, window in enumerate(windows_df):
+    #     print(f"Window {i + 1}:\n{window}\n")
