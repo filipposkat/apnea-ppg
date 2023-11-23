@@ -20,6 +20,7 @@ SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 STEP = 2  # The step between each window
 TEST_SIZE = 0.2
 NO_EVENTS_TO_EVENTS_RATIO = 10
+MAX_WINDOWS_TO_DROP = 0.95  # Max ratio of subject's windows that can be deleted to achieve NO_EVENTS_TO_EVENTS_RATIO
 CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = True
 SEED = 33
@@ -104,7 +105,7 @@ else:
     path = Path(PATH_TO_SUBSET1).joinpath("ids")
     np.save(path, best_ids_arr)
 
-print(f"Final subset size: {len(best_ids)}")
+print(f"Final subset size: {len(best_ids)}\n")
 print(best_ids)
 
 
@@ -150,11 +151,13 @@ def get_subject_train_test_data(subject: Subject):
     random.shuffle(combined_xy)  # Shuffle
 
     if diff > 0:
-        # Reduce no event windows by diff:
-        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < diff, combined_xy))
+        num_to_drop = min(abs(diff), int(MAX_WINDOWS_TO_DROP*len(y)))
+        # Reduce no event windows by num_to_drop:
+        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < num_to_drop, combined_xy))
     elif diff < 0:
-        # Reduce event windows by diff:
-        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] != 0 and next(c) < diff, combined_xy))
+        num_to_drop = min(abs(diff), int(MAX_WINDOWS_TO_DROP * len(y)))
+        # Reduce event windows by num_to_drop:
+        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] != 0 and next(c) < num_to_drop, combined_xy))
     X, y = zip(*combined_xy)  # separate Xy again
 
     # 4. Split into train and test:
