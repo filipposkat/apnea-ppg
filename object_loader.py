@@ -115,20 +115,22 @@ def get_subjects_by_id_range(first_subject_id: int, last_subject_id: int, export
         print(f"Illegal id range.")
         return None
 
+    filtered_subject_paths = {id: obj_path_dict[id] for id in obj_path_dict.keys()
+                              if first_subject_id <= id <= last_subject_id}
+
     # Load objects to a dictionary
     subject_dict = {}
     for subject_id, obj_file in tqdm(obj_path_dict.items()):
-        if first_subject_id <= subject_id <= last_subject_id:
-            path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
-            binary_file = open(path_obj, mode='rb')
-            sub = pickle.load(binary_file)
-            binary_file.close()
-            subject_dict[subject_id] = sub
+        path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
+        binary_file = open(path_obj, mode='rb')
+        sub = pickle.load(binary_file)
+        binary_file.close()
+        subject_dict[subject_id] = sub
 
-            if export_to_csvs:
-                df = sub.export_to_dataframe()
-                path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(subject_id.zfill(4)), ".csv")
-                df.to_csv(path_csv)
+        if export_to_csvs:
+            df = sub.export_to_dataframe()
+            path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(subject_id.zfill(4)), ".csv")
+            df.to_csv(path_csv)
 
     return subject_dict
 
@@ -143,20 +145,21 @@ def get_subjects_by_ids(subject_ids: list[int], export_to_csvs=False) -> dict[in
         print(f"subjects_ids should contain at least one id.")
         return None
 
+    filtered_subject_paths = {id: obj_path_dict[id] for id in obj_path_dict.keys() if id in subject_ids}
+
     # Load objects to a dictionary
     subject_dict = {}
-    for id, obj_file in tqdm(obj_path_dict.items()):
-        if id in subject_ids:
-            path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
-            binary_file = open(path_obj, mode='rb')
-            sub = pickle.load(binary_file)
-            binary_file.close()
-            subject_dict[id] = sub
+    for id, obj_file in tqdm(filtered_subject_paths.items()):
+        path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
+        binary_file = open(path_obj, mode='rb')
+        sub = pickle.load(binary_file)
+        binary_file.close()
+        subject_dict[id] = sub
 
-            if export_to_csvs:
-                df = sub.export_to_dataframe()
-                path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(id.zfill(4)), ".csv")
-                df.to_csv(path_csv)
+        if export_to_csvs:
+            df = sub.export_to_dataframe()
+            path_csv = os.path.join(PATH_TO_OUTPUT, "all-signals-cvs", str(id.zfill(4)), ".csv")
+            df.to_csv(path_csv)
 
     return subject_dict
 
@@ -170,23 +173,23 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
         print(f"subjects_ids should contain at least one id.")
         return None
 
+    filtered_subject_paths = {id: obj_path_dict[id] for id in obj_path_dict.keys() if id in subject_ids}
+
     # Yield objects one by one
     if progress_bar:
-        for id, obj_file in tqdm(obj_path_dict.items()):
-            if id in subject_ids:
-                path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
-                binary_file = open(path_obj, mode='rb')
-                sub = pickle.load(binary_file)
-                binary_file.close()
-                yield id, sub
+        for id, obj_file in tqdm(filtered_subject_paths.items()):
+            path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
+            binary_file = open(path_obj, mode='rb')
+            sub = pickle.load(binary_file)
+            binary_file.close()
+            yield id, sub
     else:
-        for id, obj_file in obj_path_dict.items():
-            if id in subject_ids:
-                path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
-                binary_file = open(path_obj, mode='rb')
-                sub = pickle.load(binary_file)
-                binary_file.close()
-                yield id, sub
+        for id, obj_file in filtered_subject_paths.items():
+            path_obj = os.path.join(PATH_TO_OBJECTS, str(id).zfill(4) + ".bin")
+            binary_file = open(path_obj, mode='rb')
+            sub = pickle.load(binary_file)
+            binary_file.close()
+            yield id, sub
 
 
 # subs = get_subjects_by_id(133, 133)

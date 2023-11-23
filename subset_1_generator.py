@@ -2,9 +2,7 @@ from itertools import filterfalse, count
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
-import pickle
 import yaml
-import shutil
 import pandas as pd
 import random
 from sklearn.model_selection import train_test_split
@@ -40,7 +38,7 @@ else:
 
 path = Path(PATH_TO_SUBSET1).joinpath("ids.npy")
 if path.is_file():
-    best_ids_arr = np.load(path)  # array to save the best subject ids
+    best_ids_arr = np.load(str(path))  # array to save the best subject ids
     best_ids = best_ids_arr.tolist()  # equivalent list
 else:
     score_id_dict: dict[int: Subject] = {}  # score based on events : subject id
@@ -103,7 +101,7 @@ else:
 
     best_ids_arr = np.array(best_ids)  # Equivalent array
     path = Path(PATH_TO_SUBSET1).joinpath("ids")
-    np.save(path, best_ids_arr)
+    np.save(str(path), best_ids_arr)
 
 print(f"Final subset size: {len(best_ids)}\n")
 print(best_ids)
@@ -193,7 +191,7 @@ if CREATE_ARRAYS:
         y_test_path = subject_arrs_path.joinpath("y_test")
 
         # Save the arrays
-        np.save(X_train_path, X_train_arr)
-        np.save(y_train_path, y_train_arr)
-        np.save(X_test_path, X_test_arr)
-        np.save(y_test_path, y_test_arr)
+        np.save(str(X_train_path), X_train_arr)
+        np.save(str(y_train_path), y_train_arr)
+        np.save(str(X_test_path), X_test_arr)
+        np.save(str(y_test_path), y_test_arr)
