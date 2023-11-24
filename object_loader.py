@@ -192,8 +192,8 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
             yield id, sub
 
 
-# subs = get_subjects_by_id(133, 133)
-# print(subs[133].signal_headers)
+(id, sub) = get_subject_by_id(133)
+print(sub.export_to_dataframe())
 # subs[133].export_to_dataframe()["Pleth"][646284:646909].plot()
 # plt.show()
 

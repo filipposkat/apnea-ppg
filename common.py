@@ -158,6 +158,7 @@ class Subject:
                 signal = downsample_to_proportion(retained_signals[i], proportion)
 
             df[label] = signal
-
+            df.astype({label: "float32"})  # Set type to 32 bit instead of 64 to save memory
         df["event_index"] = df["time_secs"].map(lambda t: self.get_event_at_time(t))
+        df = df.astype({"event_index": "uint8", "time_secs": "float32"})  # Save memory
         return df
