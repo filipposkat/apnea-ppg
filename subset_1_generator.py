@@ -1,6 +1,9 @@
+import math
+import time
 from itertools import filterfalse, count
 from pathlib import Path
 import numpy as np
+from collections import Counter
 from tqdm import tqdm
 import yaml
 import pandas as pd
@@ -11,19 +14,20 @@ from sklearn.model_selection import train_test_split
 
 # Local imports:
 from common import Subject
-from object_loader import all_subjects_generator, get_subjects_by_ids_generator
+from object_loader import all_subjects_generator, get_subjects_by_ids_generator, get_subject_by_id
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
-STEP = 2  # The step between each window
+STEP = 10  # The step between each window
 CONTINUOUS_LABEL = True
-TEST_SIZE = 0.2
+TEST_SIZE = 0.3
 NO_EVENTS_TO_EVENTS_RATIO = 5
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
+DROP_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 COUNT_LABELS = True
 SEED = 33
@@ -37,79 +41,101 @@ if config is not None:
     PATH_TO_OBJECTS = config["paths"]["local"]["subject_objects_directory"]
     PATH_TO_SUBSET1 = config["paths"]["local"]["subset_1_directory"]
 else:
-    PATH_TO_OBJECTS = Path(__file__).joinpath("data", "serialized-objects")
-    PATH_TO_SUBSET1 = Path(__file__).joinpath("data", "subset-1")
+    PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
+    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
+
+
 # --- END OF CONSTANTS --- #
-
-path = Path(PATH_TO_SUBSET1).joinpath("ids.npy")
-if path.is_file():
-    best_ids_arr = np.load(str(path))  # array to save the best subject ids
-    best_ids = best_ids_arr.tolist()  # equivalent list
-else:
-    score_id_dict: dict[int: Subject] = {}  # score based on events : subject id
-
-    # Score each subject based on events:
-    for id, sub in all_subjects_generator():
-        n_central_apnea_events = len(sub.get_events_by_concept("central_apnea"))
-        if n_central_apnea_events == 0:
-            # Exclude subjects who do not have any of the desired events
-            continue
-
-        n_obstructive_apnea_events = len(sub.get_events_by_concept("obstructive_apnea"))
-        if n_obstructive_apnea_events == 0:
-            # Exclude subjects who do not have any of the desired events
-            continue
-
-        n_hypopnea_events = len(sub.get_events_by_concept("hypopnea"))
-        if n_hypopnea_events == 0:
-            # Exclude subjects who do not have any of the desired events
-            continue
-
-        n_spo2_desat_events = len(sub.get_events_by_concept("spo2_desat"))
-        if n_spo2_desat_events == 0:
-            # Exclude subjects who do not have any of the desired events
-            continue
-
-        # Calculate aggregate score based on most important events
-        aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
-        score_id_dict[aggregate_score] = id
-
-    # Check if threshold is met:
-    if len(score_id_dict.values()) < SUBSET_SIZE:
-        print(f"The screening criteria resulted in less than {SUBSET_SIZE} subjects ({len(score_id_dict.values())}).\n"
-              f"Extra subjects will be added based on relaxed criteria")
-        extra_score_id_dict = {}
-        # Score each subject with relaxed standards:
-        for id, sub in all_subjects_generator():
-            if len(score_id_dict.values()) >= SUBSET_SIZE:
-                break
-            if id not in score_id_dict.values():
-                n_central_apnea_events = len(sub.get_events_by_concept("central_apnea"))
-                n_obstructive_apnea_events = len(sub.get_events_by_concept("obstructive_apnea"))
-                if n_central_apnea_events == 0 and n_obstructive_apnea_events == 0:
-                    # Exclude subjects who do not have any of the desired events
-                    continue
-                n_hypopnea_events = len(sub.get_events_by_concept("hypopnea"))
-                # Calculate aggregate score based on most important events
-                aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
-                extra_score_id_dict[aggregate_score] = id
-
-        print(f"Screened dataset size: {len(score_id_dict.values()) + len(extra_score_id_dict)}")
-        # Rank the extra relaxed screened subjects that will supplement the strictly screened subjects:
-        top_screened_scores = sorted(extra_score_id_dict, reverse=True)[0:(SUBSET_SIZE - len(score_id_dict.values()))]
-        best_ids = list(score_id_dict.values())  # Add all the strictly screened subjects
-        best_ids.extend([extra_score_id_dict[score] for score in top_screened_scores])  # Add the extra ranked subjects
+def get_best_ids():
+    path = Path(PATH_TO_SUBSET1).joinpath("ids.npy")
+    if path.is_file():
+        best_ids_arr = np.load(str(path))  # array to save the best subject ids
+        best_ids = best_ids_arr.tolist()  # equivalent list
     else:
-        print(f"Screened dataset size: {len(score_id_dict.values())}")
-        top_screened_scores = sorted(score_id_dict, reverse=True)[0:SUBSET_SIZE]  # List with top 400 scores
-        best_ids = [score_id_dict[score] for score in top_screened_scores]  # List with top 400 ids
+        id_score_dict: dict[int: Subject] = {}  # score based on events : subject id
 
-    best_ids_arr = np.array(best_ids)  # Equivalent array
-    path = Path(PATH_TO_SUBSET1).joinpath("ids")
-    np.save(str(path), best_ids_arr)
+        # Score each subject based on events:
+        for id, sub in all_subjects_generator():
+            df = sub.export_to_dataframe(print_downsampling_details=False)
 
-print(f"Final subset size: {len(best_ids)}\n")
-print(best_ids)
+            # n_central_apnea_events = len(sub.get_events_by_concept("central_apnea"))
+            n_central_apnea_events = df["event_index"].apply(lambda e: 1 if e == 1 else 0).sum()
+
+            if n_central_apnea_events == 0:
+                # Exclude subjects who do not have any of the desired events
+                continue
+
+            # n_obstructive_apnea_events = len(sub.get_events_by_concept("obstructive_apnea"))
+            n_obstructive_apnea_events = df["event_index"].apply(lambda e: 1 if e == 2 else 0).sum()
+            if n_obstructive_apnea_events == 0:
+                # Exclude subjects who do not have any of the desired events
+                continue
+
+            # n_hypopnea_events = len(sub.get_events_by_concept("hypopnea"))
+            n_hypopnea_events = df["event_index"].apply(lambda e: 1 if e == 3 else 0).sum()
+            if n_hypopnea_events == 0:
+                # Exclude subjects who do not have any of the desired events
+                continue
+
+            # n_spo2_desat_events = len(sub.get_events_by_concept("spo2_desat"))
+            n_spo2_desat_events = df["event_index"].apply(lambda e: 1 if e == 4 else 0).sum()
+            if n_spo2_desat_events == 0:
+                # Exclude subjects who do not have any of the desired events
+                continue
+
+            # Calculate aggregate score based on most important events
+            aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
+            id_score_dict[id] = aggregate_score
+
+        # Check if threshold is met:
+        if len(id_score_dict.values()) < SUBSET_SIZE:
+            print(
+                f"The screening criteria resulted in less than {SUBSET_SIZE} subjects ({len(id_score_dict.values())}).\n"
+                f"Extra subjects will be added based on relaxed criteria")
+            extra_id_score_dict = {}
+            # Score each subject with relaxed standards:
+            for id, sub in all_subjects_generator():
+                if len(id_score_dict.values()) >= SUBSET_SIZE:
+                    break
+                if id not in id_score_dict.values():
+                    df = sub.export_to_dataframe(print_downsampling_details=False)
+
+                    n_central_apnea_events = df["event_index"].apply(lambda e: 1 if e == 1 else 0).sum()
+                    n_obstructive_apnea_events = df["event_index"].apply(lambda e: 1 if e == 2 else 0).sum()
+
+                    if n_central_apnea_events == 0 and n_obstructive_apnea_events == 0:
+                        # Exclude subjects who do not have any of the desired events
+                        continue
+
+                    n_hypopnea_events = df["event_index"].apply(lambda e: 1 if e == 3 else 0).sum()
+                    # Calculate aggregate score based on most important events
+                    aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
+                    extra_id_score_dict[id] = aggregate_score
+
+            print(
+                f"Screened dataset (strict + relaxed criteria) size: {len(id_score_dict.keys()) + len(extra_id_score_dict.keys())}")
+            # Rank the extra relaxed screened subjects that will supplement the strictly screened subjects:
+            top_screened_ids = sorted(extra_id_score_dict.keys(), key=lambda id: extra_id_score_dict[id], reverse=True
+                                      )[0:(SUBSET_SIZE - len(id_score_dict.keys()))]
+            best_ids = list(id_score_dict.keys())  # Add all the strictly screened subjects
+            best_ids.extend(top_screened_ids)  # Add the extra ranked subjects
+        else:
+            print(f"Screened dataset size: {len(id_score_dict.keys())}")
+            # List with top 400 ids:
+            top_screened_ids = sorted(id_score_dict.keys(), key=lambda id: id_score_dict[id], reverse=True)[
+                               0:SUBSET_SIZE]
+            best_ids = top_screened_ids  # List with top 400 ids
+
+        best_ids_arr = np.array(best_ids)  # Equivalent array
+        path = Path(PATH_TO_SUBSET1).joinpath("ids")
+        np.save(str(path), best_ids_arr)
+
+    return best_ids.copy()
+
+
+# best_ids = get_best_ids()
+# print(f"Final subset size: {len(best_ids)}\n")
+# print(best_ids)
 
 
 def assign_window_label(window_labels: pd.Series) -> int:
@@ -120,7 +146,7 @@ def assign_window_label(window_labels: pd.Series) -> int:
     if window_labels.max() == 0:
         return 0
     else:
-        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation, 5=other event
+        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
         event_counts = window_labels.value_counts()  # Series containing counts of unique values.
         prominent_event_index = event_counts.argmax()
         prominent_event = event_counts.index[prominent_event_index]
@@ -128,95 +154,256 @@ def assign_window_label(window_labels: pd.Series) -> int:
         return int(prominent_event)
 
 
+def relative_entropy(P: pd.Series, Q: pd.Series) -> float:
+    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+    Dkl = 0  # Kullback–Leibler divergence or relative entropy
+    for x in range(5):
+        Px = sum(P == x) / len(P)
+        Qx = sum(Q == x) / len(Q)
+        if Px == 0:
+            Dkl += 0
+        else:
+            Dkl -= Px * math.log2(Qx / Px)
+
+    return Dkl
+
+
+def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
+    """
+    https://en.wikipedia.org/wiki/Jensen%E2%80%93Shannon_divergence
+    :param P:
+    :param Q:
+    :return: The Jensen–Shannon divergence of the two distributions. JSD is a measure of dissimilarity. Bounds: 0<=JSD<=1
+    """
+    DPM = 0
+    DMP = 0
+    for x in range(5):
+        Px = sum(P == x) / len(P)
+        Qx = sum(Q == x) / len(Q)
+        Mx = 0.5 * (Px + Qx)
+
+        # Relative entropy from M to P:
+        if Px == 0:
+            DPM += 0
+        else:
+            DPM -= Px * math.log2(Mx / Px)
+
+        # Relative entropy from M to Q:
+        if Qx == 0:
+            DMP += 0
+        else:
+            DMP -= Qx * math.log2(Mx / Qx)
+
+    return 0.5 * DPM + 0.5 * DMP
+
+
 def get_subject_train_test_data(subject: Subject):
     sub_df = subject.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
-    # 1. Drop no-event samples within 10s (= 320 samples) after an event:
-    samples_to_drop = []
-    # for every window:
-    for i in range(len(sub_df["event_index"])):
-        # if it is an event window:
-        if sub_df.loc[i, "event_index"] != 0:
-            # Check the next 10s for no event windows:
-            for j in range(i + 1, 320):
-                if sub_df.loc[j, "event_index"] == 0:
-                    # Add no event window to drop list:
-                    samples_to_drop.append(j)
-                else:
-                    # Event window found within 10s of the event window we examine,
-                    # thus there is no need to drop more no event windows since i will reach this event
-                    break
-    sub_df.drop(samples_to_drop, axis=0, inplace=True)  # Drop marked samples
+    # 1. Do train test split preserving a whole sequence for test:
+    # Find all possible sequences for test set:
+    test_size = int(TEST_SIZE * sub_df.shape[0])  # number of rows/samples
+    # Number of rolling test set sequences:
+    test_search_step = 512*100
+    num_of_candidates = (sub_df.shape[0] - test_size) // test_search_step + 1  # a//b = math.floor(a/b)
+
+    min_split_divergence = 99
+    best_split = None
+
+    for i in range(num_of_candidates):
+        # Split into train and test:
+        # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
+        # in order to know later the point where continuity breaks. So ignore_index=False
+        train_df = pd.concat([sub_df.iloc[:(i * test_search_step)], sub_df.iloc[(i * test_search_step + test_size):]], axis=0, ignore_index=False)
+        test_df = sub_df.iloc[(i * test_search_step):(i * test_search_step + test_size)].reset_index(drop=True)
+
+        # # Find proportion of events and no events in each:
+        # noevent_to_event_train = sum(train_df == 0) // sum(train_df != 0)
+        # noevent_to_event_test = sum(test_df == 0) // sum(test_df != 0)
+        # # We want train and test to ideally have the same ratio:
+        # score = -abs(noevent_to_event_train - noevent_to_event_test)
+
+        # Find the JSD similarity of the train and test distributions:
+        divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
+
+        # print(f"i={i}/{num_of_candidates}")
+        # print(f"JSD: {divergence:.4f}")
+        # y_train = train_df["event_index"]
+        # y_test = test_df["event_index"]
+        # print(f"TRAIN  -  CA: {sum(y_train == 1) / len(y_train):.2f}  OA: {sum(y_train == 2) / len(y_train):.2f}  "
+        #       f"H: {sum(y_train == 3) / len(y_train):.2f}  S: {sum(y_train == 4) / len(y_train):.2f}")
+        # print(f"TEST  -  CA: {sum(y_test == 1) / len(y_test):.2f}  OA: {sum(y_test == 2) / len(y_test):.2f}  "
+        #       f"H: {sum(y_test == 3) / len(y_test):.2f}  S: {sum(y_test == 4) / len(y_test):.2f}")
+        # print("-------------------------------------------------------------------------------------------------------")
+
+        # We want to minimize the divergence because we want to maximize similarity
+        if divergence < min_split_divergence:
+            min_split_divergence = divergence
+            best_split = (train_df, test_df)
+
+    train_df = best_split[0]
+    test_df = best_split[1]
+
+    if DROP_10s_AFTER_EVENT:
+        # 2. Drop no-event train samples within 10s (= 320 samples) after an event:
+        samples_to_drop = []
+        # for every sample
+        for i in train_df.index:
+            # if it has event:
+            if train_df.loc[i, "event_index"] != 0:
+                # Check the next 10s for no event samples:
+                for j in range(i + 1, 320):
+                    # Check if continuity breaks at j (due to train test split):
+                    if j not in train_df.index:
+                        # if j is not in index it means that train is not continuous everywhere because of the train
+                        # test split. Consequently, train is continuous on two parts (one part before and one part after
+                        # the test). This means that j-1 was the last point of the first part.
+                        break
+                    if train_df.loc[j, "event_index"] == 0:
+                        # Add no event sample to drop list:
+                        samples_to_drop.append(j)
+                    else:
+                        # Event sample found within 10s of the event sample that we examine,
+                        # thus there is to examine for more no event samples, since I will reach that event
+                        break
+        train_df.drop(samples_to_drop, axis=0, inplace=True)  # Drop marked samples
 
     # Take equal-sized windows with a specified step:
-    # 2. Calculate the number of windows:
-    num_windows = (len(sub_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
+    # 3. Calculate the number of windows:
+    num_windows_train = (len(train_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
+    num_windows_test = (len(test_df) - WINDOW_SAMPLES_SIZE) // STEP + 1  # a//b = math.floor(a/b)
     # Note that due to floor division the last WINDOW_SAMPLES_SIZE-1 samples might be dropped
 
-    # 3. Generate equal-sized windows:
-    windows_dfs = [sub_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows)]
-    X = [window_df.loc[:, window_df.columns != "event_index"] for window_df in windows_dfs]
-    y = [assign_window_label(window_df["event_index"]) for window_df in windows_dfs]
+    # 4. Generate equal-sized windows:
+    train_windows_dfs = [train_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows_train)]
+    test_windows_dfs = [test_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows_test)]
+    X_train = [window_df.loc[:, window_df.columns != "event_index"] for window_df in train_windows_dfs]
+    X_test = [window_df.loc[:, window_df.columns != "event_index"] for window_df in test_windows_dfs]
+
+    # 5. Drop no-event windows to achieve desired ratio of no-events to events:
     if CONTINUOUS_LABEL:
-        y_cont = [window_df["event_index"] for window_df in windows_dfs]
+        y_train = [window_df["event_index"] for window_df in train_windows_dfs]
+        y_test = [window_df["event_index"] for window_df in test_windows_dfs]
+
+        def window_dropping_continuous(X, y):
+            num_of_event_windows = np.count_nonzero([window.sum() for window in y])
+            num_of_no_event_windows = len(y) - num_of_event_windows
+            target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
+            diff = num_of_no_event_windows - target_num_no_event_windows
+
+            # Shuffle X, y without losing order:
+            combined_xy = list(zip(X, y))  # Combine X,y and y_continuous into one list
+            random.shuffle(combined_xy)  # Shuffle
+
+            if diff > 0:
+                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                # Reduce no event windows by num_to_drop:
+                combined_xy = list(
+                    filterfalse(lambda Xy, c=count(): Xy[1].sum() == 0 and next(c) < num_to_drop, combined_xy))
+            elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
+                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                # Reduce event windows by num_to_drop:
+                combined_xy = list(
+                    filterfalse(lambda Xy, c=count(): Xy[1].sum() != 0 and next(c) < num_to_drop, combined_xy))
+            X, y = zip(*combined_xy)  # separate Xy again
+            return X, y
+
+        X_train, y_train = window_dropping_continuous(X_train, y_train)
+        X_test, y_test = window_dropping_continuous(X_test, y_test)
     else:
-        y_cont = list(np.zeros(len(y)))
+        # One label per window / non-continuous
+        y_train = [assign_window_label(window_df["event_index"]) for window_df in train_windows_dfs]
+        y_test = [assign_window_label(window_df["event_index"]) for window_df in test_windows_dfs]
 
-    # # 3. Drop no-event windows within 10s (= 320 samples) after event window:
-    # drop_buffer = (10 * 32 - WINDOW_SAMPLES_SIZE) // STEP + 1
-    # windows_to_drop = []
-    # # for every window:
-    # for i in range(len(y)):
-    #     # if it is an event window:
-    #     if y[i] != 0:
-    #         # Check the next 10s for no event windows:
-    #         for j in range(i + 1, i + drop_buffer):
-    #             if y[j] == 0:
-    #                 # Add no event window to drop list:
-    #                 windows_to_drop.append(j)
-    #             else:
-    #                 # Event window found within 10s of the event window we examine,
-    #                 # thus there is no need to drop more no event windows since i will reach this event
-    #                 break
+        def window_dropping(X, y):
+            num_of_event_windows = np.count_nonzero(y)
+            num_of_no_event_windows = len(y) - num_of_event_windows
+            target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
+            diff = num_of_no_event_windows - target_num_no_event_windows
 
-    # 4. Drop no-event windows to achieve desired ratio of no-events to events:
-    num_of_event_windows = np.count_nonzero(y)
-    num_of_no_event_windows = len(y) - num_of_event_windows
-    target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
-    diff = num_of_no_event_windows - target_num_no_event_windows
+            # Shuffle X, y without losing order:
+            combined_xy = list(zip(X, y))  # Combine X and y into one list
+            random.shuffle(combined_xy)  # Shuffle
 
-    # Shuffle X, y without losing order:
-    combined_xy = list(zip(X, y, y_cont))  # Combine X,y and y_continuous into one list
-    random.shuffle(combined_xy)  # Shuffle
+            if diff > 0:
+                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                # Reduce no event windows by num_to_drop:
+                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < num_to_drop, combined_xy))
+            elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
+                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                # Reduce event windows by num_to_drop:
+                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] != 0 and next(c) < num_to_drop, combined_xy))
+            X, y = zip(*combined_xy)  # separate Xy again
+            return X, y
 
-    if diff > 0:
-        num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-        # Reduce no event windows by num_to_drop:
-        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < num_to_drop, combined_xy))
-    elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
-        num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-        # Reduce event windows by num_to_drop:
-        combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] != 0 and next(c) < num_to_drop, combined_xy))
-    X, y, y_cont = zip(*combined_xy)  # separate Xy again
+        X_train, y_train = window_dropping(X_train, y_train)
+        X_test, y_test = window_dropping(X_test, y_test)
 
-    # 5. Split into train and test:
-    if CONTINUOUS_LABEL:
-        X_train, X_test, y_train, y_test = train_test_split(X, y_cont, test_size=TEST_SIZE, shuffle=True, stratify=y,
-                                                            random_state=SEED)
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
-                                                            random_state=SEED)
-    # print(f"Events train%: {np.count_nonzero(y_train) / len(y_train)}")
-    # print(f"Events test%: {np.count_nonzero(y_test) / len(y_test)}")
+    # # 5. Split into train and test:
+    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
+    #                                                     random_state=SEED)
+    # # print(f"Events train%: {np.count_nonzero(y_train) / len(y_train)}")
+    # # print(f"Events test%: {np.count_nonzero(y_test) / len(y_test)}")
+
+    # # 6. Drop no-event windows within 10s (= 320 samples) after event window:
+    # if DROP_10s_AFTER_EVENT:
+    #     windows_to_drop = []
+    #     # for every window:
+    #     for i in range(len(y_train)):
+    #         if CONTINUOUS_LABEL:
+    #             # if it has event at the last 10s of the window
+    #             if sum(y_train[i][191:512]) != 0:
+    #                 # Check every possible event sample between 192 end 512:
+    #                 for j in range(191, 512):
+    #                     # Examine event samples one by one:
+    #                     if y_train[i][j] != 0:
+    #                         samples_til_window_end = 511 - j
+    #                         # Check the next 10s for windows starting with no event:
+    #                         # [(10s of samples (320) - (samples remaining until end of window)] // step + 1 :
+    #                         drop_zone = (10 * 32 - samples_til_window_end) // STEP + 1
+    #                         for k in range(i + 1, i + drop_zone):
+    #                             samples_in_drop_zone = (1 + drop_zone - (k - i)) * STEP
+    #                             if sum(y_train[k][0:samples_in_drop_zone]) == 0:
+    #                                 # Add no event window to drop list:
+    #                                 windows_to_drop.append(j)
+    #                             else:
+    #                                 # Event window found within 10s of the event window we examine,
+    #                                 # thus there is no need to drop more no event windows since i will reach this event
+    #                                 break
+    #         else:
+    #             drop_zone = (10 * 32) // STEP + 1
+    #             if y_train[i] != 0:
+    #                 # Check the next 10s for no event windows:
+    #                 for j in range(i + 1, i + drop_zone):
+    #                     if y_train[j] == 0:
+    #                         # Add no event window to drop list:
+    #                         windows_to_drop.append(j)
+    #                     else:
+    #                         # Event window found within 10s of the event window we examine,
+    #                         # thus there is no need to drop more no event windows since i will reach this event
+    #                         break
+    #     X_train = [X_train[j] for j in range(len(X_train)) if j not in windows_to_drop]
+    #     y_train = [X_train[j] for j in range(len(y_train)) if j not in windows_to_drop]
+
     return X_train, X_test, y_train, y_test
 
 
-if CREATE_ARRAYS:
+def create_arrays(ids: list[int]):
+    if ids is None:
+        ids = get_best_ids()
     random.seed(SEED)  # Set the seed
 
-    label_counts: dict[int: list[int]] = dict()
-    for (id, sub) in get_subjects_by_ids_generator(best_ids[0:2], progress_bar=True):
+    label_counts: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    label_counts_cont: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
+
+        df = sub.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
+        event_counts = Counter(df.loc[:, "event_index"])
+        for i in label_counts.keys():  # There are 5 labels
+            label_counts[i] += event_counts[i]
+        continue
+
         subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
@@ -225,11 +412,18 @@ if CREATE_ARRAYS:
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
-            y = pd.concat([y_train, y_test])
-            event_counts = y.value_counts()  # Series containing counts of unique values.
-            for i in range(6):  # There are 6 labels
-                if float(i) in event_counts.index:
-                    label_counts[i] += event_counts.at[float(i)]
+            y_cont = np.array([*y_train, *y_test]).flatten()
+            y = pd.concat([pd.Series(y_train), pd.Series(y_test)], axis=0)
+            if CONTINUOUS_LABEL:
+                event_counts_cont = Counter(y_cont)  # Series containing counts of unique values.
+                event_counts = Counter([assign_window_label(window) for window in y])
+                for i in label_counts.keys():  # There are 5 labels
+                    label_counts_cont[i] += event_counts_cont[i]
+                    label_counts[i] += event_counts[i]
+            else:
+                event_counts = Counter(y)  # Series containing counts of unique values.
+                for i in label_counts.keys():  # There are 5 labels
+                    label_counts[i] += event_counts[i]
 
         # Transform to numpy arrays:
         X_train_arr = np.array(X_train,
@@ -253,9 +447,33 @@ if CREATE_ARRAYS:
         np.save(str(X_test_path), X_test_arr)
         np.save(str(y_test_path), y_test_arr)
 
-    histogram = sn.histplot(list(label_counts.keys()), weights=list(label_counts.values()))
+    print(label_counts)
+    X = list(label_counts.keys())
+    y = list(label_counts.values())
+    X_axis = np.array(X)
     if CONTINUOUS_LABEL:
+        y_cont = list(label_counts_cont.values())
+        plt.bar(X_axis - 0.2, y, 0.4, label='Window Labels')
+        plt.bar(X_axis + 0.2, y_cont, 0.4, label='Sample Labels')
+
+        plt.xticks(X_axis, [str(x) for x in X])
+        plt.xlabel("Event index")
+        plt.ylabel("Count")
+        plt.legend()
+
         plt.savefig(Path(PATH_TO_SUBSET1).joinpath("histogram_continuous_label.png"))
     else:
-        plt.savefig(Path(PATH_TO_SUBSET1).joinpath("histogram_window_label.png"))
+        plt.bar(X_axis, y, label='Window Labels')
+
+        plt.xticks(X_axis, [str(x) for x in X])
+        plt.xlabel("Event index")
+        plt.ylabel("Count")
+        plt.legend()
+
+        plt.savefig(Path(PATH_TO_SUBSET1).joinpath("stats", "histogram_window_label.png"))
     plt.show()
+
+
+if CREATE_ARRAYS:
+    best_ids = get_best_ids()
+    create_arrays(best_ids)

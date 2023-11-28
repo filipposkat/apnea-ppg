@@ -85,7 +85,8 @@ class Subject:
                                             "type": "respiratory",
                                             "concept": bs_event.find("EventConcept").string.replace(' ', '_').lower()})
 
-            self.respiratory_events = resp_events
+            # Sort events by start time:
+            self.respiratory_events = sorted(resp_events, key=lambda evnt: evnt["start"])
 
     def get_events_by_concept(self, concept: str) -> list[dict[str: str | float]]:
         """
@@ -97,29 +98,84 @@ class Subject:
     def get_event_at_time(self, time: float) -> int:
         """
         :param time: Time in seconds
-        :return: 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation, 5=other event
+        :return: 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
         """
+        concepts_at_t = []
         for event in self.respiratory_events:
             st = event["start"]
-            fin = st + event["duration"]
+            duration = event["duration"]
+            fin = st + duration
             if st <= time <= fin:
                 if event["concept"] == "central_apnea":
-                    return 1
+                    concepts_at_t.append(1)
                 elif event["concept"] == "obstructive_apnea":
-                    return 2
+                    concepts_at_t.append(2)
                 elif event["concept"] == "hypopnea":
-                    return 3
+                    concepts_at_t.append(3)
                 elif event["concept"] == "spo2_desat":
-                    return 4
-                else:
-                    # Other respiratory event
-                    return 5
+                    concepts_at_t.append(4)
+                # else:
+                #     # Other respiratory event
+                #     return 5
+                elif st > time:
+                    # If start time of event is bigger than time then there is no need to check more events
+                    # because they are sorted by start time
+                    break
+
+        if len(concepts_at_t) > 0:
+            # Give priority to central_apnea then obstructive then hypopnea then spo2_desat
+            return min(concepts_at_t)
+        else:
+            # No event found
             return 0
+
+    def assign_annotations_to_time_series(self, time_seq: pd.Series) -> pd.Series:
+        """
+        :param time_seq: Time series in seconds
+        :return: Series with annotations corresponding to time,
+        where: 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+        """
+        central_apnea_events = self.get_events_by_concept("central_apnea")
+        obstructive_apnea_events = self.get_events_by_concept("obstructive_apnea")
+        hypopnea_events = self.get_events_by_concept("hypopnea")
+        spo2_desat_events = self.get_events_by_concept("spo2_desat")
+
+        initial = np.zeros(len(time_seq))
+        annotations = pd.Series(initial).astype("uint8")
+        # Assign event concepts with this order. First concepts have the lowest priority and last concepts the highest
+        # priority (they override previous annotations):
+        for e in spo2_desat_events:
+            s = e["start"]
+            d = e["duration"]
+            f = s + d
+            annotations[(s <= time_seq) & (time_seq <= f)] = 4
+
+        for e in hypopnea_events:
+            s = e["start"]
+            d = e["duration"]
+            f = s + d
+            annotations[(s <= time_seq) & (time_seq <= f)] = 3
+
+        for e in obstructive_apnea_events:
+            s = e["start"]
+            d = e["duration"]
+            f = s + d
+            annotations[(s <= time_seq) & (time_seq <= f)] = 2
+
+        for e in central_apnea_events:
+            s = e["start"]
+            d = e["duration"]
+            f = s + d
+            annotations[(s <= time_seq) & (time_seq <= f)] = 1
+
+        return annotations
 
     def export_to_dataframe(self, signal_labels: list[str] = None, print_downsampling_details=True) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
+        :param print_downsampling_details: Whether to print details about the down-sampling performed to match signal
+        lengths
         :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
         exported.
         :return: Pandas dataframe
@@ -146,6 +202,7 @@ class Subject:
         # Then the time column can be created
         time_seq = [i / min_freq for i in range(length)]
         df["time_secs"] = time_seq
+        df["time_secs"] = df["time_secs"].astype("float32")  # Save memory
         for i in range(len(retained_signals)):
             header = retained_signal_headers[i]
             freq = header["sample_frequency"]
@@ -158,7 +215,8 @@ class Subject:
                 signal = downsample_to_proportion(retained_signals[i], proportion)
 
             df[label] = signal
-            df.astype({label: "float32"})  # Set type to 32 bit instead of 64 to save memory
-        df["event_index"] = df["time_secs"].map(lambda t: self.get_event_at_time(t))
-        df = df.astype({"event_index": "uint8", "time_secs": "float32"})  # Save memory
+            df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
+        # df["event_index"] = df["time_secs"].map(lambda t: self.get_event_at_time(t)).astype("uint8")
+        df["event_index"] = self.assign_annotations_to_time_series(df["time_secs"])
+        # df = df.astype({"time_secs": "float32"})  # Save memory
         return df
