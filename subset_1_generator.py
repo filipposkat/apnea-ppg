@@ -18,17 +18,20 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
+CREATE_ARRAYS = True
+SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
-STEP = 10  # The step between each window
+STEP = 16  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
+TEST_SEARCH_SAMPLE_STEP = 512
+EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
+TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 NO_EVENTS_TO_EVENTS_RATIO = 5
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
 DROP_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
-CREATE_ARRAYS = False
-SKIP_EXISTING_IDS = False
 COUNT_LABELS = True
 SEED = 33
 
@@ -197,7 +200,7 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_train_test_data(subject: Subject):
+def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None):
     sub_df = subject.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
@@ -205,28 +208,27 @@ def get_subject_train_test_data(subject: Subject):
     # Find all possible sequences for test set:
     test_size = int(TEST_SIZE * sub_df.shape[0])  # number of rows/samples
     # Number of rolling test set sequences:
-    test_search_step = 512*100
-    num_of_candidates = (sub_df.shape[0] - test_size) // test_search_step + 1  # a//b = math.floor(a/b)
-
+    num_of_candidates = (sub_df.shape[0] - test_size) // TEST_SEARCH_SAMPLE_STEP + 1  # a//b = math.floor(a/b)
+    candidates = list(range(num_of_candidates))
     min_split_divergence = 99
     best_split = None
 
-    for i in range(num_of_candidates):
+    candidates_subsample_size = int(EXAMINED_TEST_SETS_SUBSAMPLE * num_of_candidates)
+    candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
+
+    sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
+    for i in candidates_subsample:
         # Split into train and test:
         # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
         # in order to know later the point where continuity breaks. So ignore_index=False
-        train_df = pd.concat([sub_df.iloc[:(i * test_search_step)], sub_df.iloc[(i * test_search_step + test_size):]], axis=0, ignore_index=False)
-        test_df = sub_df.iloc[(i * test_search_step):(i * test_search_step + test_size)].reset_index(drop=True)
-
-        # # Find proportion of events and no events in each:
-        # noevent_to_event_train = sum(train_df == 0) // sum(train_df != 0)
-        # noevent_to_event_test = sum(test_df == 0) // sum(test_df != 0)
-        # # We want train and test to ideally have the same ratio:
-        # score = -abs(noevent_to_event_train - noevent_to_event_test)
+        train_df = pd.concat(
+            [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+            axis=0, ignore_index=False)
+        test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+            drop=True)
 
         # Find the JSD similarity of the train and test distributions:
         divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
-
         # print(f"i={i}/{num_of_candidates}")
         # print(f"JSD: {divergence:.4f}")
         # y_train = train_df["event_index"]
@@ -241,6 +243,8 @@ def get_subject_train_test_data(subject: Subject):
         if divergence < min_split_divergence:
             min_split_divergence = divergence
             best_split = (train_df, test_df)
+            if divergence < sufficiently_low_divergence:
+                break
 
     train_df = best_split[0]
     test_df = best_split[1]
@@ -354,7 +358,7 @@ def get_subject_train_test_data(subject: Subject):
     #         if CONTINUOUS_LABEL:
     #             # if it has event at the last 10s of the window
     #             if sum(y_train[i][191:512]) != 0:
-    #                 # Check every possible event sample between 192 end 512:
+    #                 # Check every possible event sample between 192 end 512 (last 10s of the window):
     #                 for j in range(191, 512):
     #                     # Examine event samples one by one:
     #                     if y_train[i][j] != 0:
@@ -402,7 +406,6 @@ def create_arrays(ids: list[int]):
         event_counts = Counter(df.loc[:, "event_index"])
         for i in label_counts.keys():  # There are 5 labels
             label_counts[i] += event_counts[i]
-        continue
 
         subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
 

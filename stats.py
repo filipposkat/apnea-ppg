@@ -28,6 +28,10 @@ def subset_stats(ids: list | None, print_summary=True):
     if ids is None:
         ids = get_all_ids()
 
+    n_central_apnea_events = 0
+    n_obstructive_apnea_events = 0
+    n_hypopnea_events = 0
+    n_spo2_events = 0
     n_events = 0
     n_overlapping_events = 0
     overlapping_sets = []
@@ -43,6 +47,15 @@ def subset_stats(ids: list | None, print_summary=True):
             duration = event["duration"]
             finish = start + duration
             concept = event["concept"]
+
+            if concept == "central_apnea":
+                n_central_apnea_events += 1
+            elif concept == "obstructive_apnea":
+                n_obstructive_apnea_events += 1
+            elif concept == "hypopnea":
+                n_hypopnea_events += 1
+            elif concept == "spo2_desat":
+                n_spo2_events += 1
 
             if duration > max_duration:
                 max_duration = duration
@@ -72,31 +85,58 @@ def subset_stats(ids: list | None, print_summary=True):
             if len(overlaps) > 1:
                 overlapping_sets.append(overlaps)
 
+    set_occurances = {}
+    for i in range(len(overlapping_sets)):
+        set = sorted(overlapping_sets[i])
+        set_string = ' '.join(set)
+        if set_string not in set_occurances.keys():
+            set_occurances[set_string] = 1
+        else:
+            set_occurances[set_string] += 1
+
+    sets_sorted = sorted(set_occurances.keys(), key=lambda k: set_occurances[k], reverse=True)
+
     if print_summary:
         print(f"Total number of respiratory events: {n_events}")  # 1155505
         print(f"Maximum event duration: {max_duration}")  # 6552.7s -> 1h and 49min
         print(f"Number of overlapping events: {n_overlapping_events}")  # 626499 (54%)
+        print(f"Most common overlap: {sets_sorted[0]}")
         # print(overlapping_sets)
 
-    subset_stats_df = pd.DataFrame()
-    subset_stats_df["n_events"] = [n_events]
-    subset_stats_df["max_event_duration"] = [max_duration]
-    subset_stats_df["n_overlapping_events"] = [n_overlapping_events]
+    subset_stats = dict()
+    subset_stats["n_events"] = n_events
+    subset_stats["max_event_duration"] = max_duration
+    subset_stats["n_overlapping_events"] = n_overlapping_events
+    subset_stats["n_central_apnea_events"] = n_central_apnea_events
+    subset_stats["n_obstructive_apnea_events"] = n_obstructive_apnea_events
+    subset_stats["n_hypopnea_events"] = n_hypopnea_events
+    subset_stats["n_spo2_events"] = n_spo2_events
 
-    return subset_stats_df, overlapping_sets
+    return subset_stats, set_occurances
 
 
-# dataset_stats_df, overlapping_sets_list = subset_stats(ids=None, print_summary=True)
-# with open(Path(__file__).parent.joinpath("stats", 'overlapping_sets.plk'), 'wb') as fp:
-#     pickle.dump(overlapping_sets_list, fp)
-# dataset_stats_df.to_csv(Path(__file__).parent.joinpath("dataset_stats.csv"))
+# dataset_stats_dict, set_occurances_dict = subset_stats(ids=None, print_summary=True)
+#
+# with open(Path(__file__).parent.joinpath("stats", 'overlapping_set_occurances_dict.plk'), 'wb') as fp:
+#     pickle.dump(set_occurances_dict, fp)
+#
+# dataset_stats_df = pd.DataFrame({k: [dataset_stats_dict[k]] for k in dataset_stats_dict.keys()})
+# set_occurances_df = pd.DataFrame({k: [set_occurances_dict[k]] for k in set_occurances_dict.keys()})
+# dataset_stats_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "dataset_stats.csv"))
+# set_occurances_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "overlapping_sets_occurances.csv"))
+
 
 # Same for subset 1
 best_ids = subset_1_generator.get_best_ids()
-dataset_stats_df, overlapping_sets_list = subset_stats(ids=best_ids, print_summary=True)
-with open(Path(PATH_TO_SUBSET1).joinpath("stats", 'overlapping_sets.plk'), 'wb') as fp:
-    pickle.dump(overlapping_sets_list, fp)
-dataset_stats_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "subset1_stats.csv"))
+# stats_dict, set_occurances_dict = subset_stats(ids=best_ids, print_summary=True)
+#
+# with open(Path(PATH_TO_SUBSET1).joinpath("stats", 'overlapping_sets_occurances_dict.plk'), 'wb') as fp:
+#     pickle.dump(set_occurances_dict, fp)
+#
+# dataset_stats_df = pd.DataFrame({k: [stats_dict[k]] for k in stats_dict.keys()})
+# set_occurances_df = pd.DataFrame({k: [set_occurances_dict[k]] for k in set_occurances_dict.keys()})
+# dataset_stats_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "subset1_stats.csv"))
+# set_occurances_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "overlapping_sets_occurances.csv"))
 
 event_indices = []
 event_indices_df = []
@@ -104,7 +144,7 @@ for id, sub in get_subjects_by_ids_generator(subject_ids=best_ids, progress_bar=
     df = sub.export_to_dataframe(print_downsampling_details=False)
     events = sub.respiratory_events
 
-    event_indices_df.extend(list(df["event_index"]))
+    event_indices_df.extend(df["event_index"].tolist())
 
     for event in events:
         concept = event["concept"]
@@ -121,4 +161,4 @@ subset_1_stats_df = pd.DataFrame()
 subset_1_stats_df["Events"] = pd.Series(event_indices)
 subset_1_stats_df["Events_after_downsampling"] = pd.Series(event_indices_df)
 subset_1_stats_df.to_csv(Path(PATH_TO_SUBSET1).joinpath("stats", "subset_1_event_stats.csv"))
-subset_1_stats_df.describe()
+print(subset_1_stats_df.describe())

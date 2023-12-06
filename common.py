@@ -141,7 +141,7 @@ class Subject:
         spo2_desat_events = self.get_events_by_concept("spo2_desat")
 
         initial = np.zeros(len(time_seq))
-        annotations = pd.Series(initial).astype("uint8")
+        annotations = pd.Series(initial, index=time_seq.index, dtype="uint8")
         # Assign event concepts with this order. First concepts have the lowest priority and last concepts the highest
         # priority (they override previous annotations):
         for e in spo2_desat_events:
@@ -167,7 +167,6 @@ class Subject:
             d = e["duration"]
             f = s + d
             annotations[(s <= time_seq) & (time_seq <= f)] = 1
-
         return annotations
 
     def export_to_dataframe(self, signal_labels: list[str] = None, print_downsampling_details=True) -> pd.DataFrame:
@@ -218,5 +217,6 @@ class Subject:
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
         # df["event_index"] = df["time_secs"].map(lambda t: self.get_event_at_time(t)).astype("uint8")
         df["event_index"] = self.assign_annotations_to_time_series(df["time_secs"])
+
         # df = df.astype({"time_secs": "float32"})  # Save memory
         return df
