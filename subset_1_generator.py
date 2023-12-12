@@ -30,7 +30,7 @@ EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candid
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 NO_EVENTS_TO_EVENTS_RATIO = 5
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
-DROP_10s_AFTER_EVENT = True
+EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
 COUNT_LABELS = True
 SEED = 33
@@ -249,15 +249,17 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
     train_df = best_split[0]
     test_df = best_split[1]
 
-    if DROP_10s_AFTER_EVENT:
+    samples_to_exclude = []
+    if EXCLUDE_10s_AFTER_EVENT:
         # 2. Drop no-event train samples within 10s (= 320 samples) after an event:
-        samples_to_drop = []
+
         # for every sample
         for i in train_df.index:
             # if it has event:
             if train_df.loc[i, "event_index"] != 0:
                 # Check the next 10s for no event samples:
-                for j in range(i + 1, 320):
+                blacklist_tmp = []
+                for j in range(i + 1, i+321):
                     # Check if continuity breaks at j (due to train test split):
                     if j not in train_df.index:
                         # if j is not in index it means that train is not continuous everywhere because of the train
@@ -265,13 +267,16 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                         # the test). This means that j-1 was the last point of the first part.
                         break
                     if train_df.loc[j, "event_index"] == 0:
-                        # Add no event sample to drop list:
-                        samples_to_drop.append(j)
+                        # Add no event sample to blacklist:
+                        blacklist_tmp.append(j)
                     else:
                         # Event sample found within 10s of the event sample that we examine,
-                        # thus there is to examine for more no event samples, since I will reach that event
+                        # thus there is to examine for more no event samples, since i will reach that event.
+                        # Also, the blacklisting of these samples will not be enforced in order to keep this event.
+                        blacklist_tmp.clear()
                         break
-        train_df.drop(samples_to_drop, axis=0, inplace=True)  # Drop marked samples
+                samples_to_exclude.extend(blacklist_tmp)
+    # print(samples_to_exclude)
 
     # Take equal-sized windows with a specified step:
     # 3. Calculate the number of windows:
@@ -280,8 +285,38 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
     # Note that due to floor division the last WINDOW_SAMPLES_SIZE-1 samples might be dropped
 
     # 4. Generate equal-sized windows:
-    train_windows_dfs = [train_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows_train)]
+    train_windows_dfs = list()
+    train_index = train_df.index
+
+    for i in range(num_windows_train):
+        start = train_index[i * STEP]
+        stop = train_index[i * STEP + WINDOW_SAMPLES_SIZE-1]
+
+        # Check continuity:
+        if (start+WINDOW_SAMPLES_SIZE-1) != stop:
+            # if true it means that train is not continuous everywhere because of the train test split.
+            # Consequently, train is continuous on two parts (one part before and one part after
+            # the test). Window has to be cut from continuous region, so we skip this.
+            continue
+
+        window_df = train_df.loc[start:stop, :]  # Note that contrary to usual slices, both start and stop are included
+
+        # Check if it does not contain events
+        if not any(window_df["event_index"] != 0):
+            # It is pure no event window, check if it should be excluded.
+            if start in samples_to_exclude:
+                # Window definitely contains samples marked for exclusion.
+                # Exclusion zone is continuous and always has an event one sample before. As a result checking
+                # the start is adequate for determining if window contains marked samples because window contains
+                # only no events.
+                continue
+
+        train_windows_dfs.append(window_df)
+
+    # train_windows_dfs = [train_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows_train)]
     test_windows_dfs = [test_df.iloc[i * STEP:i * STEP + WINDOW_SAMPLES_SIZE] for i in range(num_windows_test)]
+    # Note that when using df.iloc[] or df[], the stop part is not included. However ,when using loc stop is included
+
     X_train = [window_df.loc[:, window_df.columns != "event_index"] for window_df in train_windows_dfs]
     X_test = [window_df.loc[:, window_df.columns != "event_index"] for window_df in test_windows_dfs]
 
@@ -396,6 +431,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
 def create_arrays(ids: list[int]):
     if ids is None:
         ids = get_best_ids()
+
     random.seed(SEED)  # Set the seed
 
     label_counts: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -479,4 +515,5 @@ def create_arrays(ids: list[int]):
 
 if CREATE_ARRAYS:
     best_ids = get_best_ids()
+    # print(best_ids)
     create_arrays(best_ids)

@@ -194,6 +194,7 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 # (id, sub) = get_subject_by_id(107)
 # df = sub.export_to_dataframe()
+# df.to_csv("107.csv")
 # print(df)
 # print(sub.get_event_at_time(19290))
 
