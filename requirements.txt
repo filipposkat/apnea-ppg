@@ -1,5 +1,5 @@
+pyEDFlib>=0.1.33
 numpy~=1.26.1
-pyEDFlib>=0.1.36
 pandas~=2.1.2
 beautifulsoup4~=4.12.2
 lxml
