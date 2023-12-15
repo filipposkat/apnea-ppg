@@ -9,7 +9,7 @@ This means that this import was removed in pyEDFlib version 0.1.33. Consequently
 
 
 
-PyTorch installation:
+PyTorch installation with pip:
 -Windows:
 --CPU-only: pip3 install torch torchvision torchaudio
 --CUDA: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
@@ -23,3 +23,8 @@ PyTorch installation:
 --CPU-only: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 --CUDA: pip3 install torch torchvision torchaudio
 --For AMD gpu install cpu version and the package: "torch-directml" Read: https://learn.microsoft.com/en-us/windows/ai/directml/gpu-pytorch-wsl
+
+PyTorch installation with conda:
+-Linux:
+--CPU-only: conda install pytorch torchvision torchaudio cpuonly -c pytorch
+--CUDA: conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
