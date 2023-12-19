@@ -436,12 +436,6 @@ def create_arrays(ids: list[int]):
     label_counts: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     label_counts_cont: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
-
-        df = sub.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
-        event_counts = Counter(df.loc[:, "event_index"])
-        for i in label_counts.keys():  # There are 5 labels
-            label_counts[i] += event_counts[i]
-
         subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
@@ -512,7 +506,7 @@ def create_arrays(ids: list[int]):
     plt.show()
 
 
-if CREATE_ARRAYS:
+if CREATE_ARRAYS and __name__ == "main":
     best_ids = get_best_ids()
     # print(best_ids)
     create_arrays(best_ids)
