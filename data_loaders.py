@@ -83,7 +83,10 @@ class BatchSampler(Sampler[list[int]]):
     def __init__(self, subject_ids: list[int], batch_size: int,
                  arrays_loader: Callable[[int], tuple[np.array, np.array]],
                  index_map: dict[int: tuple[int, int]],
-                 id_size_dict: dict[int: int] | None) -> None:
+                 id_size_dict: dict[int: int] | None,
+                 shuffle=False,
+                 seed=None) -> None:
+
         self.subject_ids = subject_ids
         self.index_map = index_map
         # Calculate inverse index_map, which maps (subject_id, window_id) to id
@@ -92,6 +95,13 @@ class BatchSampler(Sampler[list[int]]):
         # Save new array loader function for specific array dir:
         self.load_arrays = arrays_loader
         self.batch_size = batch_size
+
+        self.shuffle = shuffle
+        if shuffle:
+            if seed is not None:
+                self.rng = random.Random(seed)
+            else:
+                self.rng = random.Random()
 
         if id_size_dict is None:
             self.id_size_dict = {}
@@ -108,6 +118,11 @@ class BatchSampler(Sampler[list[int]]):
 
         batches = 0
         used_indices = []
+
+        # Shuffle ids in place:
+        if self.shuffle:
+            self.rng.shuffle(self.subject_ids)
+
         # Cyclic iterator of our ids:
         pool = cycle(self.subject_ids)
 
@@ -175,44 +190,64 @@ def get_subject_test_arrays(subject_arrays_dir: Path, subject_id: int) -> tuple[
     return X, y
 
 
+def train_array_loader(sub_id: int) -> tuple[np.array, np.array]:
+    return get_subject_train_arrays(ARRAYS_DIR, sub_id)
+
+
+def test_array_loader(sub_id: int) -> tuple[np.array, np.array]:
+    return get_subject_test_arrays(ARRAYS_DIR, sub_id)
+
+
+def get_saved_train_loader() -> DataLoader:
+    train_loader_object_path = Path(PATH_TO_SUBSET1).joinpath("TrainLoaderObj.pickle")
+    if train_loader_object_path.is_file():
+        with open(train_loader_object_path, "rb") as f:
+            return pickle.load(f)
+
+
+def get_saved_test_loader() -> DataLoader:
+    test_loader_object_path = Path(PATH_TO_SUBSET1).joinpath("TestLoaderObj.pickle")
+    if test_loader_object_path.is_file():
+        with open(test_loader_object_path, "rb") as f:
+            return pickle.load(f)
+
+
+def get_saved_test_cross_sub_loader() -> DataLoader:
+    ptest_cross_sub_loader_object_path = Path(PATH_TO_SUBSET1).joinpath("TestCrossSubLoaderObj.pickle")
+    if ptest_cross_sub_loader_object_path.is_file():
+        with open(ptest_cross_sub_loader_object_path, "rb") as f:
+            return pickle.load(f)
+
+
 if __name__ == "__main__":
 
-    train_ids_file = Path(PATH_TO_SUBSET1).joinpath("trainIds.npy")
-    test_ids_file = Path(PATH_TO_SUBSET1).joinpath("testIds.npy")
-    if train_ids_file.is_file() and test_ids_file.is_file():
-        train_ids = list(np.load(train_ids_file))
-        test_ids = list(np.load(test_ids_file))
-    else:
-        # Get all ids in the directory with arrays. Each subdir is one subject
-        subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+    # train_ids_file = Path(PATH_TO_SUBSET1).joinpath("trainIds.npy")
+    # test_ids_file = Path(PATH_TO_SUBSET1).joinpath("testIds.npy")
+    # if train_ids_file.is_file() and test_ids_file.is_file():
+    #     train_ids = list(np.load(train_ids_file))
+    #     test_ids = list(np.load(test_ids_file))
+    # else:
+    # Get all ids in the directory with arrays. Each subdir is one subject
+    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
 
-        random.seed(33)
-        test_ids = random.sample(subset_ids, 2)
-        train_ids = [id for id in subset_ids if id not in test_ids]
+    random.seed(33)
+    test_ids = random.sample(subset_ids, 2)
+    train_ids = [id for id in subset_ids if id not in test_ids]
 
-        np.save(train_ids_file, np.array(train_ids).astype("uint8"))
-        np.save(test_ids_file, np.array(test_ids).astype("uint8"))
+    # np.save(train_ids_file, np.array(train_ids).astype("uint8"))
+    # np.save(test_ids_file, np.array(test_ids).astype("uint8"))
 
     print(test_ids)
     print(train_ids)
-
-
-    def train_array_loader(sub_id: int) -> tuple[np.array, np.array]:
-        return get_subject_train_arrays(ARRAYS_DIR, sub_id)
-
-
-    def test_array_loader(sub_id: int) -> tuple[np.array, np.array]:
-        return get_subject_test_arrays(ARRAYS_DIR, sub_id)
-
 
     # Try to load previously created train loader:
     train_loader_object_file = Path(PATH_TO_SUBSET1).joinpath("TrainLoaderObj.pickle")
     test_loader_object_file = Path(PATH_TO_SUBSET1).joinpath("TestLoaderObj.pickle")
     test_cross_sub_loader_object_file = Path(PATH_TO_SUBSET1).joinpath("TestCrossSubLoaderObj.pickle")
-
-    if train_loader_object_file.is_file():
-        with open(train_loader_object_file, "rb") as file:
-            train_loader = pickle.load(file)
+    if train_loader_object_file.is_file() and test_loader_object_file.is_file() and test_cross_sub_loader_object_file.is_file():
+        train_loader = get_saved_train_loader()
+        test_loader = get_saved_test_loader()
+        test_cross_sub_loader = get_saved_test_cross_sub_loader()
     else:
         train_set = PlethToLabelDataset(train_ids, train_array_loader)
         test_set = PlethToLabelDataset(train_ids, test_array_loader)
@@ -220,18 +255,22 @@ if __name__ == "__main__":
 
         train_sampler = BatchSampler(train_ids, batch_size=128, arrays_loader=train_array_loader,
                                      index_map=train_set.index_map,
-                                     id_size_dict=train_set.id_size_dict)
-        test_sampler = BatchSampler(train_ids, batch_size=128, arrays_loader=train_array_loader,
+                                     id_size_dict=train_set.id_size_dict,
+                                     shuffle=True,
+                                     seed=33)
+        test_sampler = BatchSampler(train_ids, batch_size=128, arrays_loader=test_array_loader,
                                     index_map=test_set.index_map,
-                                    id_size_dict=train_set.id_size_dict)
-        test_cross_sub_sampler = BatchSampler(test_ids, batch_size=128, arrays_loader=train_array_loader,
+                                    id_size_dict=test_set.id_size_dict,
+                                    shuffle=True,
+                                    seed=33)
+        test_cross_sub_sampler = BatchSampler(test_ids, batch_size=128, arrays_loader=test_array_loader,
                                               index_map=test_cross_sub_set.index_map,
-                                              id_size_dict=train_set.id_size_dict)
-
+                                              id_size_dict=test_cross_sub_set.id_size_dict,
+                                              shuffle=True,
+                                              seed=33)
         train_loader = DataLoader(train_set, shuffle=False, batch_sampler=train_sampler)
         test_loader = DataLoader(test_set, shuffle=False, batch_sampler=test_sampler)
-        test_cross_sub_loader = DataLoader(test_cross_sub_set, shuffle=False,
-                                           batch_sampler=test_cross_sub_sampler)
+        test_cross_sub_loader = DataLoader(test_cross_sub_set, shuffle=False, batch_sampler=test_cross_sub_sampler)
 
         # Save train loader for future use
         with open(train_loader_object_file, "wb") as file:
@@ -245,7 +284,8 @@ if __name__ == "__main__":
         with open(test_cross_sub_loader_object_file, "wb") as file:
             pickle.dump(test_cross_sub_loader, file)
 
-    print(f"Batches in epoch: {len(train_loader)}")
-    train_loader_iter = iter(train_loader)
-    for i, (X, y) in enumerate(train_loader_iter):
+    print(f"Batches in epoch: {len(test_loader)}")
+
+    iterator = iter(test_loader)
+    for i, (X, y) in enumerate(iterator):
         print(f"batch: {i},  X shape: {X.shape},  y shape: {y.shape}")
