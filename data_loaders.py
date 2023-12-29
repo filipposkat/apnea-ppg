@@ -1,20 +1,21 @@
 from itertools import cycle
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
+import yaml
 
 import numpy as np
 import pandas as pd
 import random
 import pickle
+from sortedcontainers import SortedList
 
 import seaborn as sn
 import matplotlib.pyplot as plt
 
-import yaml
+import torch
 from torch import nn
 from torch.utils.data import DataLoader, Sampler
 from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
 
 WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
@@ -57,7 +58,7 @@ class PlethToLabelDataset(Dataset):
     def __len__(self):
         return len(self.index_map)
 
-    def __getitem__(self, idx: int) -> tuple:
+    def __getitem__(self, idx: int) -> tuple[Any, Any]:
         """
         :param idx: Index that will be mapped to (subject_id, window_id) based on index_map
         :return: (signal, labels) where signal = Pleth signal of shape (
@@ -86,6 +87,15 @@ class BatchSampler(Sampler[list[int]]):
                  id_size_dict: dict[int: int] | None,
                  shuffle=False,
                  seed=None) -> None:
+        """
+        :param subject_ids:
+        :param batch_size:
+        :param arrays_loader: Functions that loads the X, y arrays of a subject
+        :param index_map: Index map provided by the Dataset
+        :param id_size_dict:
+        :param shuffle: Whether to shuffle the subjects between epochs
+        :param seed: The seed to use for shuffling and sampling
+        """
 
         self.subject_ids = subject_ids
         self.index_map = index_map
@@ -97,11 +107,9 @@ class BatchSampler(Sampler[list[int]]):
         self.batch_size = batch_size
 
         self.shuffle = shuffle
-        if shuffle:
-            if seed is not None:
-                self.rng = random.Random(seed)
-            else:
-                self.rng = random.Random()
+        self.rng = random.Random()
+        if seed is not None:
+            self.rng = random.Random(seed)
 
         if id_size_dict is None:
             self.id_size_dict = {}
@@ -117,9 +125,9 @@ class BatchSampler(Sampler[list[int]]):
         #     yield batch.tolist()
 
         batches = 0
-        used_indices = []
+        used_indices = SortedList()
 
-        # Shuffle ids in place:
+        # Shuffle ids in-place:
         if self.shuffle:
             self.rng.shuffle(self.subject_ids)
 
@@ -133,16 +141,34 @@ class BatchSampler(Sampler[list[int]]):
 
             # Get the number of windows in the third subject, this will be needed to calculate the last index
             if sub_id3 in self.id_size_dict:
+                n_windows1 = self.id_size_dict[sub_id1]
+                n_windows2 = self.id_size_dict[sub_id2]
                 n_windows3 = self.id_size_dict[sub_id3]
             else:
+                _, y1 = self.load_arrays(sub_id1)
+                _, y2 = self.load_arrays(sub_id2)
                 _, y3 = self.load_arrays(sub_id3)
+                n_windows1 = y1.shape[0]
+                n_windows2 = y2.shape[0]
                 n_windows3 = y3.shape[0]
+                self.id_size_dict[sub_id1] = n_windows1
+                self.id_size_dict[sub_id2] = n_windows2
                 self.id_size_dict[sub_id3] = n_windows3
 
-            first_index = self.index_map_inverse[(sub_id1, 0)]
-            last_index = self.index_map_inverse[(sub_id3, n_windows3 - 1)]
+            first_index1 = self.index_map_inverse[(sub_id1, 0)]
+            last_index1 = self.index_map_inverse[(sub_id1, n_windows1 - 1)]
 
-            combined_indices = [i for i in range(first_index, last_index + 1) if i not in used_indices]
+            first_index2 = self.index_map_inverse[(sub_id2, 0)]
+            last_index2 = self.index_map_inverse[(sub_id2, n_windows2 - 1)]
+
+            first_index3 = self.index_map_inverse[(sub_id3, 0)]
+            last_index3 = self.index_map_inverse[(sub_id3, n_windows3 - 1)]
+
+            indices1 = [i for i in range(first_index1, last_index1 + 1) if i not in used_indices]
+            indices2 = [i for i in range(first_index2, last_index2 + 1) if i not in used_indices]
+            indices3 = [i for i in range(first_index3, last_index3 + 1) if i not in used_indices]
+
+            combined_indices = [*indices1, *indices2, *indices3]
             n_combined_indices = len(combined_indices)
 
             # Check if the windows available for sampling are enough for a batch:
@@ -163,8 +189,8 @@ class BatchSampler(Sampler[list[int]]):
                 indices_to_add = [i for i in range(first_index, last_index + 1) if i not in used_indices]
                 combined_indices.extend(indices_to_add)
 
-            batch_indices = random.sample(combined_indices, self.batch_size)
-            used_indices.extend(sorted(batch_indices))
+            batch_indices = self.rng.sample(combined_indices, self.batch_size)
+            used_indices.update(batch_indices)
             yield batch_indices
             batches += 1
 
@@ -177,16 +203,16 @@ class BatchSampler(Sampler[list[int]]):
 def get_subject_train_arrays(subject_arrays_dir: Path, subject_id: int) -> tuple[np.array, np.array]:
     X_path = subject_arrays_dir.joinpath(str(subject_id).zfill(4)).joinpath("X_train.npy")
     y_path = subject_arrays_dir.joinpath(str(subject_id).zfill(4)).joinpath("y_train.npy")
-    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS)
-    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE)
+    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS).astype("float32")
+    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
     return X, y
 
 
 def get_subject_test_arrays(subject_arrays_dir: Path, subject_id: int) -> tuple[np.array, np.array]:
     X_path = subject_arrays_dir.joinpath(str(subject_id).zfill(4)).joinpath("X_test.npy")
     y_path = subject_arrays_dir.joinpath(str(subject_id).zfill(4)).joinpath("y_test.npy")
-    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS)
-    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE)
+    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS).astype("float32")
+    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
     return X, y
 
 
@@ -249,9 +275,12 @@ if __name__ == "__main__":
         test_loader = get_saved_test_loader()
         test_cross_sub_loader = get_saved_test_cross_sub_loader()
     else:
-        train_set = PlethToLabelDataset(train_ids, train_array_loader)
-        test_set = PlethToLabelDataset(train_ids, test_array_loader)
-        test_cross_sub_set = PlethToLabelDataset(test_ids, test_array_loader)
+        train_set = PlethToLabelDataset(subject_ids=train_ids, arrays_loader=train_array_loader,
+                                        transform=torch.from_numpy, target_transform=torch.from_numpy)
+        test_set = PlethToLabelDataset(subject_ids=train_ids, arrays_loader=test_array_loader,
+                                       transform=torch.from_numpy, target_transform=torch.from_numpy)
+        test_cross_sub_set = PlethToLabelDataset(subject_ids=test_ids, arrays_loader=test_array_loader,
+                                                 transform=torch.from_numpy, target_transform=torch.from_numpy)
 
         train_sampler = BatchSampler(train_ids, batch_size=128, arrays_loader=train_array_loader,
                                      index_map=train_set.index_map,
@@ -286,6 +315,12 @@ if __name__ == "__main__":
 
     print(f"Batches in epoch: {len(test_loader)}")
 
-    iterator = iter(test_loader)
-    for i, (X, y) in enumerate(iterator):
+    test_iter = iter(test_loader)
+    for (i, item) in enumerate(test_iter):
+        X, y = item
         print(f"batch: {i},  X shape: {X.shape},  y shape: {y.shape}")
+        # print(X.dtype)
+        # print(y)
+        # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()
+        # print(f"Memory Usage: {memory_usage_in_bytes} bytes")
+
