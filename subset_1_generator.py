@@ -32,6 +32,7 @@ MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window 
 EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
 COUNT_LABELS = True
+SAVE_ARRAYS_EXPANDED = True
 SEED = 33
 
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
@@ -258,7 +259,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if train_df.loc[i, "event_index"] != 0:
                 # Check the next 10s for no event samples:
                 blacklist_tmp = []
-                for j in range(i + 1, i+321):
+                for j in range(i + 1, i + 321):
                     # Check if continuity breaks at j (due to train test split):
                     if j not in train_df.index:
                         # if j is not in index it means that train is not continuous everywhere because of the train
@@ -289,10 +290,10 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
 
     for i in range(num_windows_train):
         start = train_index[i * STEP]
-        stop = train_index[i * STEP + WINDOW_SAMPLES_SIZE-1]
+        stop = train_index[i * STEP + WINDOW_SAMPLES_SIZE - 1]
 
         # Check continuity:
-        if (start+WINDOW_SAMPLES_SIZE-1) != stop:
+        if (start + WINDOW_SAMPLES_SIZE - 1) != stop:
             # if true it means that train is not continuous everywhere because of the train test split.
             # Consequently, train is continuous on two parts (one part before and one part after
             # the test). Window has to be cut from continuous region, so we skip this.
@@ -427,6 +428,94 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
     return X_train, X_test, y_train, y_test
 
 
+def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
+    """
+    Saves four arrays for one subject: X_train, y_train, X_test, y_test.
+    X_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
+    y_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
+    X_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
+    y_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
+
+    :param subject_arrs_path: Path to save subject's arrays
+    :param X_train: iterable with train window signals
+    :param y_train: iterable with train window labels
+    :param X_test: iterable with test window signals
+    :param y_test: iterable with test window signals
+    :return: Nothing
+    """
+    # Transform to numpy arrays:
+    X_train_arr = np.array(X_train,
+                           dtype="float32")  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
+    y_train_arr = np.array(y_train, dtype="uint8")  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
+    X_test_arr = np.array(X_test,
+                          dtype="float32")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
+    y_test_arr = np.array(y_test, dtype="uint8")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
+
+    # Create directory for subject:
+    subject_arrs_path.mkdir(parents=True, exist_ok=True)
+
+    X_train_path = subject_arrs_path.joinpath("X_train")
+    y_train_path = subject_arrs_path.joinpath("y_train")
+    X_test_path = subject_arrs_path.joinpath("X_test")
+    y_test_path = subject_arrs_path.joinpath("y_test")
+
+    # Save the arrays
+    np.save(str(X_train_path), X_train_arr)
+    np.save(str(y_train_path), y_train_arr)
+    np.save(str(X_test_path), X_test_arr)
+    np.save(str(y_test_path), y_test_arr)
+
+
+def save_arrays_expanded(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
+    """
+    Saves one array per window for one subject in two directories: train, test.
+    X_{index} has shape (WINDOW_SAMPLES_SIZE, numOfSignals)
+    y_{index} has shape (WINDOW_SAMPLES_SIZE, 1)
+
+    :param subject_arrs_path: Path to save subject's arrays
+    :param X_train: iterable with train window signals
+    :param y_train: iterable with train window labels
+    :param X_test: iterable with test window signals
+    :param y_test: iterable with test window signals
+    :return: Nothing
+    """
+    # Save train arrays, one file each
+    n_train_windows = len(y_train)
+    for w in range(n_train_windows):
+        # Transform window to numpy array:
+        X_window = np.array(X_train[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
+        y_window = np.array(y_train[w], dtype="uint8").ravel()
+
+        # Create directory for subject:
+        subject_train_dir = subject_arrs_path.joinpath(str(id).zfill(4), "train")
+        subject_train_dir.mkdir(parents=True, exist_ok=True)
+
+        X_window_path = subject_train_dir.joinpath(f"X_{w}.npy")
+        y_window_path = subject_train_dir.joinpath(f"y_{w}.npy")
+
+        # Save the arrays
+        np.save(str(X_window_path), X_window)
+        np.save(str(y_window_path), y_window)
+
+    # Same for test:
+    n_test_windows = len(y_test)
+    for w in range(n_test_windows):
+        # Transform window to numpy array:
+        X_window = np.array(X_test[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
+        y_window = np.array(y_test[w], dtype="uint8").ravel()
+
+        # Create directory for subject:
+        subject_test_dir = subject_arrs_path.joinpath(str(id).zfill(4), "test")
+        subject_test_dir.mkdir(parents=True, exist_ok=True)
+
+        X_window_path = subject_test_dir.joinpath(f"X_{w}.npy")
+        y_window_path = subject_test_dir.joinpath(f"y_{w}.npy")
+
+        # Save the arrays
+        np.save(str(X_window_path), X_window)
+        np.save(str(y_window_path), y_window)
+
+
 def create_arrays(ids: list[int]):
     if ids is None:
         ids = get_best_ids()
@@ -457,27 +546,10 @@ def create_arrays(ids: list[int]):
                 for i in label_counts.keys():  # There are 5 labels
                     label_counts[i] += event_counts[i]
 
-        # Transform to numpy arrays:
-        X_train_arr = np.array(X_train,
-                               dtype="float32")  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
-        y_train_arr = np.array(y_train, dtype="uint8")  # shape= (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
-        X_test_arr = np.array(X_test,
-                              dtype="float32")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
-        y_test_arr = np.array(y_test, dtype="uint8")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
-
-        # Create directory for subject:
-        subject_arrs_path.mkdir(parents=True, exist_ok=True)
-
-        X_train_path = subject_arrs_path.joinpath("X_train")
-        y_train_path = subject_arrs_path.joinpath("y_train")
-        X_test_path = subject_arrs_path.joinpath("X_test")
-        y_test_path = subject_arrs_path.joinpath("y_test")
-
-        # Save the arrays
-        np.save(str(X_train_path), X_train_arr)
-        np.save(str(y_train_path), y_train_arr)
-        np.save(str(X_test_path), X_test_arr)
-        np.save(str(y_test_path), y_test_arr)
+        if SAVE_ARRAYS_EXPANDED:
+            save_arrays_expanded(subject_arrs_path, X_train, y_train, X_test, y_test)
+        else:
+            save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
 
     print(label_counts)
     X = list(label_counts.keys())

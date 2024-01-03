@@ -28,3 +28,6 @@ PyTorch installation with conda:
 -Linux:
 --CPU-only: conda install pytorch torchvision torchaudio cpuonly -c pytorch
 --CUDA: conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+combined subject arrays missing from Patra: 2292, 2651
+Problematic subject arrays in Patra: (4497, 1016, 1010, 2105, 5753, 5714, 3352, 3337, 4511, 2039, 4462, 3332, 2106, 4478, 3419, 2030, 2024, 5788, 3347, 5798, 4496, 2003, 951, 3314, 3324, 1013, 1017, 5801, 4508, 5845, 979)
