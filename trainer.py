@@ -1,5 +1,6 @@
 import yaml
 from pathlib import Path
+import datetime, time
 
 import torch
 import torch.nn as nn
@@ -108,10 +109,13 @@ print(f"Device: {device}")
 
 
 def train_loop(net, optimizer, criterion, epochs=EPOCHS, save_model_every_epoch: bool = False, identifier: int = None):
+    print(datetime.datetime.now())
     for epoch in range(epochs):  # loop over the dataset multiple times
         loader = train_loader
         batches = len(loader)
         # print(f"Batches in epoch: {batches}")
+
+        unix_time_start = time.time()
 
         running_loss = 0.0
         for (i, data) in enumerate(iter(loader)):
@@ -132,16 +136,23 @@ def train_loop(net, optimizer, criterion, epochs=EPOCHS, save_model_every_epoch:
 
             # print statistics
             running_loss += loss.item()
-            if i % 2000 == 1999:  # print every 2000 mini-batches
+            if i % 1000 == 9999:  # print every 1000 mini-batches
+                time_elapsed = time.time() - unix_time_start
+
                 print(f'[Epoch:{epoch + 1:3d}/{epochs:3d}, Batch{i + 1:6d}/{batches:6d}]'
-                      f' Running Avg loss: {running_loss / 2000:.3f}')
+                      f' Running Avg loss: {running_loss / 2000:.3f}'
+                      f' Minutes/Batch: {time_elapsed / (i + 1) / 60}')
+
                 running_loss = 0.0
                 if save_model_every_epoch:
                     save_model_state(unet, optimizer=optimizer, optimizer_kwargs=optim_kwargs,
                                      criterion=criterion, net_type="UNET", identifier=identifier,
                                      batch_size=BATCH_SIZE, epoch=epoch, other_details=f"Batch: {i}")
+        time_elapsed = time.time() - unix_time_start
+        print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / (epochs + 1) / 3600}")
 
     print('Finished Training')
+    print(datetime.datetime.now())
 
 
 # Train:
