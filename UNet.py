@@ -41,7 +41,6 @@ class EncoderBlock(nn.Module):
 
     def forward(self, x):
         for enc in self.encoder:
-
             x = enc(x)
         return x
 
@@ -78,7 +77,7 @@ class DecoderBlock(nn.Module):
             out_pad = 1
             pad = (kernel_size - sampling_factor + out_pad) // 2
 
-        assert (kernel_size - sampling_factor - 2*pad + out_pad) == 0
+        assert (kernel_size - sampling_factor - 2 * pad + out_pad) == 0
         self.tconv = nn.ConvTranspose1d(in_chans, in_chans // 2, stride=sampling_factor, kernel_size=kernel_size,
                                         padding=pad, output_padding=out_pad)
 
@@ -106,10 +105,13 @@ class UNet(nn.Module):
     def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_factor=2,
                  sampling_method="pooling", skip_connection=True):
         super().__init__()
+        self.nclass = nclass
+        self.in_chans = in_chans
         self.max_channels = max_channels
         self.depth = depth
         self.layers = layers
         self.kernel_size = kernel_size
+        self.sampling_factor = sampling_factor
         self.sampling_method = sampling_method
         self.skip_connection = skip_connection
 
@@ -161,6 +163,14 @@ class UNet(nn.Module):
         # Return the logits
         return self.logits(x)
 
-    def get_parameter_summary(self):
+    def get_args_summary(self):
         return (f"MaxCH {self.max_channels} - Depth {self.depth} - Layers{self.layers} - "
                 f"Kernel {self.kernel_size} - Sampling {self.sampling_method}")
+
+    def get_kwargs(self):
+        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
+                  "depth": self.depth, "layers": self.layers, "kernel_size": self.kernel_size,
+                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
+                  "skip_connection": self.skip_connection}
+
+        return kwargs

@@ -7,12 +7,12 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, IterableDataset
 
 # Local imports:
-import data_loaders_iterable
-from data_loaders_iterable import get_new_train_loader, get_saved_train_loader, train_array_loader, IterableDataset
+from data_loaders_iterable import get_saved_train_loader, IterDataset
 from UNet import UNet
 
 # --- START OF CONSTANTS --- #
 EPOCHS = 10
+BATCH_SIZE = 256
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -29,15 +29,70 @@ else:
 models_path = PATH_TO_SUBSET1.joinpath("saved-models")
 models_path.mkdir(parents=True, exist_ok=True)
 
+
+def save_model_state(net, optimizer, optimizer_kwargs, criterion,
+                     net_type: str, identifier: int,
+                     batch_size: int, epoch: int, other_details: str = ""):
+    model_path = models_path.joinpath(f"{net_type}")
+    model_path.mkdir(parents=True, exist_ok=True)
+    # identifier = 1
+    # while net_path.joinpath(f"{identifier}").is_dir():
+    #     identifier += 1
+
+    txt_path = model_path.joinpath(f"{identifier}_details.txt")
+    with open(txt_path, 'w') as file:
+        details = [f'NET args: {net.get_args_summary()}\n',
+                   f'Model: {type(net).__name__}\n',
+                   f'Criterion: {type(criterion).__name__}\n',
+                   f'Optimizer: {type(optimizer).__name__}\n',
+                   f'Optimizer kwargs: {optimizer_kwargs}\n',
+                   f'Batch size: {batch_size}\n',
+                   f'{other_details}\n']
+        file.writelines("% s\n" % line for line in details)
+
+    state = {
+        'epoch': epoch,
+        'net_class': net.__class__,
+        'net_state_dict': net.state_dict(),
+        'net_kwargs': net.get_kwargs(),
+        'optimizer_class': optimizer.__class__,
+        'optimizer_state_dict': optimizer.state_dict(),
+        'optimizer_kwargs': optimizer_kwargs,
+        'criterion': criterion
+    }
+    torch.save(state, model_path.joinpath(f"{identifier}.pt"))
+
+
+def load_model(net_type: str, identifier: int):
+    model_path = models_path.joinpath(f"{net_type}", f"{identifier}.pt")
+    state = torch.load(model_path)
+    net_class = state["net_class"]
+    net_state = state["net_state_dict"]
+    net_kwargs = state["net_kwargs"]
+    optimizer_class = state["optimizer_class"]
+    optimizer_state_dict = state["optimizer_state_dict"]
+    optimizer_kwargs = state["optimizer_kwargs"]
+    criterion = state["criterion"]
+
+    net = net_class(**net_kwargs)
+    net.load_state_dict(net_state)
+
+    optimizer = optimizer_class(net.parameters(), **optimizer_kwargs)
+    optimizer.load_state_dict(optimizer_state_dict)
+
+    return net, optimizer, criterion
+
+
 # Prepare train dataloader:
-train_loader = get_saved_train_loader(batch_size=128)
+train_loader = get_saved_train_loader(batch_size=BATCH_SIZE)
 
 # Create Network:
 unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")
 
 # Define loss and optimizer:
 ce_loss = nn.CrossEntropyLoss()
-sgd = optim.SGD(unet.parameters(), lr=0.01, momentum=0.7)
+optim_kwargs = {"lr": 0.01, "momentum": 0.7}
+sgd = optim.SGD(unet.parameters(), **optim_kwargs)
 
 # Check for device:
 if torch.cuda.is_available():
@@ -49,8 +104,10 @@ elif torch.backends.mps.is_available():
 else:
     device = torch.device("cpu")
 
+print(f"Device: {device}")
 
-def train_loop(net, criterion, optimizer, epochs=EPOCHS):
+
+def train_loop(net, optimizer, criterion, epochs=EPOCHS, save_model_every_epoch: bool = False, identifier: int = None):
     for epoch in range(epochs):  # loop over the dataset multiple times
         loader = train_loader
         batches = len(loader)
@@ -79,15 +136,18 @@ def train_loop(net, criterion, optimizer, epochs=EPOCHS):
                 print(f'[Epoch:{epoch + 1:3d}/{epochs:3d}, Batch{i + 1:6d}/{batches:6d}]'
                       f' Running Avg loss: {running_loss / 2000:.3f}')
                 running_loss = 0.0
+                if save_model_every_epoch:
+                    save_model_state(unet, optimizer=optimizer, optimizer_kwargs=optim_kwargs,
+                                     criterion=criterion, net_type="UNET", identifier=identifier,
+                                     batch_size=BATCH_SIZE, epoch=epoch, other_details=f"Batch: {i}")
 
     print('Finished Training')
 
 
 # Train:
-train_loop(unet, ce_loss, sgd, epochs=10)
+train_loop(unet, sgd, ce_loss, epochs=EPOCHS, save_model_every_epoch=True, identifier=1)
 
 # Save model:
-crit = "ce"
-opt = "sgd"
-model_path = models_path.joinpath(f"UNET {unet.get_parameter_summary()}  -  Criterion {crit} - Optimizer {opt}")
-torch.save(unet.state_dict(), model_path)
+save_model_state(unet, optimizer=sgd, optimizer_kwargs=optim_kwargs,
+                 criterion=ce_loss, net_type="UNET", identifier=1,
+                 batch_size=BATCH_SIZE, epoch=EPOCHS)
