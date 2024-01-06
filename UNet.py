@@ -5,7 +5,7 @@ from torch.nn import functional as F
 
 class EncoderBlock(nn.Module):
     # Consists of Conv -> LeakyReLU(0.2) -> MaxPool
-    def __init__(self, in_chans, out_chans, layers=2, kernel_size=3, sampling_factor=2, sampling_method="conv_stride"):
+    def __init__(self, in_chans, out_chans, layers=2, kernel_size=3, sampling_factor=2, sampling_method="pooling"):
         super().__init__()
         self.in_chans = in_chans
         self.out_chans = out_chans
@@ -15,23 +15,33 @@ class EncoderBlock(nn.Module):
         self.sampling_method = sampling_method
 
         self.encoder = nn.ModuleList()
-        N = layers - 1 if sampling_method is "conv_stride" else layers
-        for _ in range(N):
-            self.encoder.append(nn.Conv1d(in_chans, out_chans, kernel_size=kernel_size, stride=1))
+
+        for _ in range(layers):
+            self.encoder.append(nn.Conv1d(in_chans, out_chans, kernel_size=kernel_size, stride=1, padding="same"))
             self.encoder.append(nn.BatchNorm1d(out_chans))
             self.encoder.append(nn.LeakyReLU(0.2))
+            in_chans = out_chans
 
-        if sampling_method is "conv_stride":
+        if sampling_method == "conv_stride" and sampling_factor > 1:
+            diff = (kernel_size - sampling_factor)
+            if diff % 2 == 0:
+                ks = kernel_size
+                pad = diff // 2
+            else:
+                ks = kernel_size + 1
+                pad = (ks - sampling_factor) // 2
+
             self.encoder.append(nn.Sequential(
-                nn.Conv1d(in_chans, out_chans, kernel_size=kernel_size,
-                          stride=sampling_factor, padding="same"),
+                nn.Conv1d(out_chans, out_chans, kernel_size=ks,
+                          stride=sampling_factor, padding=pad),
                 nn.BatchNorm1d(out_chans),
                 nn.LeakyReLU(0.2)))
-        else:
+        elif sampling_method == "pooling" and sampling_factor > 1:
             self.encoder.append(nn.MaxPool1d(sampling_factor))
 
     def forward(self, x):
         for enc in self.encoder:
+
             x = enc(x)
         return x
 
@@ -62,21 +72,22 @@ class DecoderBlock(nn.Module):
             pad = 0
             out_pad = 0
         elif (kernel_size - sampling_factor) % 2 == 0:
-            pad = 0
+            pad = (kernel_size - sampling_factor) // 2
             out_pad = 0
         else:
-            pad = (kernel_size - sampling_factor) // 2
-            out_pad = (kernel_size - sampling_factor) % 2
+            out_pad = 1
+            pad = (kernel_size - sampling_factor + out_pad) // 2
 
+        assert (kernel_size - sampling_factor - 2*pad + out_pad) == 0
         self.tconv = nn.ConvTranspose1d(in_chans, in_chans // 2, stride=sampling_factor, kernel_size=kernel_size,
                                         padding=pad, output_padding=out_pad)
 
         self.decoder.append(nn.Conv1d(in_chans // skip_factor, out_chans, kernel_size, 1, padding="same"))
-        self.encoder.append(nn.BatchNorm1d(out_chans))
+        self.decoder.append(nn.BatchNorm1d(out_chans))
         self.decoder.append(nn.LeakyReLU(0.2))
         for _ in range(layers - 1):
             self.decoder.append(nn.Conv1d(out_chans, out_chans, kernel_size, 1, padding="same"))
-            self.encoder.append(nn.BatchNorm1d(out_chans))
+            self.decoder.append(nn.BatchNorm1d(out_chans))
             self.decoder.append(nn.LeakyReLU(0.2))
 
         if dropout > 0.0:
@@ -85,11 +96,6 @@ class DecoderBlock(nn.Module):
     def forward(self, x, enc_features=None):
         x = self.tconv(x)
         if self.skip_connection:
-            if self.padding != "same":
-                # Crop the enc_features to the same size as input
-                w = x.size(-1)
-                c = (enc_features.size(-1) - w) // 2
-                enc_features = enc_features[:, :, c:c + w, c:c + w]
             x = torch.cat((enc_features, x), dim=1)
         for dec in self.decoder:
             x = dec(x)
@@ -110,34 +116,34 @@ class UNet(nn.Module):
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
 
-        first_out_chans = max_channels // (2 ** depth)
+        first_out_chans = max_channels // (2 ** (depth - 1))
         if first_out_chans % 4 == 0:
             out_chans = first_out_chans
         else:
             out_chans = 4
 
-        # The first block should not do any downsampling (stride = 1 and no pooling):
+        # The first block should not do any down-sampling (stride = 1 and no pooling):
         self.encoder.append(EncoderBlock(in_chans, out_chans, layers, kernel_size=kernel_size,
-                                         sampling_factor=1, sampling_method="conv_stride"))
+                                         sampling_factor=1, sampling_method="no sampling"))
+
         for _ in range(depth - 1):
-            self.encoder.append(EncoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
-                                             sampling_factor=sampling_factor, sampling_method=sampling_method))
             if out_chans * 2 <= max_channels:
                 in_chans, out_chans = out_chans, out_chans * 2
             else:
                 in_chans, out_chans = out_chans, out_chans
+            self.encoder.append(EncoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
+                                             sampling_factor=sampling_factor, sampling_method=sampling_method))
 
-        out_chans = in_chans // 2
         for _ in range(depth - 1):
-            self.decoder.append(DecoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
-                                             sampling_factor=sampling_factor))
             if out_chans // 2 >= 4:
                 in_chans, out_chans = out_chans, out_chans // 2
             else:
                 in_chans, out_chans = out_chans, out_chans
+            self.decoder.append(DecoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
+                                             sampling_factor=sampling_factor))
 
         # Add a 1x1 convolution to produce final classes
-        self.logits = nn.Conv1d(in_chans, nclass, 1, 1)
+        self.logits = nn.Conv1d(out_chans, nclass, 1, 1)
 
     def forward(self, x):
         encoded = []

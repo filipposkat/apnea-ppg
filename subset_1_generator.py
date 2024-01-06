@@ -432,6 +432,7 @@ def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_te
     """
     Saves four arrays for one subject: X_train, y_train, X_test, y_test.
     X_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
+    The order of signals is Flow and then Pleth.
     y_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
     X_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
     y_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, 1)

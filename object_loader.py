@@ -191,33 +191,33 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
             binary_file.close()
             yield id, sub
 
+if __name__ == "__main__":
+    (id, sub) = get_subject_by_id(1017)
+    df = sub.export_to_dataframe()
+    # df.to_csv("107.csv")
+    print(df)
+    # print(df.to_numpy())
+    # print(sub.get_event_at_time(19290))
 
-# (id, sub) = get_subject_by_id(107)
-# df = sub.export_to_dataframe()
-# df.to_csv("107.csv")
-# print(df)
-# print(df.to_numpy())
-# print(sub.get_event_at_time(19290))
+    # print(df["Pleth"].min())
+    # print(df["Pleth"].max())
+    # print(df.dtypes)
+    # subs[133].export_to_dataframe()["Pleth"][646284:646909].plot()
+    # plt.show()
 
-# print(df["Pleth"].min())
-# print(df["Pleth"].max())
-# print(df.dtypes)
-# subs[133].export_to_dataframe()["Pleth"][646284:646909].plot()
-# plt.show()
+    if RELOAD_ANNOTATIONS:
+        annots_dict = {}  # key: subject id. value: path to the annotation xml file of the corresponding subject
+        # Find all annotation xml files and store their ids and paths:
+        for filename in os.listdir(PATH_TO_ANNOTATIONS):
+            if filename.endswith(".xml"):
+                subject_id = int(filename[-13:-9])
+                path_to_file = os.path.join(PATH_TO_ANNOTATIONS, filename)
+                annots_dict[subject_id] = path_to_file
 
-if RELOAD_ANNOTATIONS:
-    annots_dict = {}  # key: subject id. value: path to the annotation xml file of the corresponding subject
-    # Find all annotation xml files and store their ids and paths:
-    for filename in os.listdir(PATH_TO_ANNOTATIONS):
-        if filename.endswith(".xml"):
-            subject_id = int(filename[-13:-9])
-            path_to_file = os.path.join(PATH_TO_ANNOTATIONS, filename)
-            annots_dict[subject_id] = path_to_file
-
-    for subject_id, sub in all_subjects_generator():
-        sub.import_annotations_from_xml(annots_dict[subject_id])
-        # print(sub.export_to_dataframe())
-        path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
-        binary_file = open(path_obj, mode='wb')
-        pickle.dump(sub, binary_file)
-        binary_file.close()
+        for subject_id, sub in all_subjects_generator():
+            sub.import_annotations_from_xml(annots_dict[subject_id])
+            # print(sub.export_to_dataframe())
+            path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
+            binary_file = open(path_obj, mode='wb')
+            pickle.dump(sub, binary_file)
+            binary_file.close()

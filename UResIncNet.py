@@ -133,12 +133,21 @@ class EncoderBlock(nn.Module):
 
         if sampling_method is "conv_stride":
             stride = sampling_factor
+            diff = (kernel_size - sampling_factor)
+            if diff % 2 == 0:
+                ks = kernel_size
+                pad = diff // 2
+            else:
+                ks = kernel_size + 1
+                pad = (ks - sampling_factor) // 2
         else:
             stride = 1
+            ks = kernel_size
+            pad = "same"
             self.encoder.append(nn.MaxPool1d(sampling_factor))
 
         # Simple convolution for channel adjustment and for downscaling (if not max pooling):
-        self.encoder.append(nn.Conv1d(in_chans, out_chans, kernel_size, stride=stride, padding="same"))
+        self.encoder.append(nn.Conv1d(in_chans, out_chans, ks, stride=stride, padding=pad))
         self.encoder.append(nn.BatchNorm1d(out_chans))
         self.encoder.append(nn.LeakyReLU(0.2))
 
@@ -203,7 +212,7 @@ class UResIncNet(nn.Module):
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
 
-        first_out_chans = max_channels // (2 ** depth)
+        first_out_chans = max_channels // (2 ** (depth-1))
         if first_out_chans % 4 == 0:
             out_chans = first_out_chans
         else:
@@ -213,6 +222,7 @@ class UResIncNet(nn.Module):
         # Also the first block should not do any downsampling (stride = 1):
         self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, sampling_factor=1,
                                          sampling_method=sampling_method))
+        in_chans, out_chans = out_chans, out_chans * 2
         for _ in range(depth - 1):
             self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size,
                                              sampling_factor=sampling_factor, sampling_method=sampling_method))
