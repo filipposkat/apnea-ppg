@@ -1,22 +1,24 @@
 from itertools import cycle
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable
+
 import yaml
 
 import numpy as np
-import pandas as pd
 import random
 import pickle
 from sortedcontainers import SortedList
 
 import torch
 from torch.utils.data import DataLoader, IterableDataset
+from tqdm import tqdm
 
+GENERATE_TRAIN_TEST_SPLIT = True
 WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
 with open("config.yml", 'r') as f:
@@ -31,7 +33,7 @@ ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1.joinpath("dataloaders")
-dataloaders_path.joinpath(f"bn{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
+dataloaders_path.joinpath(f"bs{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
 train_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
                                                      f"PlethToLabel_Iterable_Train_Loader.pickle")
 test_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
@@ -40,16 +42,27 @@ test_cross_sub_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
                                                               f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
 
 # Get all ids in the directory with arrays. Each subdir is one subject
-subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
-rng = random.Random(33)
-test_ids = rng.sample(subset_ids, 2)
-train_ids = [id for id in subset_ids if id not in test_ids]
+if GENERATE_TRAIN_TEST_SPLIT:
+    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+    rng = random.Random(33)
+    test_ids = rng.sample(subset_ids, 2)
+    train_ids = [id for id in subset_ids if id not in test_ids]
+else:
+    test_ids = [1266, 939]
+    train_ids = [1017, 196, 892, 713, 1573, 620, 934, 468, 718, 589, 183, 33, 1453, 435, 505, 1281, 675, 405, 935, 133,
+                 27, 1604, 1464, 1089, 658, 332, 719, 1087, 527, 679, 643, 1236, 1278, 796, 979, 1650, 1133, 140, 626,
+                 381, 1478, 571, 743, 1376, 407, 1623, 628, 64, 1342, 951, 931, 1626, 1271, 715, 1291, 155, 728, 1212,
+                 1501, 1161, 1010, 1656, 1019, 194, 811, 823, 744, 912, 1013, 1502, 712, 1128, 1263, 490, 220, 1589,
+                 1552, 107, 303, 937, 346, 386, 725, 1562, 1016, 1328, 917, 1224, 860, 1497, 1301, 561, 125, 651, 572,
+                 863, 648, 1356]
 
 
 class IterDataset(IterableDataset):
+    load_arrays: Callable[[int], tuple[np.array, np.array]]
+
     def __init__(self, subject_ids: list[int],
                  batch_size: int,
-                 type: str = "train",
+                 dataset_split_type: str = "train",
                  shuffle=True,
                  seed=33,
                  transform=None,
@@ -57,16 +70,16 @@ class IterDataset(IterableDataset):
         """
         :param subject_ids:
         :param batch_size:
-        :param type: One of: train, test or cross_test
+        :param dataset_split_type: One of: train, test or cross_test
         :param shuffle: Whether to shuffle the subjects between epochs
         :param seed: The seed to use for shuffling and sampling
         """
         self.subject_ids = subject_ids
         self.batch_size = batch_size
 
-        if type == "train":
+        if dataset_split_type == "train":
             self.load_arrays = self.train_array_loader
-        elif type == "test":
+        elif dataset_split_type == "test":
             self.load_arrays = self.test_array_loader
         else:
             self.load_arrays = self.cross_test_array_loader
@@ -266,7 +279,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
 def get_new_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
     train_set = IterDataset(subject_ids=train_ids,
                             batch_size=batch_size,
-                            type="train",
+                            dataset_split_type="train",
                             shuffle=True,
                             seed=33,
                             transform=torch.from_numpy,
@@ -295,7 +308,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
 def get_new_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
     test_set = IterDataset(subject_ids=train_ids,
                            batch_size=batch_size,
-                           type="test",
+                           dataset_split_type="test",
                            shuffle=True,
                            seed=33,
                            transform=torch.from_numpy,
@@ -322,7 +335,7 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
 def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
     test_cross_sub_set = IterDataset(subject_ids=test_ids,
                                      batch_size=batch_size,
-                                     type="cross_test",
+                                     dataset_split_type="cross_test",
                                      shuffle=True,
                                      seed=33,
                                      transform=torch.from_numpy,
@@ -343,26 +356,26 @@ if __name__ == "__main__":
     #
     # X_train, y_train = train_array_loader(sub_id=id)
     # print(X_train[0,0,:])
-    # print(test_ids)
-    # print(train_ids)
+    print(test_ids)
+    print(train_ids)
 
     train_set = IterDataset(subject_ids=train_ids,
                             batch_size=BATCH_SIZE,
-                            type = "train",
+                            dataset_split_type="train",
                             shuffle=True,
                             seed=33,
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
     test_set = IterDataset(subject_ids=train_ids,
                            batch_size=BATCH_SIZE,
-                           type="test",
+                           dataset_split_type="test",
                            shuffle=True,
                            seed=33,
                            transform=torch.from_numpy,
                            target_transform=torch.from_numpy)
     test_cross_sub_set = IterDataset(subject_ids=test_ids,
                                      batch_size=BATCH_SIZE,
-                                     type="cross_test",
+                                     dataset_split_type="cross_test",
                                      shuffle=True,
                                      seed=33,
                                      transform=torch.from_numpy,
@@ -394,10 +407,9 @@ if __name__ == "__main__":
     batches = len(loader)
     print(f"Batches in epoch: {batches}")
     iter = iter(loader)
-    for (i, item) in enumerate(iter):
+    for (i, item) in tqdm(enumerate(iter), total=batches):
         X, y = item
         print(f"batch: {i}/{batches},  X shape: {X.shape},  y shape: {y.shape}")
-        break
         # print(X.dtype)
         # print(y)
         # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()

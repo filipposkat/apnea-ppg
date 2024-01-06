@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, IterableDataset
+from tqdm import tqdm
 
 # Local imports:
 from data_loaders_iterable import get_saved_train_loader, IterDataset
@@ -118,7 +119,7 @@ def train_loop(net, optimizer, criterion, epochs=EPOCHS, save_model_every_epoch:
         unix_time_start = time.time()
 
         running_loss = 0.0
-        for (i, data) in enumerate(iter(loader)):
+        for (i, data) in tqdm(enumerate(iter(loader)), total=batches):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
             inputs = inputs.to(device)
