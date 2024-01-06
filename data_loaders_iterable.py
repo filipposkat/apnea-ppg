@@ -12,12 +12,11 @@ from sortedcontainers import SortedList
 import torch
 from torch.utils.data import DataLoader, IterableDataset
 
-
 WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
-BATCH_SIZE = 512
+BATCH_SIZE = 128
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
 with open("config.yml", 'r') as f:
@@ -31,32 +30,56 @@ else:
 ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 
 # Paths for saving dataloaders:
-train_loader_object_file = PATH_TO_SUBSET1.joinpath(f"PlethToLabel_Iterable_Train_Loader_{BATCH_SIZE}.pickle")
-test_loader_object_file = PATH_TO_SUBSET1.joinpath(f"PlethToLabel_Iterable_Test_Loader_{BATCH_SIZE}.pickle")
-test_cross_sub_loader_object_file = PATH_TO_SUBSET1.joinpath(f"PlethToLabel_Iterable_TestCrossSub_Loader_{BATCH_SIZE}.pickle")
+dataloaders_path = PATH_TO_SUBSET1.joinpath("dataloaders")
+dataloaders_path.joinpath(f"bn{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
+train_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                     f"PlethToLabel_Iterable_Train_Loader.pickle")
+test_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                    f"PlethToLabel_Iterable_Test_Loader.pickle")
+test_cross_sub_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                              f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
+
+# Get all ids in the directory with arrays. Each subdir is one subject
+subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+rng = random.Random(33)
+test_ids = rng.sample(subset_ids, 2)
+train_ids = [id for id in subset_ids if id not in test_ids]
 
 
-class IterableDataset(IterableDataset):
+class IterDataset(IterableDataset):
     def __init__(self, subject_ids: list[int],
                  batch_size: int,
-                 arrays_loader: Callable[[int], tuple[np.array, np.array]],
-                 shuffle=False,
-                 seed=None,
+                 type: str = "train",
+                 shuffle=True,
+                 seed=33,
                  transform=None,
                  target_transform=None) -> None:
         """
         :param subject_ids:
         :param batch_size:
-        :param arrays_loader: Functions that loads the X, y arrays of a subject
-        :param id_size_dict:
+        :param type: One of: train, test or cross_test
         :param shuffle: Whether to shuffle the subjects between epochs
         :param seed: The seed to use for shuffling and sampling
         """
         self.subject_ids = subject_ids
         self.batch_size = batch_size
-        self.load_arrays = arrays_loader
+
+        if type == "train":
+            self.load_arrays = self.train_array_loader
+        elif type == "test":
+            self.load_arrays = self.test_array_loader
+        else:
+            self.load_arrays = self.cross_test_array_loader
+
         self.transform = transform
         self.target_transform = target_transform
+
+        # Determine n_signals / channels (if pleth only =1 if pleth and flow then =2):
+        X, _ = self.load_arrays(self.subject_ids[0])
+        self.n_signals = X.shape[1]
+        assert X.shape[0] > batch_size
+        assert self.n_signals <= N_SIGNALS
+        assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
         # Inputs are indexed with two numbers (id, window_index),
         self.id_size_dict = {}
@@ -75,6 +98,43 @@ class IterableDataset(IterableDataset):
     def __len__(self) -> int:
         # Number of batches:
         return (self.total_windows + self.batch_size - 1) // self.batch_size
+
+    def train_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
+        X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_train.npy")
+        y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_train.npy")
+
+        X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
+        X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
+
+        # Drop the flow signal since only Pleth will be used as input:
+        X = np.delete(X, 0, axis=1)
+
+        y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+        return X, y
+
+    def test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
+        X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_test.npy")
+        y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_test.npy")
+
+        X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
+        X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
+
+        # Drop the flow signal since only Pleth will be used as input:
+        X = np.delete(X, 0, axis=1)
+
+        y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+        return X, y
+
+    def cross_test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
+        X_test, y_test = self.test_array_loader(sub_id)
+        if INCLUDE_TRAIN_IN_CROSS_SUB_TESTING:
+            X_train, y_train = self.train_array_loader(sub_id)
+            X = np.concatenate((X_train, X_test), axis=0)
+            y = np.concatenate((y_train, y_test), axis=0)
+        else:
+            X = X_test
+            y = y_test
+        return X, y
 
     def get_specific_windows(self, subject_id: int, windows_indices: list[int]) -> tuple[np.array, np.array]:
         X, y = self.load_arrays(subject_id)
@@ -143,8 +203,8 @@ class IterableDataset(IterableDataset):
                 X_batch.append(signals)
                 y_batch.append(labels)
 
-            X_batch = np.concatenate(X_batch).reshape(self.batch_size, WINDOW_SAMPLES_SIZE)
-            y_batch = np.concatenate(y_batch).reshape(self.batch_size, WINDOW_SAMPLES_SIZE)
+            X_batch = np.concatenate(X_batch, axis=0)
+            y_batch = np.concatenate(y_batch, axis=0)
 
             if self.transform:
                 X_batch = self.transform(X_batch)
@@ -176,8 +236,8 @@ class IterableDataset(IterableDataset):
             X_batch.append(signals)
             y_batch.append(labels)
 
-        X_batch = np.array(X_batch, dtype="float32").reshape(-1, WINDOW_SAMPLES_SIZE)
-        y_batch = np.array(y_batch, dtype="uint8").reshape(-1, WINDOW_SAMPLES_SIZE)
+        X_batch = np.array(X_batch, dtype="float32")
+        y_batch = np.array(y_batch, dtype="uint8")
 
         if self.transform:
             X_batch = self.transform(X_batch)
@@ -186,91 +246,127 @@ class IterableDataset(IterableDataset):
         yield X_batch, y_batch
 
 
-def train_array_loader(sub_id: int) -> tuple[np.array, np.array]:
-    X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_train.npy")
-    y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_train.npy")
-    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS).astype("float32")
+def get_saved_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
+    object_file = dataloaders_path.joinpath(f"bs{batch_size}",
+                                            f"PlethToLabel_Iterable_Train_Loader.pickle")
+    if not object_file.exists():
+        loader = get_new_train_loader(batch_size=batch_size)
+        # Save train loader for future use
+        with open(object_file, "wb") as file:
+            pickle.dump(loader, file)
 
-    # Drop the flow signal since only Pleth will be used as input:
-    X = np.delete(X, 0, axis=2)
+        return loader
 
-    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
-    return X, y
-
-
-def test_array_loader(sub_id: int) -> tuple[np.array, np.array]:
-    X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_test.npy")
-    y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_test.npy")
-    X = np.load(X_path).reshape(-1, WINDOW_SAMPLES_SIZE, N_SIGNALS).astype("float32")
-
-    # Drop the flow signal since only Pleth will be used as input:
-    X = np.delete(X, 0, axis=2)
-
-    y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
-    return X, y
-
-
-def cross_test_array_loader(sub_id: int) -> tuple[np.array, np.array]:
-    X_test, y_test = test_array_loader(sub_id)
-    if INCLUDE_TRAIN_IN_CROSS_SUB_TESTING:
-        X_train, y_train = train_array_loader(sub_id)
-        X = np.concatenate((X_train, X_test), axis=0)
-        y = np.concatenate((y_train, y_test), axis=0)
-    else:
-        X = X_test
-        y = y_test
-    return X, y
-
-
-def get_saved_train_loader() -> DataLoader:
-    if train_loader_object_file.is_file():
-        with open(train_loader_object_file, "rb") as f:
+    if object_file.is_file():
+        with open(object_file, "rb") as f:
             return pickle.load(f)
 
 
-def get_saved_test_loader() -> DataLoader:
-    if test_loader_object_file.is_file():
-        with open(test_loader_object_file, "rb") as f:
+def get_new_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    train_set = IterDataset(subject_ids=train_ids,
+                            batch_size=batch_size,
+                            type="train",
+                            shuffle=True,
+                            seed=33,
+                            transform=torch.from_numpy,
+                            target_transform=torch.from_numpy)
+    # It is important to set batch_size=None which disables automatic batching,
+    # because dataset returns them batched already:
+    return DataLoader(train_set, batch_size=None, pin_memory=True)
+
+
+def get_saved_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
+    object_file = dataloaders_path.joinpath(f"bs{batch_size}",
+                                            f"PlethToLabel_Iterable_Test_Loader.pickle")
+    if not object_file.exists():
+        loader = get_new_test_loader(batch_size=batch_size)
+        # Save train loader for future use
+        with open(object_file, "wb") as file:
+            pickle.dump(loader, file)
+        return loader
+
+    if object_file.is_file():
+        with open(object_file, "rb") as f:
             return pickle.load(f)
 
 
-def get_saved_test_cross_sub_loader() -> DataLoader:
-    if test_cross_sub_loader_object_file.is_file():
-        with open(test_cross_sub_loader_object_file, "rb") as f:
+def get_new_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    test_set = IterDataset(subject_ids=train_ids,
+                           batch_size=batch_size,
+                           type="test",
+                           shuffle=True,
+                           seed=33,
+                           transform=torch.from_numpy,
+                           target_transform=torch.from_numpy)
+    return DataLoader(test_set, batch_size=None, pin_memory=True)
+
+
+def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
+    object_file = dataloaders_path.joinpath(f"bs{batch_size}",
+                                            f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
+    if not object_file.exists():
+        loader = get_new_test_cross_sub_loader(batch_size=batch_size)
+        # Save train loader for future use
+        with open(object_file, "wb") as file:
+            pickle.dump(loader, file)
+        return loader
+
+    if object_file.is_file():
+        with open(object_file, "rb") as f:
             return pickle.load(f)
+
+
+def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
+    test_cross_sub_set = IterDataset(subject_ids=test_ids,
+                                     batch_size=batch_size,
+                                     type="cross_test",
+                                     shuffle=True,
+                                     seed=33,
+                                     transform=torch.from_numpy,
+                                     target_transform=torch.from_numpy)
+    return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True)
 
 
 if __name__ == "__main__":
-    # Get all ids in the directory with arrays. Each subdir is one subject
-    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
-    rng = random.Random(33)
-    test_ids = rng.sample(subset_ids, 2)
-    train_ids = [id for id in subset_ids if id not in test_ids]
 
+    # id = 107
+    # print(id)
+    # X_path = ARRAYS_DIR.joinpath(str(id).zfill(4)).joinpath("X_train.npy")
+    # y_path = ARRAYS_DIR.joinpath(str(id).zfill(4)).joinpath("y_train.npy")
+    # X = np.load(X_path)
+    # y = np.load(y_path)
+    # import scipy.io as io
+    # io.savemat('107.mat', dict(x=X[0:10, :, :], y=y[0:10, :]))
+    #
+    # X_train, y_train = train_array_loader(sub_id=id)
+    # print(X_train[0,0,:])
     # print(test_ids)
     # print(train_ids)
 
-    train_set = IterableDataset(subject_ids=train_ids,
-                                batch_size=BATCH_SIZE,
-                                arrays_loader=train_array_loader,
-                                shuffle=True,
-                                seed=33,
-                                transform=torch.from_numpy,
-                                target_transform=torch.from_numpy)
-    test_set = IterableDataset(subject_ids=train_ids,
-                               batch_size=BATCH_SIZE,
-                               arrays_loader=test_array_loader,
-                               shuffle=True,
-                               seed=33,
-                               transform=torch.from_numpy,
-                               target_transform=torch.from_numpy)
-    test_cross_sub_set = IterableDataset(subject_ids=test_ids,
-                                         batch_size=BATCH_SIZE,
-                                         arrays_loader=cross_test_array_loader,
-                                         shuffle=True,
-                                         seed=33,
-                                         transform=torch.from_numpy,
-                                         target_transform=torch.from_numpy)
+    train_set = IterDataset(subject_ids=train_ids,
+                            batch_size=BATCH_SIZE,
+                            type = "train",
+                            shuffle=True,
+                            seed=33,
+                            transform=torch.from_numpy,
+                            target_transform=torch.from_numpy)
+    test_set = IterDataset(subject_ids=train_ids,
+                           batch_size=BATCH_SIZE,
+                           type="test",
+                           shuffle=True,
+                           seed=33,
+                           transform=torch.from_numpy,
+                           target_transform=torch.from_numpy)
+    test_cross_sub_set = IterDataset(subject_ids=test_ids,
+                                     batch_size=BATCH_SIZE,
+                                     type="cross_test",
+                                     shuffle=True,
+                                     seed=33,
+                                     transform=torch.from_numpy,
+                                     target_transform=torch.from_numpy)
 
     print(f"Train batches: {len(train_set)}")
     print(f"Test batches: {len(test_set)}")
@@ -301,6 +397,7 @@ if __name__ == "__main__":
     for (i, item) in enumerate(iter):
         X, y = item
         print(f"batch: {i}/{batches},  X shape: {X.shape},  y shape: {y.shape}")
+        break
         # print(X.dtype)
         # print(y)
         # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()
