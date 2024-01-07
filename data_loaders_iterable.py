@@ -30,6 +30,7 @@ else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
 
 ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
+PRE_BATCHED_ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("pre-batched-arrays")
 
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1.joinpath("dataloaders")
@@ -63,6 +64,7 @@ class IterDataset(IterableDataset):
     def __init__(self, subject_ids: list[int],
                  batch_size: int,
                  dataset_split_type: str = "train",
+                 desired_target: str = "pleth",
                  shuffle=True,
                  seed=33,
                  transform=None,
@@ -71,11 +73,13 @@ class IterDataset(IterableDataset):
         :param subject_ids:
         :param batch_size:
         :param dataset_split_type: One of: train, test or cross_test
+        :param desired_target: One of: label, flow
         :param shuffle: Whether to shuffle the subjects between epochs
         :param seed: The seed to use for shuffling and sampling
         """
         self.subject_ids = subject_ids
         self.batch_size = batch_size
+        self.target = desired_target
 
         if dataset_split_type == "train":
             self.load_arrays = self.train_array_loader
@@ -91,7 +95,7 @@ class IterDataset(IterableDataset):
         X, _ = self.load_arrays(self.subject_ids[0])
         self.n_signals = X.shape[1]
         assert X.shape[0] > batch_size
-        assert self.n_signals <= N_SIGNALS
+        assert self.n_signals == len(desired_target)
         assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
         # Inputs are indexed with two numbers (id, window_index),
@@ -119,10 +123,13 @@ class IterDataset(IterableDataset):
         X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
+        if "flow" == self.target:
+            y = X[:, 0, :]
+        else:
+            y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
-
-        y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
         return X, y
 
     def test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
@@ -132,10 +139,13 @@ class IterDataset(IterableDataset):
         X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
+        if "flow" == self.target:
+            y = X[:, 0, :]
+        else:
+            y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
-
-        y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
         return X, y
 
     def cross_test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
