@@ -8,3 +8,4 @@ paths:
     subject_objects_directory:
     csv_directory:
     subset_1_directory:
+    subset_1_training_directory:

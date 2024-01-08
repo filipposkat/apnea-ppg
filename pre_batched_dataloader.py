@@ -22,10 +22,15 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
+    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
 
-PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1.joinpath("pre-batched-tensors", f"bs{BATCH_SIZE}")
+ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
+
+# Paths for saving batch tensors:
+PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("pre-batched-tensors", f"bs{BATCH_SIZE}")
 
 
 def create_pre_batched_tensors(batch_size=BATCH_SIZE):

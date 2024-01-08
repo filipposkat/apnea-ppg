@@ -30,7 +30,7 @@ PyTorch installation with conda:
 --CUDA: conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
 
 combined subject arrays missing from Patra: 2292, 2651
-Problematic subject arrays in Patra: (4497, 1016, 1010, 2105, 5753, 5714, 3352, 3337, 4511, 2039, 4462, 3332, 2106, 4478, 3419, 2030, 2024, 5788, 3347, 5798, 4496, 2003, 951, 3314, 3324, 1013, 1017, 5801, 4508, 5845, 979)
+Problematic subject arrays in Patra: (951, 979, 1010, 1013, 1016, 1017, 2003, 2024, 2030, 2039, 2105, 2106, 3314, 3324, 3332, 3337, 3347, 3352, 3419, 4462, 4478, 4496, 4497, 4508, 4511, 5714, 5753, 5788, 5798, 5801, 5845)
 
 -ssh command to login: ssh -p 2021 ellab2@150.140.158.39
 -scp command to send files: scp -P 2021 -r ~/uni/Thesis/apnea-ppg/LocalFileName ellab2@150.140.158.39:~/philip/apnea-ppg/RemoteFileName
