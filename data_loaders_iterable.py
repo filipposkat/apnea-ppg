@@ -34,13 +34,7 @@ PRE_BATCHED_ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("pre-batched-arrays")
 
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1.joinpath("dataloaders")
-dataloaders_path.joinpath(f"bs{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
-train_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                     f"PlethToLabel_Iterable_Train_Loader.pickle")
-test_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                    f"PlethToLabel_Iterable_Test_Loader.pickle")
-test_cross_sub_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                              f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
+
 
 # Get all ids in the directory with arrays. Each subdir is one subject
 if GENERATE_TRAIN_TEST_SPLIT:
@@ -93,9 +87,9 @@ class IterDataset(IterableDataset):
 
         # Determine n_signals / channels (if pleth only =1 if pleth and flow then =2):
         X, _ = self.load_arrays(self.subject_ids[0])
-        self.n_signals = X.shape[1]
+        n_signals = X.shape[1]
         assert X.shape[0] > batch_size
-        assert self.n_signals == len(desired_target)
+        assert n_signals == 1  # Flow has been deleted already
         assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
         # Inputs are indexed with two numbers (id, window_index),
@@ -259,8 +253,8 @@ class IterDataset(IterableDataset):
             X_batch.append(signals)
             y_batch.append(labels)
 
-        X_batch = np.array(X_batch, dtype="float32")
-        y_batch = np.array(y_batch, dtype="uint8")
+        X_batch = np.array(X_batch)
+        y_batch = np.array(y_batch)
 
         if self.transform:
             X_batch = self.transform(X_batch)
@@ -400,6 +394,14 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, batch_size=None, pin_memory=True)
     test_loader = DataLoader(test_set, batch_size=None, pin_memory=True)
     test_cross_sub_loader = DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True)
+
+    dataloaders_path.joinpath(f"bs{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
+    train_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                         f"PlethToLabel_Iterable_Train_Loader.pickle")
+    test_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                        f"PlethToLabel_Iterable_Test_Loader.pickle")
+    test_cross_sub_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
+                                                                  f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
 
     # Save train loader for future use
     with open(train_loader_object_file, "wb") as file:
