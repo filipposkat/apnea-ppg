@@ -288,13 +288,16 @@ class IterDataset(IterableDataset):
         yield X_batch, y_batch
 
 
-def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
+def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_Train_Loader.pickle")
     if not object_file.exists():
         loader = get_new_train_loader(batch_size=batch_size)
         loader.num_workers = num_workers
+        if arrays_dir:
+            loader.dataset.arrays_dir = arrays_dir
+
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
@@ -319,13 +322,16 @@ def get_new_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
     return DataLoader(train_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
-def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
+def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_Test_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_loader(batch_size=batch_size)
         loader.num_workers = num_workers
+        if arrays_dir:
+            loader.dataset.arrays_dir = arrays_dir
+
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
@@ -347,13 +353,16 @@ def get_new_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
     return DataLoader(test_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
-def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
+def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) \
+        -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_cross_sub_loader(batch_size=batch_size)
         loader.num_workers = num_workers
+        if arrays_dir:
+            loader.dataset.arrays_dir = arrays_dir
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
