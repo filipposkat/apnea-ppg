@@ -37,6 +37,7 @@ ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders")
 
+
 class Dataset(Dataset):
 
     def __init__(self, subject_ids: list[int], window_loader: Callable[[int, int], tuple[np.array, np.array]],
@@ -308,7 +309,8 @@ if __name__ == "__main__":
 
         pleth_train_loader = DataLoader(train_set, shuffle=False, batch_sampler=train_sampler)
         pleth_test_loader = DataLoader(test_set, shuffle=False, batch_sampler=test_sampler)
-        pleth_test_cross_sub_loader = DataLoader(test_cross_sub_set, shuffle=False, batch_sampler=test_cross_sub_sampler)
+        pleth_test_cross_sub_loader = DataLoader(test_cross_sub_set, shuffle=False,
+                                                 batch_sampler=test_cross_sub_sampler)
 
         # # Save train loader for future use
         # with open(train_loader_object_file, "wb") as file:
@@ -332,4 +334,3 @@ if __name__ == "__main__":
         # print(y)
         # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()
         # print(f"Memory Usage: {memory_usage_in_bytes} bytes")
-

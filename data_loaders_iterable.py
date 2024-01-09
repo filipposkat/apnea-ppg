@@ -18,7 +18,9 @@ WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
-BATCH_SIZE = 256
+BATCH_SIZE = 128
+SEED = 33
+NUM_WORKERS = 2
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
 with open("config.yml", 'r') as f:
@@ -41,16 +43,35 @@ dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders")
 if GENERATE_TRAIN_TEST_SPLIT:
     subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
     rng = random.Random(33)
-    test_ids = rng.sample(subset_ids, 2)
-    train_ids = [id for id in subset_ids if id not in test_ids]
+    cross_sub_test_ids = rng.sample(subset_ids, CROSS_SUBJECT_TEST_SIZE)
+    train_ids = [id for id in subset_ids if id not in cross_sub_test_ids]
 else:
-    test_ids = [1266, 939]
-    train_ids = [1017, 196, 892, 713, 1573, 620, 934, 468, 718, 589, 183, 33, 1453, 435, 505, 1281, 675, 405, 935, 133,
-                 27, 1604, 1464, 1089, 658, 332, 719, 1087, 527, 679, 643, 1236, 1278, 796, 979, 1650, 1133, 140, 626,
-                 381, 1478, 571, 743, 1376, 407, 1623, 628, 64, 1342, 951, 931, 1626, 1271, 715, 1291, 155, 728, 1212,
-                 1501, 1161, 1010, 1656, 1019, 194, 811, 823, 744, 912, 1013, 1502, 712, 1128, 1263, 490, 220, 1589,
-                 1552, 107, 303, 937, 346, 386, 725, 1562, 1016, 1328, 917, 1224, 860, 1497, 1301, 561, 125, 651, 572,
-                 863, 648, 1356]
+    cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
+                          6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847, 3671,
+                          2408, 2771, 4671, 5907, 2147, 979, 620, 6215, 2434, 1863, 651, 3043, 1016, 5608, 6538, 2126,
+                          4270, 2374, 6075, 107, 3013, 4341, 5695, 2651, 6193, 3332, 3314, 1589, 935, 386, 3042, 5393,
+                          4794, 6037, 648, 1271, 811, 1010, 2750, 33, 626, 3469, 6756, 2961, 1756, 1650, 3294, 3913,
+                          5182, 4014, 3025, 5148, 4508, 3876, 2685, 4088, 675, 125, 6485, 3239, 5231, 3037, 5714, 5986,
+                          155, 4515, 6424, 2747, 1356]
+    train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
+                 589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
+                 931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
+                 1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
+                 1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983, 2003,
+                 2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292, 2317,
+                 2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798, 2800,
+                 2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149, 3156,
+                 3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564, 3575,
+                 3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867, 3902,
+                 3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205, 4228,
+                 4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554, 4592,
+                 4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137, 5155,
+                 5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433, 5457,
+                 5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909, 5954,
+                 5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280, 6291,
+                 6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755, 6781,
+                 6804, 6807, 6811]
+
 
 
 class IterDataset(IterableDataset):
@@ -286,12 +307,12 @@ def get_new_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
                             batch_size=batch_size,
                             dataset_split_type="train",
                             shuffle=True,
-                            seed=33,
+                            seed=SEED,
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
-    return DataLoader(train_set, batch_size=None, pin_memory=True)
+    return DataLoader(train_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
 def get_saved_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
@@ -315,10 +336,10 @@ def get_new_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
                            batch_size=batch_size,
                            dataset_split_type="test",
                            shuffle=True,
-                           seed=33,
+                           seed=SEED,
                            transform=torch.from_numpy,
                            target_transform=torch.from_numpy)
-    return DataLoader(test_set, batch_size=None, pin_memory=True)
+    return DataLoader(test_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
 def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
@@ -338,14 +359,14 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
 
 
 def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
-    test_cross_sub_set = IterDataset(subject_ids=test_ids,
+    test_cross_sub_set = IterDataset(subject_ids=cross_sub_test_ids,
                                      batch_size=batch_size,
                                      dataset_split_type="cross_test",
                                      shuffle=True,
-                                     seed=33,
+                                     seed=SEED,
                                      transform=torch.from_numpy,
                                      target_transform=torch.from_numpy)
-    return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True)
+    return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
 if __name__ == "__main__":
@@ -361,66 +382,24 @@ if __name__ == "__main__":
     #
     # X_train, y_train = train_array_loader(sub_id=id)
     # print(X_train[0,0,:])
-    print(test_ids)
+    print(cross_sub_test_ids)
     print(train_ids)
-
-    train_set = IterDataset(subject_ids=train_ids,
-                            batch_size=BATCH_SIZE,
-                            dataset_split_type="train",
-                            shuffle=True,
-                            seed=33,
-                            transform=torch.from_numpy,
-                            target_transform=torch.from_numpy)
-    test_set = IterDataset(subject_ids=train_ids,
-                           batch_size=BATCH_SIZE,
-                           dataset_split_type="test",
-                           shuffle=True,
-                           seed=33,
-                           transform=torch.from_numpy,
-                           target_transform=torch.from_numpy)
-    test_cross_sub_set = IterDataset(subject_ids=test_ids,
-                                     batch_size=BATCH_SIZE,
-                                     dataset_split_type="cross_test",
-                                     shuffle=True,
-                                     seed=33,
-                                     transform=torch.from_numpy,
-                                     target_transform=torch.from_numpy)
-
-    print(f"Train batches: {len(train_set)}")
-    print(f"Test batches: {len(test_set)}")
-    print(f"Test_cross batches: {len(test_cross_sub_set)}")
 
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
-    train_loader = DataLoader(train_set, batch_size=None, pin_memory=True)
-    test_loader = DataLoader(test_set, batch_size=None, pin_memory=True)
-    test_cross_sub_loader = DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True)
+    train_loader = get_saved_train_loader(BATCH_SIZE)
+    test_loader = get_saved_test_loader(BATCH_SIZE)
+    test_cross_sub_loader = get_saved_test_cross_sub_loader(BATCH_SIZE)
 
-    dataloaders_path.joinpath(f"bs{BATCH_SIZE}").mkdir(parents=True, exist_ok=True)
-    train_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                         f"PlethToLabel_Iterable_Train_Loader.pickle")
-    test_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                        f"PlethToLabel_Iterable_Test_Loader.pickle")
-    test_cross_sub_loader_object_file = dataloaders_path.joinpath(f"bs{BATCH_SIZE}",
-                                                                  f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
-
-    # Save train loader for future use
-    with open(train_loader_object_file, "wb") as file:
-        pickle.dump(train_loader, file)
-
-    # Save test loader for future use
-    with open(test_loader_object_file, "wb") as file:
-        pickle.dump(test_loader, file)
-
-    # Save test cross subject loader for future use
-    with open(test_cross_sub_loader_object_file, "wb") as file:
-        pickle.dump(test_cross_sub_loader, file)
+    print(f"Train batches: {len(train_loader)}")
+    print(f"Test batches: {len(test_loader)}")
+    print(f"Test_cross batches: {len(test_cross_sub_loader)}")
 
     loader = train_loader
     batches = len(loader)
     print(f"Batches in epoch: {batches}")
-    iter = iter(loader)
-    for (i, item) in tqdm(enumerate(iter), total=batches):
+    iterator = iter(loader)
+    for (i, item) in tqdm(enumerate(iterator), total=batches):
         X, y = item
         print(f"batch: {i}/{batches},  X shape: {X.shape},  y shape: {y.shape}")
         # print(X.dtype)
