@@ -17,7 +17,7 @@ from data_loaders_iterable import get_saved_train_loader, get_saved_test_loader,
 
 BATCH_SIZE = 128
 SEED = 33
-NUM_WORKERS = 2
+NUM_WORKERS = 3
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -36,9 +36,9 @@ PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("pre-batched-tensor
 
 
 def create_pre_batched_tensors(batch_size=BATCH_SIZE):
-    train_loader = get_saved_train_loader(batch_size)
-    test_loader = get_saved_test_loader(batch_size)
-    cross_test_loader = get_saved_test_cross_sub_loader(batch_size)
+    train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS)
+    test_loader = get_saved_test_loader(batch_size, num_workers=NUM_WORKERS)
+    cross_test_loader = get_saved_test_cross_sub_loader(batch_size, num_workers=NUM_WORKERS)
 
     train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("train")
     test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("test")

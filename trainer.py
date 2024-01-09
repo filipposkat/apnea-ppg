@@ -20,15 +20,15 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
+    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
 else:
-    PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
 
 # --- END OF CONSTANTS --- #
 
-models_path = PATH_TO_SUBSET1.joinpath("saved-models")
+models_path = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
 models_path.mkdir(parents=True, exist_ok=True)
 
 

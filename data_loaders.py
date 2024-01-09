@@ -33,6 +33,7 @@ else:
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
 
 ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
+EXPANDED_ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays-expanded")
 
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders")

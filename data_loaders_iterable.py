@@ -20,7 +20,7 @@ CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 128
 SEED = 33
-NUM_WORKERS = 2
+NUM_WORKERS = 3
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
 with open("config.yml", 'r') as f:
@@ -37,7 +37,6 @@ ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 
 # Paths for saving dataloaders:
 dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders")
-
 
 # Get all ids in the directory with arrays. Each subdir is one subject
 if GENERATE_TRAIN_TEST_SPLIT:
@@ -73,9 +72,9 @@ else:
                  6804, 6807, 6811]
 
 
-
 class IterDataset(IterableDataset):
     load_arrays: Callable[[int], tuple[np.array, np.array]]
+    arrays_dir: Path
 
     def __init__(self, subject_ids: list[int],
                  batch_size: int,
@@ -84,7 +83,8 @@ class IterDataset(IterableDataset):
                  shuffle=True,
                  seed=33,
                  transform=None,
-                 target_transform=None) -> None:
+                 target_transform=None,
+                 initialization_progress=True) -> None:
         """
         :param subject_ids:
         :param batch_size:
@@ -96,6 +96,7 @@ class IterDataset(IterableDataset):
         self.subject_ids = subject_ids
         self.batch_size = batch_size
         self.target = desired_target
+        self.arrays_dir = ARRAYS_DIR
 
         if dataset_split_type == "train":
             self.load_arrays = self.train_array_loader
@@ -117,7 +118,9 @@ class IterDataset(IterableDataset):
         # Inputs are indexed with two numbers (id, window_index),
         self.id_size_dict = {}
         self.total_windows = 0
-        for id in self.subject_ids:
+
+        subject_ids = tqdm(self.subject_ids) if initialization_progress else self.subject_ids
+        for id in subject_ids:
             _, y = self.load_arrays(id)
             n_windows = y.shape[0]
             self.id_size_dict[id] = n_windows
@@ -133,32 +136,32 @@ class IterDataset(IterableDataset):
         return (self.total_windows + self.batch_size - 1) // self.batch_size
 
     def train_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
-        X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_train.npy")
-        y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_train.npy")
+        X_path = self.arrays_dir.joinpath(str(sub_id).zfill(4)).joinpath("X_train.npy")
+        y_path = self.arrays_dir.joinpath(str(sub_id).zfill(4)).joinpath("y_train.npy")
 
-        X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
+        X = np.load(str(X_path)).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
             y = X[:, 0, :]
         else:
-            y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+            y = np.load(str(y_path)).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
         return X, y
 
     def test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
-        X_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("X_test.npy")
-        y_path = ARRAYS_DIR.joinpath(str(sub_id).zfill(4)).joinpath("y_test.npy")
+        X_path = self.arrays_dir.joinpath(str(sub_id).zfill(4)).joinpath("X_test.npy")
+        y_path = self.arrays_dir.joinpath(str(sub_id).zfill(4)).joinpath("y_test.npy")
 
-        X = np.load(X_path).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
+        X = np.load(str(X_path)).astype("float32")  # shape: (n_windows, window_size, n_signals), Flow comes first
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
             y = X[:, 0, :]
         else:
-            y = np.load(y_path).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+            y = np.load(str(y_path)).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
@@ -285,12 +288,13 @@ class IterDataset(IterableDataset):
         yield X_batch, y_batch
 
 
-def get_saved_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
+def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_Train_Loader.pickle")
     if not object_file.exists():
         loader = get_new_train_loader(batch_size=batch_size)
+        loader.num_workers = num_workers
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
@@ -315,12 +319,13 @@ def get_new_train_loader(batch_size=BATCH_SIZE) -> DataLoader:
     return DataLoader(train_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
-def get_saved_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
+def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_Test_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_loader(batch_size=batch_size)
+        loader.num_workers = num_workers
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
@@ -342,12 +347,13 @@ def get_new_test_loader(batch_size=BATCH_SIZE) -> DataLoader:
     return DataLoader(test_set, batch_size=None, pin_memory=True, num_workers=NUM_WORKERS)
 
 
-def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE) -> DataLoader:
+def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_cross_sub_loader(batch_size=batch_size)
+        loader.num_workers = num_workers
         # Save train loader for future use
         with open(object_file, "wb") as file:
             pickle.dump(loader, file)
@@ -387,9 +393,9 @@ if __name__ == "__main__":
 
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
-    train_loader = get_saved_train_loader(BATCH_SIZE)
-    test_loader = get_saved_test_loader(BATCH_SIZE)
-    test_cross_sub_loader = get_saved_test_cross_sub_loader(BATCH_SIZE)
+    train_loader = get_saved_train_loader(BATCH_SIZE, NUM_WORKERS)
+    test_loader = get_saved_test_loader(BATCH_SIZE, NUM_WORKERS)
+    test_cross_sub_loader = get_saved_test_cross_sub_loader(BATCH_SIZE, NUM_WORKERS)
 
     print(f"Train batches: {len(train_loader)}")
     print(f"Test batches: {len(test_loader)}")
