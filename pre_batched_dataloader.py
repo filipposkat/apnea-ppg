@@ -1,23 +1,24 @@
 from pathlib import Path
 from typing import Callable, Any
 import yaml
-
 from tqdm import tqdm
-import numpy as np
-import pandas as pd
-import random
-import pickle
 
 import torch
 from torch.utils.data import DataLoader, Sampler
 from torch.utils.data import Dataset
 
 # Local imports:
-from data_loaders_iterable import get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
+from data_loaders_iterable import IterDataset, worker_init_fn, \
+    get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
+
 
 BATCH_SIZE = 128
 SEED = 33
-NUM_WORKERS = 3
+NUM_WORKERS = 4
+SKIP_EXISTING = True
+SKIP_TRAIN = False
+SKIP_TEST = False
+SKIP_CROSS_TEST = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -47,36 +48,45 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
     test_tensors_path.mkdir(parents=True, exist_ok=True)
     cross_test_tensors_path.mkdir(parents=True, exist_ok=True)
 
-    print("Saving batches from train loader:")
-    batches = len(train_loader)
-    for (i, item) in tqdm(enumerate(iter(train_loader)), total=batches):
-        batch_path = train_tensors_path.joinpath(f"batch-{i}")
-        batch_path.mkdir(exist_ok=True)
-        X_path = batch_path.joinpath("X.pt")
-        y_path = batch_path.joinpath("y.pt")
-        X, y = item
-        torch.save(X, X_path)
-        torch.save(y, y_path)
+    if not SKIP_TRAIN:
+        print("Saving batches from train loader:")
+        batches = len(train_loader)
+        for (i, item) in tqdm(enumerate(train_loader), total=batches):
+            batch_path = train_tensors_path.joinpath(f"batch-{i}")
 
-    batches = len(test_loader)
-    for (i, item) in tqdm(enumerate(iter(test_loader)), total=batches):
-        batch_path = test_tensors_path.joinpath(f"batch-{i}")
-        batch_path.mkdir(exist_ok=True)
-        X_path = batch_path.joinpath("X.pt")
-        y_path = batch_path.joinpath("y.pt")
-        X, y = item
-        torch.save(X, X_path)
-        torch.save(y, y_path)
+            # if batch has been saved already then skip it:
+            if SKIP_EXISTING and batch_path.exists() and train_tensors_path.joinpath(f"batch-{i + 1}").exists():
+                # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be corrupted.
+                continue
 
-    batches = len(cross_test_loader)
-    for (i, item) in tqdm(enumerate(iter(cross_test_loader)), total=batches):
-        batch_path = cross_test_tensors_path.joinpath(f"batch-{i}")
-        batch_path.mkdir(exist_ok=True)
-        X_path = batch_path.joinpath("X.pt")
-        y_path = batch_path.joinpath("y.pt")
-        X, y = item
-        torch.save(X, X_path)
-        torch.save(y, y_path)
+            batch_path.mkdir(exist_ok=True)
+            X_path = batch_path.joinpath("X.pt")
+            y_path = batch_path.joinpath("y.pt")
+            X, y = item
+            torch.save(X, X_path)
+            torch.save(y, y_path)
+
+    if not SKIP_TEST:
+        batches = len(test_loader)
+        for (i, item) in tqdm(enumerate(test_loader), total=batches):
+            batch_path = test_tensors_path.joinpath(f"batch-{i}")
+            batch_path.mkdir(exist_ok=True)
+            X_path = batch_path.joinpath("X.pt")
+            y_path = batch_path.joinpath("y.pt")
+            X, y = item
+            torch.save(X, X_path)
+            torch.save(y, y_path)
+
+    if not SKIP_CROSS_TEST:
+        batches = len(cross_test_loader)
+        for (i, item) in tqdm(enumerate(cross_test_loader), total=batches):
+            batch_path = cross_test_tensors_path.joinpath(f"batch-{i}")
+            batch_path.mkdir(exist_ok=True)
+            X_path = batch_path.joinpath("X.pt")
+            y_path = batch_path.joinpath("y.pt")
+            X, y = item
+            torch.save(X, X_path)
+            torch.save(y, y_path)
 
 
 class PreBatchedDataset(Dataset):
@@ -120,42 +130,46 @@ def adaptive_collate_fn(batches: list[tuple[torch.tensor, torch.tensor]]) -> tup
     return combined_input_batches, combined_label_batches
 
 
-def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE) -> DataLoader:
+def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
     dir_path = PRE_BATCHED_TENSORS_PATH / "train"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE
-    rng = random.Random(SEED)
+    rng = torch.Generator()
+    rng.manual_seed(SEED)
     train_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn, shuffle=True,
-                              generator=rng, pin_memory=True, num_workers=NUM_WORKERS)
+                              generator=rng, pin_memory=True, num_workers=n_workers)
     return train_loader
 
 
-def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE) -> DataLoader:
+def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
     dir_path = PRE_BATCHED_TENSORS_PATH / "test"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE
-    rng = random.Random(SEED)
+    rng = torch.Generator()
+    rng.manual_seed(SEED)
     test_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn, shuffle=True,
-                              generator=rng, pin_memory=True, num_workers=NUM_WORKERS)
+                             generator=rng, pin_memory=True, num_workers=n_workers)
     return test_loader
 
 
-def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE) -> DataLoader:
+def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
     dir_path = PRE_BATCHED_TENSORS_PATH / "test-cross-subject"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE
-    rng = random.Random(SEED)
+
+    rng = torch.Generator()
+    rng.manual_seed(SEED)
     test_cross_sub_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                       shuffle=True, generator=rng, pin_memory=True, num_workers=NUM_WORKERS)
+                                       shuffle=True, generator=rng, pin_memory=True, num_workers=n_workers)
     return test_cross_sub_loader
 
 
