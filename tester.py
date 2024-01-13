@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, IterableDataset
 from tqdm import tqdm
 
 # Local imports:
-from data_loaders_iterable import IterDataset, worker_init_fn, get_saved_test_loader
+from data_loaders_iterable import IterDataset, get_saved_test_loader
 from UNet import UNet
 
 # --- START OF CONSTANTS --- #

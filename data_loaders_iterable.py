@@ -25,7 +25,6 @@ NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have d
 PREFETCH_FACTOR = 2
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
-
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
@@ -97,6 +96,7 @@ class IterDataset(IterableDataset):
         :param seed: The seed to use for shuffling and sampling
         """
         self.subject_ids = subject_ids
+        self.effective_subject_ids = subject_ids
         self.batch_size = batch_size
         self.target = desired_target
         self.arrays_dir = ARRAYS_DIR
@@ -135,8 +135,22 @@ class IterDataset(IterableDataset):
             self.rng = random.Random(seed)
 
     def __len__(self) -> int:
+        """
+        :return: Number of batches assuming no parallelization (one worker).
+        """
         # Number of batches:
         return (self.total_windows + self.batch_size - 1) // self.batch_size
+
+    def get_effective_len(self) -> int:
+        """
+        :return:Number of batches for this specific worker (if parallelization enabled).
+        """
+        # Number of batches:
+        total_windows = 0
+        for id in self.effective_subject_ids:
+            total_windows += self.id_size_dict[id]
+
+        return (total_windows + self.batch_size - 1) // self.batch_size
 
     def train_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
         X_path = self.arrays_dir.joinpath(str(sub_id).zfill(4)).joinpath("X_train.npy")
@@ -189,8 +203,19 @@ class IterDataset(IterableDataset):
         return signals, labels
 
     def __iter__(self):
-        # for batch in torch.chunk(torch.argsort(sizes), len(self)):
-        #     yield batch.tolist()
+
+        # Get worker details:
+        worker_info = torch.utils.data.get_worker_info()
+        num_workers = worker_info.num_workers
+        worker_id = worker_info.id
+
+        # configure the dataset to only process the split workload
+        per_worker = int(math.ceil(len(self.subject_ids) / float(num_workers)))
+        start = worker_id * per_worker
+        end = min(start + per_worker, len(self.subject_ids))
+
+        # Get the ids that will be used by this worker:
+        self.effective_subject_ids = self.subject_ids[start:end]
 
         batches = 0
         # by default tuples are sorted with preference given to the first elements (subject in this case):
@@ -202,7 +227,7 @@ class IterDataset(IterableDataset):
 
         # Cyclic iterator of our ids:
         pool = cycle(self.subject_ids)
-        while batches < len(self) - 1:
+        while batches < self.get_effective_len() - 1:
             sub_id1 = next(pool)
             sub_id2 = next(pool)
             sub_id3 = next(pool)
@@ -291,20 +316,6 @@ class IterDataset(IterableDataset):
         yield X_batch, y_batch
 
 
-def worker_init_fn(worker_id: int):
-    worker_info = torch.utils.data.get_worker_info()
-    num_workers = worker_info.num_workers
-    dataset: IterDataset = worker_info.dataset  # the dataset copy in this worker process
-    sub_ids = dataset.subject_ids
-
-    # configure the dataset to only process the split workload
-    per_worker = int(math.ceil(len(sub_ids) / float(num_workers)))
-    start = worker_id * per_worker
-    end = min(start + per_worker, len(sub_ids))
-
-    dataset.subject_ids = sub_ids[start:end]
-
-
 def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
     train_set = IterDataset(subject_ids=train_ids,
                             batch_size=batch_size,
@@ -316,10 +327,11 @@ def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fet
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
     return DataLoader(train_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, worker_init_fn=worker_init_fn, prefetch_factor=pre_fetch)
+                      num_workers=num_workers, prefetch_factor=pre_fetch)
 
 
-def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, arrays_dir: Path = None) \
+def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+                           arrays_dir: Path = None) \
         -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
@@ -340,7 +352,6 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
 
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
-        loader.worker_init_fn = worker_init_fn
         if arrays_dir:
             loader.dataset.arrays_dir = arrays_dir
 
@@ -356,10 +367,11 @@ def get_new_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetc
                            transform=torch.from_numpy,
                            target_transform=torch.from_numpy)
     return DataLoader(test_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, prefetch_factor=pre_fetch, worker_init_fn=worker_init_fn)
+                      num_workers=num_workers, prefetch_factor=pre_fetch)
 
 
-def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, arrays_dir: Path = None) \
+def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+                          arrays_dir: Path = None) \
         -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
@@ -380,14 +392,14 @@ def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fe
 
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
-        loader.worker_init_fn = worker_init_fn
         if arrays_dir:
             loader.dataset.arrays_dir = arrays_dir
 
     return loader
 
 
-def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS,
+                                  pre_fetch=PREFETCH_FACTOR) -> DataLoader:
     test_cross_sub_set = IterDataset(subject_ids=cross_sub_test_ids,
                                      batch_size=batch_size,
                                      dataset_split_type="cross_test",
@@ -396,7 +408,7 @@ def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
                                      transform=torch.from_numpy,
                                      target_transform=torch.from_numpy)
     return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, prefetch_factor=pre_fetch, worker_init_fn=worker_init_fn)
+                      num_workers=num_workers, prefetch_factor=pre_fetch)
 
 
 def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
@@ -420,7 +432,6 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKE
 
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
-        loader.worker_init_fn = worker_init_fn
         if arrays_dir:
             loader.dataset.arrays_dir = arrays_dir
 

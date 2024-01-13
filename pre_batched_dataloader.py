@@ -8,14 +8,14 @@ from torch.utils.data import DataLoader, Sampler
 from torch.utils.data import Dataset
 
 # Local imports:
-from data_loaders_iterable import IterDataset, worker_init_fn, \
+from data_loaders_iterable import IterDataset, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
 
 BATCH_SIZE = 256
 SEED = 33
-NUM_WORKERS = 2
-SKIP_EXISTING = True
+NUM_WORKERS = 1
+SKIP_EXISTING = False
 SKIP_TRAIN = False
 SKIP_TEST = False
 SKIP_CROSS_TEST = False
@@ -37,9 +37,14 @@ PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("pre-batched-tensor
 
 
 def create_pre_batched_tensors(batch_size=BATCH_SIZE):
-    train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=1)
-    test_loader = get_saved_test_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=1)
-    cross_test_loader = get_saved_test_cross_sub_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=1)
+    if NUM_WORKERS == 0:
+        pre_fetch_factor = None
+    else:
+        pre_fetch_factor = 1
+
+    train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
+    test_loader = get_saved_test_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
+    cross_test_loader = get_saved_test_cross_sub_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
 
     train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("train")
     test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("test")

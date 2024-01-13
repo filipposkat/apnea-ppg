@@ -11,7 +11,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 # Local imports:
-from data_loaders_iterable import IterDataset, worker_init_fn, get_saved_train_loader, get_saved_test_loader
+from data_loaders_iterable import IterDataset, get_saved_train_loader, get_saved_test_loader
 from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched_test_loader, \
     get_pre_batched_test_cross_sub_loader
 
