@@ -21,6 +21,7 @@ from tester import test_loop
 # --- START OF CONSTANTS --- #
 EPOCHS = 100
 BATCH_SIZE = 256
+BATCH_SIZE_TEST = 32768
 NUM_WORKERS = 2
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = True

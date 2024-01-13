@@ -14,7 +14,7 @@ from UNet import UNet
 
 # --- START OF CONSTANTS --- #
 EPOCHS = 100
-BATCH_SIZE = 256
+BATCH_SIZE_TEST = 32768
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = True
 
@@ -126,7 +126,7 @@ def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
 
 # if __name__ == "__main__":
     # # Prepare train dataloader:
-    # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE)
+    # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE_TEST)
     #
     # # Create Network:
     # unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")

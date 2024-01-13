@@ -1,22 +1,18 @@
 from itertools import cycle
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
 import yaml
 
 import numpy as np
-import pandas as pd
 import random
 import pickle
 from sortedcontainers import SortedList
 
-import seaborn as sn
-import matplotlib.pyplot as plt
-
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, Sampler
 from torch.utils.data import Dataset
 
+GENERATE_TRAIN_TEST_SPLIT = False
 WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
@@ -43,10 +39,38 @@ EXPANDED_ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays-expanded")
 dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders-for-expanded")
 dataloaders_path.mkdir(parents=True, exist_ok=True)
 
-subset_ids = [int(f.name) for f in EXPANDED_ARRAYS_DIR.iterdir() if f.is_dir()]
-random.seed(SEED)
-cross_test_ids = random.sample(subset_ids, CROSS_SUBJECT_TEST_SIZE)
-train_ids = [id for id in subset_ids if id not in cross_test_ids]
+# Get all ids in the directory with arrays. Each subdir is one subject
+if GENERATE_TRAIN_TEST_SPLIT:
+    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+    rng = random.Random(33)
+    cross_test_ids = rng.sample(subset_ids, CROSS_SUBJECT_TEST_SIZE)
+    train_ids = [id for id in subset_ids if id not in cross_test_ids]
+else:
+    cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
+                          6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847, 3671,
+                          2408, 2771, 4671, 5907, 2147, 979, 620, 6215, 2434, 1863, 651, 3043, 1016, 5608, 6538, 2126,
+                          4270, 2374, 6075, 107, 3013, 4341, 5695, 2651, 6193, 3332, 3314, 1589, 935, 386, 3042, 5393,
+                          4794, 6037, 648, 1271, 811, 1010, 2750, 33, 626, 3469, 6756, 2961, 1756, 1650, 3294, 3913,
+                          5182, 4014, 3025, 5148, 4508, 3876, 2685, 4088, 675, 125, 6485, 3239, 5231, 3037, 5714, 5986,
+                          155, 4515, 6424, 2747, 1356]
+    train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
+                 589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
+                 931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
+                 1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
+                 1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983, 2003,
+                 2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292, 2317,
+                 2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798, 2800,
+                 2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149, 3156,
+                 3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564, 3575,
+                 3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867, 3902,
+                 3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205, 4228,
+                 4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554, 4592,
+                 4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137, 5155,
+                 5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433, 5457,
+                 5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909, 5954,
+                 5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280, 6291,
+                 6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755, 6781,
+                 6804, 6807, 6811]
 
 
 class ExpandedDataset(Dataset):
@@ -110,8 +134,8 @@ class ExpandedDataset(Dataset):
 
     def __getitem__(self, subject_window_index: tuple[int, int]) -> tuple[Any, Any]:
         """
-        :param idx: Index that will be mapped to (subject_id, window_id) based on index_map
-        :return: (signal, labels) where signal = Pleth signal of shape (
+        :param subject_window_index:  (subject_id, window_id) pair
+        :return: (signal, labels) where shape of signal: (1, window_size) and of labels: (window_size)
         """
 
         subject_id = subject_window_index[0]
@@ -243,7 +267,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
 
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
-                                            f"PlethToLabel_Iterable_Train_Loader.pickle")
+                                            f"PlethToLabel_Expanded_Train_Loader.pickle")
     if not object_file.exists():
         loader = get_new_train_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
 
@@ -283,7 +307,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fe
 
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
-                                            f"PlethToLabel_Iterable_Test_Loader.pickle")
+                                            f"PlethToLabel_Expanded_Test_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
 
@@ -323,7 +347,7 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKE
 
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
-                                            f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
+                                            f"PlethToLabel_Expanded_TestCrossSub_Loader.pickle")
     if not object_file.exists():
         loader = get_new_test_cross_sub_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
 

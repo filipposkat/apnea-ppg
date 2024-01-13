@@ -13,6 +13,7 @@ from data_loaders_iterable import IterDataset, \
 
 
 BATCH_SIZE = 256
+BATCH_SIZE_TEST = 32768
 SEED = 33
 NUM_WORKERS = 1
 SKIP_EXISTING = False
@@ -33,7 +34,7 @@ else:
 ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 
 # Paths for saving batch tensors:
-PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("pre-batched-tensors", f"bs{BATCH_SIZE}")
+PRE_BATCHED_TENSORS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("pre-batched-tensors")
 
 
 def create_pre_batched_tensors(batch_size=BATCH_SIZE):
@@ -43,12 +44,13 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
         pre_fetch_factor = 1
 
     train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
-    test_loader = get_saved_test_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
-    cross_test_loader = get_saved_test_cross_sub_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
+    test_loader = get_saved_test_loader(BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
+    cross_test_loader = get_saved_test_cross_sub_loader(BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+                                                        pre_fetch=pre_fetch_factor)
 
-    train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("train")
-    test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("test")
-    cross_test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath("test-cross-subject")
+    train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{BATCH_SIZE}", "train")
+    test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{BATCH_SIZE_TEST}", "test")
+    cross_test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{BATCH_SIZE_TEST}", "test-cross-subject")
     train_tensors_path.mkdir(parents=True, exist_ok=True)
     test_tensors_path.mkdir(parents=True, exist_ok=True)
     cross_test_tensors_path.mkdir(parents=True, exist_ok=True)
@@ -61,7 +63,8 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
 
             # if batch has been saved already then skip it:
             if SKIP_EXISTING and batch_path.exists() and train_tensors_path.joinpath(f"batch-{i + 1}").exists():
-                # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be corrupted.
+                # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
+                # corrupted.
                 continue
 
             batch_path.mkdir(exist_ok=True)
@@ -138,7 +141,7 @@ def adaptive_collate_fn(batches: list[tuple[torch.tensor, torch.tensor]]) -> tup
 def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
-    dir_path = PRE_BATCHED_TENSORS_PATH / "train"
+    dir_path = PRE_BATCHED_TENSORS_PATH / f"bs{BATCH_SIZE}" / "train"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE
@@ -152,7 +155,7 @@ def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WOR
 def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
-    dir_path = PRE_BATCHED_TENSORS_PATH / "test"
+    dir_path = PRE_BATCHED_TENSORS_PATH / f"bs{BATCH_SIZE_TEST}" / "test"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE
@@ -166,7 +169,7 @@ def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORK
 def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS) -> DataLoader:
     assert batch_size % BATCH_SIZE == 0
 
-    dir_path = PRE_BATCHED_TENSORS_PATH / "test-cross-subject"
+    dir_path = PRE_BATCHED_TENSORS_PATH / f"bs{BATCH_SIZE_TEST}" / "test-cross-subject"
     train_set = PreBatchedDataset(dir_path)
 
     batch_multiplier = batch_size // BATCH_SIZE

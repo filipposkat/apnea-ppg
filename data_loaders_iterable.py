@@ -14,12 +14,13 @@ import torch
 from torch.utils.data import DataLoader, IterableDataset
 from tqdm import tqdm
 
-GENERATE_TRAIN_TEST_SPLIT = True
+GENERATE_TRAIN_TEST_SPLIT = False
 WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
+BATCH_SIZE_TEST = 32768
 SEED = 33
 NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
 PREFETCH_FACTOR = 2
@@ -38,7 +39,7 @@ else:
 ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
 
 # Paths for saving dataloaders:
-dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders")
+dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders-iterable")
 
 # Get all ids in the directory with arrays. Each subdir is one subject
 if GENERATE_TRAIN_TEST_SPLIT:
@@ -114,7 +115,7 @@ class IterDataset(IterableDataset):
         # Determine n_signals / channels (if pleth only =1 if pleth and flow then =2):
         X, _ = self.load_arrays(self.subject_ids[0])
         n_signals = X.shape[1]
-        assert X.shape[0] > batch_size
+
         assert n_signals == 1  # Flow has been deleted already
         assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
@@ -223,10 +224,10 @@ class IterDataset(IterableDataset):
 
         # Shuffle ids in-place:
         if self.shuffle:
-            self.rng.shuffle(self.subject_ids)
+            self.rng.shuffle(self.effective_subject_ids)
 
         # Cyclic iterator of our ids:
-        pool = cycle(self.subject_ids)
+        pool = cycle(self.effective_subject_ids)
         while batches < self.get_effective_len() - 1:
             sub_id1 = next(pool)
             sub_id2 = next(pool)
@@ -288,7 +289,7 @@ class IterDataset(IterableDataset):
 
         # The last batch may contain less than the batch_size:
         unused_2d_indices = []
-        for sub_id in self.subject_ids:
+        for sub_id in self.effective_subject_ids:
             n_windows = self.id_size_dict[sub_id]
             for window_index in range(n_windows):
                 if (sub_id, window_index) not in used_2d_indices:
@@ -358,7 +359,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
     return loader
 
 
-def get_new_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+def get_new_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
     test_set = IterDataset(subject_ids=train_ids,
                            batch_size=batch_size,
                            dataset_split_type="test",
@@ -370,7 +371,7 @@ def get_new_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetc
                       num_workers=num_workers, prefetch_factor=pre_fetch)
 
 
-def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
                           arrays_dir: Path = None) \
         -> DataLoader:
     if NUM_WORKERS == 0:
@@ -398,7 +399,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fe
     return loader
 
 
-def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS,
+def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                   pre_fetch=PREFETCH_FACTOR) -> DataLoader:
     test_cross_sub_set = IterDataset(subject_ids=cross_sub_test_ids,
                                      batch_size=batch_size,
@@ -411,7 +412,7 @@ def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
                       num_workers=num_workers, prefetch_factor=pre_fetch)
 
 
-def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
                                     arrays_dir: Path = None) -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
@@ -457,12 +458,12 @@ if __name__ == "__main__":
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
     train_loader = get_saved_train_loader(BATCH_SIZE, NUM_WORKERS)
-    test_loader = get_saved_test_loader(BATCH_SIZE, NUM_WORKERS)
-    test_cross_sub_loader = get_saved_test_cross_sub_loader(BATCH_SIZE, NUM_WORKERS)
+    test_loader = get_saved_test_loader(BATCH_SIZE_TEST, NUM_WORKERS)
+    test_cross_sub_loader = get_saved_test_cross_sub_loader(BATCH_SIZE_TEST, NUM_WORKERS)
 
-    print(f"Train batches: {len(train_loader)}")
-    print(f"Test batches: {len(test_loader)}")
-    print(f"Test_cross batches: {len(test_cross_sub_loader)}")
+    print(f"Train batches: {len(train_loader)}  bs: {BATCH_SIZE}")
+    print(f"Test batches: {len(test_loader)}  bs: {BATCH_SIZE_TEST}")
+    print(f"Test_cross batches: {len(test_cross_sub_loader)}  bs: {BATCH_SIZE_TEST}")
 
     loader = train_loader
     batches = len(loader)
