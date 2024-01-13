@@ -11,8 +11,9 @@ from torchinfo import summary
 from tqdm import tqdm
 
 # Local imports:
-from data_loaders_iterable import IterDataset, worker_init_fn, get_saved_train_loader
-from pre_batched_dataloader import get_pre_batched_train_loader
+from data_loaders_iterable import IterDataset, worker_init_fn, get_saved_train_loader, get_saved_test_loader
+from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched_test_loader, \
+    get_pre_batched_test_cross_sub_loader
 
 from UNet import UNet
 from tester import test_loop
@@ -20,7 +21,7 @@ from tester import test_loop
 # --- START OF CONSTANTS --- #
 EPOCHS = 100
 BATCH_SIZE = 256
-NUM_WORKERS = 4
+NUM_WORKERS = 2
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = True
 SAVE_MODEL_EVERY_EPOCH = True
@@ -37,19 +38,6 @@ else:
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
 
 # --- END OF CONSTANTS --- #
-
-models_path = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
-models_path.mkdir(parents=True, exist_ok=True)
-
-# Check for device:
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-
-print(f"Device: {device}")
 
 
 def save_model_state(net, optimizer, optimizer_kwargs, criterion,
@@ -107,7 +95,7 @@ def load_model(net_type: str, identifier: int, epoch: int):
 
 
 def train_loop(train_loader, net, optimizer, criterion, lr_scheduler=None, lr_step_batch_interval: int = 10000,
-               device=device):
+               device=torch.device("cpu")):
 
     # Ensure train mode:
     net.train()
@@ -148,9 +136,23 @@ def train_loop(train_loader, net, optimizer, criterion, lr_scheduler=None, lr_st
 
 
 if __name__ == "__main__":
+    models_path = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
+    models_path.mkdir(parents=True, exist_ok=True)
+
+    # Check for device:
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    print(f"Device: {device}")
+
     # Prepare train dataloader:
     # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, n_workers=NUM_WORKERS)
+    test_loader = get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
     # Create Network:
     unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")
@@ -191,7 +193,7 @@ if __name__ == "__main__":
                              batch_size=BATCH_SIZE, epoch=epoch)
 
         if epoch % TESTING_EPOCH_INTERVAL == TESTING_EPOCH_INTERVAL - 1:
-            test_loop(net=unet)
+            test_loop(net=unet, test_loader=test_loader)
 
     print('Finished Training')
     print(datetime.datetime.now())

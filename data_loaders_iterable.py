@@ -19,10 +19,12 @@ WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 SEED = 33
-NUM_WORKERS = 4
+NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
+PREFETCH_FACTOR = 2
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
+
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -292,40 +294,18 @@ class IterDataset(IterableDataset):
 def worker_init_fn(worker_id: int):
     worker_info = torch.utils.data.get_worker_info()
     num_workers = worker_info.num_workers
-    dataset: IterDataset = worker_info.dataset   # the dataset copy in this worker process
+    dataset: IterDataset = worker_info.dataset  # the dataset copy in this worker process
     sub_ids = dataset.subject_ids
 
     # configure the dataset to only process the split workload
-    per_worker = int( math.ceil( len(sub_ids) / float(num_workers) ) )
+    per_worker = int(math.ceil(len(sub_ids) / float(num_workers)))
     start = worker_id * per_worker
     end = min(start + per_worker, len(sub_ids))
 
     dataset.subject_ids = sub_ids[start:end]
 
 
-def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) -> DataLoader:
-    dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
-    object_file = dataloaders_path.joinpath(f"bs{batch_size}",
-                                            f"PlethToLabel_Iterable_Train_Loader.pickle")
-    if not object_file.exists():
-        loader = get_new_train_loader(batch_size=batch_size, num_workers=num_workers)
-
-        # Save train loader for future use
-        with open(object_file, "wb") as file:
-            pickle.dump(loader, file)
-
-    if object_file.is_file():
-        with open(object_file, "rb") as f:
-            loader = pickle.load(f)
-
-        loader.num_workers = num_workers
-        if arrays_dir:
-            loader.dataset.arrays_dir = arrays_dir
-
-    return loader
-
-
-def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
+def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
     train_set = IterDataset(subject_ids=train_ids,
                             batch_size=batch_size,
                             dataset_split_type="train",
@@ -336,15 +316,59 @@ def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> Data
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
     return DataLoader(train_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, worker_init_fn=worker_init_fn)
+                      num_workers=num_workers, worker_init_fn=worker_init_fn, prefetch_factor=pre_fetch)
 
 
-def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) -> DataLoader:
+def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, arrays_dir: Path = None) \
+        -> DataLoader:
+    if NUM_WORKERS == 0:
+        pre_fetch = None
+
+    dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
+    object_file = dataloaders_path.joinpath(f"bs{batch_size}",
+                                            f"PlethToLabel_Iterable_Train_Loader.pickle")
+    if not object_file.exists():
+        loader = get_new_train_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
+
+        # Save train loader for future use
+        with open(object_file, "wb") as file:
+            pickle.dump(loader, file)
+
+    if object_file.is_file():
+        with open(object_file, "rb") as f:
+            loader = pickle.load(f)
+
+        loader.num_workers = num_workers
+        loader.prefetch_factor = pre_fetch
+        loader.worker_init_fn = worker_init_fn
+        if arrays_dir:
+            loader.dataset.arrays_dir = arrays_dir
+
+    return loader
+
+
+def get_new_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+    test_set = IterDataset(subject_ids=train_ids,
+                           batch_size=batch_size,
+                           dataset_split_type="test",
+                           shuffle=True,
+                           seed=SEED,
+                           transform=torch.from_numpy,
+                           target_transform=torch.from_numpy)
+    return DataLoader(test_set, batch_size=None, pin_memory=True,
+                      num_workers=num_workers, prefetch_factor=pre_fetch, worker_init_fn=worker_init_fn)
+
+
+def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, arrays_dir: Path = None) \
+        -> DataLoader:
+    if NUM_WORKERS == 0:
+        pre_fetch = None
+
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_Test_Loader.pickle")
     if not object_file.exists():
-        loader = get_new_test_loader(batch_size=batch_size, num_workers=num_workers)
+        loader = get_new_test_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
 
         # Save test loader for future use
         with open(object_file, "wb") as file:
@@ -355,31 +379,36 @@ def get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays
             loader = pickle.load(f)
 
         loader.num_workers = num_workers
+        loader.prefetch_factor = pre_fetch
+        loader.worker_init_fn = worker_init_fn
         if arrays_dir:
             loader.dataset.arrays_dir = arrays_dir
 
     return loader
 
 
-def get_new_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
-    test_set = IterDataset(subject_ids=train_ids,
-                           batch_size=batch_size,
-                           dataset_split_type="test",
-                           shuffle=True,
-                           seed=SEED,
-                           transform=torch.from_numpy,
-                           target_transform=torch.from_numpy)
-    return DataLoader(test_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, worker_init_fn=worker_init_fn)
+def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+    test_cross_sub_set = IterDataset(subject_ids=cross_sub_test_ids,
+                                     batch_size=batch_size,
+                                     dataset_split_type="cross_test",
+                                     shuffle=True,
+                                     seed=SEED,
+                                     transform=torch.from_numpy,
+                                     target_transform=torch.from_numpy)
+    return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True,
+                      num_workers=num_workers, prefetch_factor=pre_fetch, worker_init_fn=worker_init_fn)
 
 
-def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, arrays_dir: Path = None) \
-        -> DataLoader:
+def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+                                    arrays_dir: Path = None) -> DataLoader:
+    if NUM_WORKERS == 0:
+        pre_fetch = None
+
     dataloaders_path.joinpath(f"bs{batch_size}").mkdir(parents=True, exist_ok=True)
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Iterable_TestCrossSub_Loader.pickle")
     if not object_file.exists():
-        loader = get_new_test_cross_sub_loader(batch_size=batch_size, num_workers=num_workers)
+        loader = get_new_test_cross_sub_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
 
         # Save cross test loader for future use
         with open(object_file, "wb") as file:
@@ -390,22 +419,12 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKE
             loader = pickle.load(f)
 
         loader.num_workers = num_workers
+        loader.prefetch_factor = pre_fetch
+        loader.worker_init_fn = worker_init_fn
         if arrays_dir:
             loader.dataset.arrays_dir = arrays_dir
 
     return loader
-
-
-def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS) -> DataLoader:
-    test_cross_sub_set = IterDataset(subject_ids=cross_sub_test_ids,
-                                     batch_size=batch_size,
-                                     dataset_split_type="cross_test",
-                                     shuffle=True,
-                                     seed=SEED,
-                                     transform=torch.from_numpy,
-                                     target_transform=torch.from_numpy)
-    return DataLoader(test_cross_sub_set, batch_size=None, pin_memory=True,
-                      num_workers=num_workers, worker_init_fn=worker_init_fn)
 
 
 if __name__ == "__main__":

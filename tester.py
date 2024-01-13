@@ -30,8 +30,6 @@ else:
 
 # --- END OF CONSTANTS --- #
 
-TEST_LOADER = get_saved_test_loader()
-
 
 def accuracy_by_class(correct_pred, total_pred, print_accuracies=False):
     # print accuracy for each class:
@@ -57,7 +55,7 @@ def aggregate_accuracy(correct_pred, total_pred, print_accuracy=False):
     return aggregate_accuracy
 
 
-def test_loop(net: nn.Module, test_loader: DataLoader = TEST_LOADER, verbose=True):
+def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
     if verbose:
         print(datetime.datetime.now())
     loader = test_loader
