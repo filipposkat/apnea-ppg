@@ -8,14 +8,15 @@ from torch.utils.data import DataLoader, Sampler
 from torch.utils.data import Dataset
 
 # Local imports:
-from data_loaders_iterable import IterDataset, \
+# from data_loaders_iterable import IterDataset, \
+#     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
+from data_loaders_mapped import MappedDataset, BatchSampler,\
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
-
 
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 32768
 SEED = 33
-NUM_WORKERS = 1
+NUM_WORKERS = 2
 SKIP_EXISTING = False
 SKIP_TRAIN = False
 SKIP_TEST = False
