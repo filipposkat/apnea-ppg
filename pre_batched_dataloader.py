@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 # Local imports:
 # from data_loaders_iterable import IterDataset, \
 #     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
-from data_loaders_mapped import MappedDataset, BatchSampler,\
+from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
 BATCH_SIZE = 256
@@ -56,17 +56,25 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
     test_tensors_path.mkdir(parents=True, exist_ok=True)
     cross_test_tensors_path.mkdir(parents=True, exist_ok=True)
 
+
     if not SKIP_TRAIN:
+        # if batch has been saved already then skip it:
+        if SKIP_EXISTING:
+            last_existing_batch = 0
+            while train_tensors_path.joinpath(f"batch-{last_existing_batch}").exists():
+                last_existing_batch += 1
+
+            last_existing_batch -= 1
+
+            # Inform dataloader to skip all batches with index less than last_existing_batch:
+            # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
+            # corrupted.
+            train_loader.sampler.first_batch_index = last_existing_batch
+
         print("Saving batches from train loader:")
         batches = len(train_loader)
         for (i, item) in tqdm(enumerate(train_loader), total=batches):
             batch_path = train_tensors_path.joinpath(f"batch-{i}")
-
-            # if batch has been saved already then skip it:
-            if SKIP_EXISTING and batch_path.exists() and train_tensors_path.joinpath(f"batch-{i + 1}").exists():
-                # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
-                # corrupted.
-                continue
 
             batch_path.mkdir(exist_ok=True)
             X_path = batch_path.joinpath("X.pt")
@@ -76,6 +84,19 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
             torch.save(y, y_path)
 
     if not SKIP_TEST:
+        # if batch has been saved already then skip it:
+        if SKIP_EXISTING:
+            last_existing_batch = 0
+            while test_tensors_path.joinpath(f"batch-{last_existing_batch}").exists():
+                last_existing_batch += 1
+
+            last_existing_batch -= 1
+
+            # Inform dataloader to skip all batches with index less than last_existing_batch:
+            # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
+            # corrupted.
+            test_loader.sampler.first_batch_index = last_existing_batch
+
         batches = len(test_loader)
         for (i, item) in tqdm(enumerate(test_loader), total=batches):
             batch_path = test_tensors_path.joinpath(f"batch-{i}")
@@ -87,6 +108,17 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
             torch.save(y, y_path)
 
     if not SKIP_CROSS_TEST:
+        last_existing_batch = 0
+        while cross_test_tensors_path.joinpath(f"batch-{last_existing_batch}").exists():
+            last_existing_batch += 1
+
+        last_existing_batch -= 1
+
+        # Inform dataloader to skip all batches with index less than last_existing_batch:
+        # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
+        # corrupted.
+        cross_test_loader.sampler.first_batch_index = last_existing_batch
+
         batches = len(cross_test_loader)
         for (i, item) in tqdm(enumerate(cross_test_loader), total=batches):
             batch_path = cross_test_tensors_path.joinpath(f"batch-{i}")

@@ -223,6 +223,7 @@ class BatchSampler(Sampler[list[int]]):
         super().__init__()
         self.subject_ids = subject_ids
         self.batch_size = batch_size
+        self.first_batch_index = 0
 
         self.shuffle = shuffle
         if seed is not None:
@@ -242,7 +243,7 @@ class BatchSampler(Sampler[list[int]]):
         return (self.total_windows + self.batch_size - 1) // self.batch_size
 
     def __iter__(self):
-        batches = 0
+        batch = 0
         # by default tuples are sorted with preference given to the first elements (subject in this case):
         used_2d_indices = SortedList()
 
@@ -252,7 +253,7 @@ class BatchSampler(Sampler[list[int]]):
 
         # Cyclic iterator of our ids:
         pool = cycle(self.subject_ids)
-        while batches < len(self) - 1:
+        while batch < len(self) - 1:
             sub_id1 = next(pool)
             sub_id2 = next(pool)
             sub_id3 = next(pool)
@@ -289,9 +290,12 @@ class BatchSampler(Sampler[list[int]]):
             if len(batch_2d_indices) != self.batch_size:
                 print("Indices less than batch size")
 
-            yield batch_2d_indices
+            # Check if this batch should be yielded or skipped
+            if batch >= self.first_batch_index:
+                yield batch_2d_indices
+
             used_2d_indices.update(batch_2d_indices)
-            batches += 1
+            batch += 1
 
         # The last batch may contain less than the batch_size:
         unused_2d_indices = []
