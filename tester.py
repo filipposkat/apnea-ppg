@@ -1,6 +1,7 @@
 import yaml
 from pathlib import Path
 import datetime, time
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -28,34 +29,129 @@ else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
 
+
 # --- END OF CONSTANTS --- #
 
+def precision_by_class(tp: dict, fp: dict, print_precisions=False):
+    # print precision for each class:
+    class_prec = {}
+    for c in tp.keys():
+        precision = tp[c] / (tp[c] + fp[c])
+        class_prec[c] = precision
+        if print_precisions:
+            print(f'Precision for class: {c} is {100 * precision:.2f} %')
+    return class_prec
 
-def accuracy_by_class(correct_pred, total_pred, print_accuracies=False):
+
+def recall_by_class(tp: dict, fn: dict, print_recalls=False):
+    # print recall for each class:
+    class_recall = {}
+    for c in tp.keys():
+        recall = tp[c] / (tp[c] + fn[c])
+        class_recall[c] = recall
+        if print_recalls:
+            print(f'Recall for class: {c} is {100 * recall:.2f} %')
+    return class_recall
+
+
+def specificity_by_class(tn: dict, fp: dict, print_specificity=False):
+    # print specificity for each class:
+    class_specificity = {}
+    for c in tn.keys():
+        spec = tn[c] / (tn[c] + fp[c])
+        class_specificity[c] = spec
+        if print_specificity:
+            print(f'Specificity for class: {c} is {100 * spec:.2f} %')
+    return class_specificity
+
+
+def accuracy_by_class(tp: dict, tn: dict, fp: dict, fn: dict, print_accuracies=False):
     # print accuracy for each class:
     class_acc = {}
-    for c, correct_count in correct_pred.items():
-        accuracy = 100 * float(correct_count) / total_pred[c]
+    for c in tp.keys():
+        accuracy = (tp[c] + tn[c]) / (tp[c] + tn[c] + fp[c] + fn[c])
         class_acc[c] = accuracy
         if print_accuracies:
-            print(f'Accuracy for class: {c} is {accuracy:.1f} %')
+            print(f'Accuracy for class: {c} is {100 * accuracy:.2f} %')
     return class_acc
 
 
-def aggregate_accuracy(correct_pred, total_pred, print_accuracy=False):
-    aggregate_correct_pred = 0
-    aggregate_total_pred = 0
-    for c, correct_count in correct_pred.items():
-        aggregate_correct_pred += correct_count
-        aggregate_total_pred += total_pred[c]
+def f1_by_class(tp: dict, fp: dict, fn: dict, print_f1s=False):
+    # print F1 for each class:
+    class_f1 = {}
+    precision = precision_by_class(tp, fp, print_precisions=False)
+    recall = recall_by_class(tp, fn, print_recalls=False)
+    for c in tp.keys():
+        f1 = 2 * precision[c] * recall[c] / (precision[c] + recall[c])
+        class_f1[c] = f1
+        if print_f1s:
+            print(f'F1 for class: {c} is {100 * f1:.2f} %')
+    return class_f1
 
-    aggregate_accuracy = 100 * float(aggregate_correct_pred) / aggregate_total_pred
-    if print_accuracy:
-        print(f"Aggregate accuracy: {aggregate_accuracy}")
-    return aggregate_accuracy
+
+def micro_average_precision(tp: dict, fp: dict, print_precision=False):
+    # print precision for each class:
+    num = 0
+    den = 0
+    for c in tp.keys():
+        num += tp[c]
+        den += tp[c] + fp[c]
+
+    precision = num / den
+    if print_precision:
+        print(f'Micro Average Precision: {100 * precision:.2f} %')
+    return precision
 
 
-def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
+def micro_average_recall(tp: dict, fn: dict, print_recall=False):
+    # print precision for each class:
+    num = 0
+    den = 0
+    for c in tp.keys():
+        num += tp[c]
+        den += tp[c] + fn[c]
+
+    recall = num / den
+    if print_recall:
+        print(f'Micro Average Recall: {100 * recall:.2f} %')
+    return recall
+
+
+def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
+    micro_prec = micro_average_precision(tp, fp, print_precision=False)
+    micro_rec = micro_average_recall(tp, fn, print_recall=False)
+    micro_f1 = 2 * micro_prec * micro_rec / (micro_prec + micro_rec)
+    if print_f1:
+        print(f'Micro Average F1: {100 * micro_f1:.2f} %')
+    return micro_f1
+
+
+def macro_average_precision(tp: dict, fp: dict, print_precision=False):
+    precisions = precision_by_class(tp, fp, print_precisions=False)
+    macro_prec = np.mean(precisions.values())
+    if print_precision:
+        print(f'Macro Average Precision: {100 * macro_prec:.2f} %')
+    return macro_prec
+
+
+def macro_average_recall(tp: dict, fn: dict, print_recall=False):
+    recalls = recall_by_class(tp, fn, print_recalls=False)
+    macro_rec = np.mean(recalls.values())
+    if print_recall:
+        print(f'Macro Average Recall: {100 * macro_rec:.2f} %')
+    return macro_rec
+
+
+def macro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
+    macro_prec = macro_average_precision(tp, fp, print_precision=False)
+    macro_rec = macro_average_recall(tp, fn, print_recall=False)
+    macro_f1 = 2 * macro_prec * macro_rec / (macro_prec + macro_rec)
+    if print_f1:
+        print(f'Macro Average F1: {100 * macro_f1:.2f} %')
+    return macro_f1
+
+
+def test_loop(net: nn.Module, test_loader: DataLoader, verbose=False):
     if verbose:
         print(datetime.datetime.now())
     loader = test_loader
@@ -66,8 +162,8 @@ def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    correct_pred = {c: 0 for c in classes}
-    total_pred = {c: 0 for c in classes}
+    correct_pred = 0
+    total_pred = 0
     tp = {c: 0 for c in classes}
     tn = {c: 0 for c in classes}
     fp = {c: 0 for c in classes}
@@ -89,11 +185,11 @@ def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
             for label, prediction in zip(labels, predictions):
                 true_class_name = classes[label]
                 pred_class_name = classes[prediction]
-                total_pred[true_class_name] += 1
+                total_pred += 1
 
                 if label == prediction:
                     # True prediction:
-                    correct_pred[true_class_name] += 1
+                    correct_pred += 1
                     tp[true_class_name] += 1
                     for c in classes:
                         if c != true_class_name:
@@ -115,35 +211,61 @@ def test_loop(net: nn.Module, test_loader: DataLoader, verbose=True):
                 print(f'[Batch{i + 1:7d}/{batches:7d}]'
                       f' Minutes/Batch: {time_elapsed / (i + 1) / 60}')
 
-    aggregate_acc = aggregate_accuracy(correct_pred, total_pred, print_accuracy=verbose)
-    acc_by_class = accuracy_by_class(correct_pred, total_pred, print_accuracies=verbose)
+    aggregate_acc = correct_pred / total_pred
+    if verbose:
+        print(f"Intuitive aggregate accuracy: {100 * aggregate_acc:.2f}%")
+
+    acc_by_class = accuracy_by_class(tp, tn, fp, fn, print_accuracies=verbose)
+    prec_by_class = precision_by_class(tp, fp, print_precisions=verbose)
+    rec_by_class = recall_by_class(tp, fn, print_recalls=verbose)
+    sepc_by_class = specificity_by_class(tn, fp, print_specificity=verbose)
+    f1_per_class = f1_by_class(tp, fp, fn, print_f1s=verbose)
+    micro_prec = micro_average_precision(tp, fp, print_precision=verbose)
+    micro_rec = micro_average_recall(tp, fn, print_recall=verbose)
+    micro_f1 = micro_average_f1(tp, fp, fn, print_f1=verbose)
+
+    macro_prec = macro_average_precision(tp, fp, print_precision=verbose)
+    macro_rec = macro_average_recall(tp, fn, print_recall=verbose)
+    macro_f1 = macro_average_f1(tp, fp, fn, print_f1=verbose)
+
+    metrics = {"aggregate_accuracy": aggregate_acc,
+               "macro_precision": macro_prec,
+               "macro_recall": macro_rec,
+               "macro_f1": macro_f1,
+               "micro_precision": micro_prec,
+               "micro_recall": micro_rec,
+               "micro_f1": micro_f1,
+               "accuracy_by_class": acc_by_class,
+               "precision_by_class": prec_by_class,
+               "recall_by_class": rec_by_class,
+               "f1_by_class": f1_per_class,
+               "specificity_by_class": sepc_by_class}
 
     if verbose:
         print('Finished Testing')
         print(datetime.datetime.now())
-    return aggregate_acc, acc_by_class
-
+    return metrics
 
 # if __name__ == "__main__":
-    # # Prepare train dataloader:
-    # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE_TEST)
-    #
-    # # Create Network:
-    # unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")
-    # unet = unet.to(device)
-    #
-    # # Define loss and optimizer:
-    # ce_loss = nn.CrossEntropyLoss()
-    # lr = LR_TO_BATCH_RATIO * BATCH_SIZE
-    # optim_kwargs = {"lr": 0.01, "momentum": 0.7}
-    # sgd = optim.SGD(unet.parameters(), **optim_kwargs)
-    # lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=sgd, start_factor=0.3, end_factor=1, total_iters=3)
-    #
-    # # Train:
-    # train_loop(train_loader=train_loader, net=unet, optimizer=sgd, optim_kwargs=optim_kwargs, criterion=ce_loss,
-    #            lr_scheduler=lr_scheduler, device=device, epochs=EPOCHS, save_model_every_epoch=True, identifier=1)
-    #
-    # # Save model:
-    # save_model_state(unet, optimizer=sgd, optimizer_kwargs=optim_kwargs,
-    #                  criterion=ce_loss, net_type="UNET", identifier=1,
-    #                  batch_size=BATCH_SIZE, epoch=EPOCHS)
+# # Prepare train dataloader:
+# train_loader = get_saved_train_loader(batch_size=BATCH_SIZE_TEST)
+#
+# # Create Network:
+# unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")
+# unet = unet.to(device)
+#
+# # Define loss and optimizer:
+# ce_loss = nn.CrossEntropyLoss()
+# lr = LR_TO_BATCH_RATIO * BATCH_SIZE
+# optim_kwargs = {"lr": 0.01, "momentum": 0.7}
+# sgd = optim.SGD(unet.parameters(), **optim_kwargs)
+# lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=sgd, start_factor=0.3, end_factor=1, total_iters=3)
+#
+# # Train:
+# train_loop(train_loader=train_loader, net=unet, optimizer=sgd, optim_kwargs=optim_kwargs, criterion=ce_loss,
+#            lr_scheduler=lr_scheduler, device=device, epochs=EPOCHS, save_model_every_epoch=True, identifier=1)
+#
+# # Save model:
+# save_model_state(unet, optimizer=sgd, optimizer_kwargs=optim_kwargs,
+#                  criterion=ce_loss, net_type="UNET", identifier=1,
+#                  batch_size=BATCH_SIZE, epoch=EPOCHS)

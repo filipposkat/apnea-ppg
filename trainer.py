@@ -1,6 +1,8 @@
 import yaml
 from pathlib import Path
 import datetime, time
+import os
+import json
 
 import torch
 import torch.nn as nn
@@ -34,23 +36,27 @@ with open("config.yml", 'r') as f:
 if config is not None:
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
     PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
+    COMPUTE_PLATFORM = "cpu"
+
 
 # --- END OF CONSTANTS --- #
 
 
-def save_model_state(net, optimizer, optimizer_kwargs, criterion,
-                     net_type: str, identifier: int,
-                     batch_size: int, epoch: int, other_details: str = ""):
-    model_path = models_path.joinpath(f"{net_type}")
+def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion,
+                    net_type: str, identifier: str | int,
+                    batch_size: int, epoch: int, batch: int, metrics: dict = None,
+                    other_details: str = ""):
+    model_path = models_path.joinpath(f"{net_type}", identifier, f"epoch:{epoch}")
     model_path.mkdir(parents=True, exist_ok=True)
     # identifier = 1
     # while net_path.joinpath(f"{identifier}").is_dir():
     #     identifier += 1
 
-    txt_path = model_path.joinpath(f"{identifier}_details.txt")
+    txt_path = model_path.joinpath("details.txt")
     with open(txt_path, 'w') as file:
         details = [f'NET args: {net.get_args_summary()}\n',
                    f'Model: {type(net).__name__}\n',
@@ -64,19 +70,30 @@ def save_model_state(net, optimizer, optimizer_kwargs, criterion,
 
     state = {
         'epoch': epoch,
+        'batch': batch,
         'net_class': net.__class__,
         'net_state_dict': net.state_dict(),
         'net_kwargs': net.get_kwargs(),
         'optimizer_class': optimizer.__class__,
         'optimizer_state_dict': optimizer.state_dict(),
         'optimizer_kwargs': optimizer_kwargs,
-        'criterion': criterion
+        'criterion_class': criterion.__class__,
+        'criterion_state_dict': criterion.state_dict()
     }
-    torch.save(state, model_path.joinpath(f"id:{identifier}-epoch:{epoch}.pt"))
+    if batch is not None:
+        batch = "final"
+    torch.save(state, model_path.joinpath(f"batch:{batch}.pt"))
+
+    if metrics is not None:
+        with open(model_path.joinpath(f"batch:{batch}-metrics.json"), 'w') as file:
+            json.dump(metrics, file)
 
 
-def load_model(net_type: str, identifier: int, epoch: int):
-    model_path = models_path.joinpath(f"{net_type}", f"id:{identifier}-epoch:{epoch}.pt")
+def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int):
+    if batch is None:
+        batch = "final"
+
+    model_path = models_path.joinpath(f"{net_type}", identifier, f"epoch:{epoch}", f"batch:{batch}.pt")
     state = torch.load(model_path)
     net_class = state["net_class"]
     net_state = state["net_state_dict"]
@@ -84,7 +101,8 @@ def load_model(net_type: str, identifier: int, epoch: int):
     optimizer_class = state["optimizer_class"]
     optimizer_state_dict = state["optimizer_state_dict"]
     optimizer_kwargs = state["optimizer_kwargs"]
-    criterion = state["criterion"]
+    criterion_class = state["criterion_class"]
+    criterion_state_dict = state["criterion_state_dict"]
 
     net = net_class(**net_kwargs)
     net.load_state_dict(net_state)
@@ -92,11 +110,21 @@ def load_model(net_type: str, identifier: int, epoch: int):
     optimizer = optimizer_class(net.parameters(), **optimizer_kwargs)
     optimizer.load_state_dict(optimizer_state_dict)
 
+    criterion = criterion_class()
+    criterion.load_state_dict(criterion_state_dict)
+
     return net, optimizer, criterion
 
 
-def train_loop(train_loader, net, optimizer, criterion, lr_scheduler=None, lr_step_batch_interval: int = 10000,
-               device=torch.device("cpu")):
+def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterion, lr_scheduler=None,
+               device=torch.device("cpu"),
+               lr_step_batch_interval: int = 10000, print_batch_interval: int = 10000,
+               checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None):
+    if lr_step_batch_interval > 0:
+        assert lr_scheduler is not None
+
+    if checkpoint_batch_interval > 0:
+        assert save_checkpoint_kwargs is not None
 
     # Ensure train mode:
     net.train()
@@ -104,8 +132,8 @@ def train_loop(train_loader, net, optimizer, criterion, lr_scheduler=None, lr_st
     unix_time_start = time.time()
 
     running_loss = 0.0
-    batches = len(train_loader)
-    for (i, data) in tqdm(enumerate(train_loader), total=batches):
+    batches = len(train_dataloader)
+    for (i, data) in tqdm(enumerate(train_dataloader), total=batches):
         # get the inputs; data is a list of [inputs, labels]
         inputs, labels = data
         inputs = inputs.to(device)
@@ -121,27 +149,36 @@ def train_loop(train_loader, net, optimizer, criterion, lr_scheduler=None, lr_st
         loss.backward()
         optimizer.step()
 
-        if lr_scheduler and i % lr_step_batch_interval == i - 1:
+        # Update lr:
+        if lr_scheduler and i % lr_step_batch_interval == lr_step_batch_interval - 1:
             lr_scheduler.step()
 
         # print statistics
         running_loss += loss.item()
-        if i % 10000 == 9999:  # print every 10000 mini-batches
+        if print_batch_interval > 0 and i % print_batch_interval == print_batch_interval - 1:
             time_elapsed = time.time() - unix_time_start
 
             print(f'[Batch{i + 1:7d}/{batches:7d}]'
-                  f' Running Avg loss: {running_loss / 2000:.3f}'
+                  f' Running Avg loss: {running_loss / print_batch_interval:.3f}'
                   f' Minutes/Batch: {time_elapsed / (i + 1) / 60}')
-
             running_loss = 0.0
+
+        # Save checkpoint:
+        if checkpoint_batch_interval > 0 and i % checkpoint_batch_interval == checkpoint_batch_interval - 1:
+            save_checkpoint(**save_checkpoint_kwargs, batch=i)
 
 
 if __name__ == "__main__":
     models_path = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     models_path.mkdir(parents=True, exist_ok=True)
 
-    # Check for device:
-    if torch.cuda.is_available():
+    if COMPUTE_PLATFORM == "opencl":
+        PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
+        PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
+        os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
+        torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
+        device = "privateuseone:0"
+    elif torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
@@ -176,30 +213,38 @@ if __name__ == "__main__":
     # Train:
     print(datetime.datetime.now())
     unix_time_start = time.time()
-    for epoch in range(EPOCHS):  # loop over the dataset multiple times
+    checkpoint_kwargs = {"net": unet,
+                         "optimizer": sgd,
+                         "optimizer_kwargs": optim_kwargs,
+                         "criterion": ce_loss,
+                         "net_type": "UNET",
+                         "identifier": 1,
+                         "batch_size": BATCH_SIZE}
+
+    for epoch in range(1, EPOCHS + 1):  # loop over the dataset multiple times
+        checkpoint_kwargs["epoch"] = epoch
         # print(f"Batches in epoch: {batches}")
-        train_loop(train_loader=train_loader, net=unet, optimizer=sgd, criterion=ce_loss,
-                   device=device)
+        train_loop(train_dataloader=train_loader, net=unet, optimizer=sgd, criterion=ce_loss,
+                   device=device, print_batch_interval=10000, lr_step_batch_interval=0,
+                   checkpoint_batch_interval=10000, save_checkpoint_kwargs=checkpoint_kwargs)
 
         time_elapsed = time.time() - unix_time_start
-        print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / (EPOCHS + 1) / 3600}")
+        print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
 
         if lr_scheduler:
             lr_scheduler.step()
 
-        if SAVE_MODEL_EVERY_EPOCH:
-            # Save model:
-            save_model_state(unet, optimizer=sgd, optimizer_kwargs=optim_kwargs,
-                             criterion=ce_loss, net_type="UNET", identifier=1,
-                             batch_size=BATCH_SIZE, epoch=epoch)
-
         if epoch % TESTING_EPOCH_INTERVAL == TESTING_EPOCH_INTERVAL - 1:
-            test_loop(net=unet, test_loader=test_loader)
+            metrics = test_loop(net=unet, test_loader=test_loader, verbose=False)
+            # Save model:
+            save_checkpoint(**checkpoint_kwargs, metrics=metrics)
+        elif SAVE_MODEL_EVERY_EPOCH:
+            # Save model:
+            save_checkpoint(**checkpoint_kwargs)
 
     print('Finished Training')
     print(datetime.datetime.now())
 
+    checkpoint_kwargs["epoch"] = EPOCHS
     # Save model:
-    save_model_state(unet, optimizer=sgd, optimizer_kwargs=optim_kwargs,
-                     criterion=ce_loss, net_type="UNET", identifier=1,
-                     batch_size=BATCH_SIZE, epoch=EPOCHS)
+    save_checkpoint(**checkpoint_kwargs)

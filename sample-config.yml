@@ -9,3 +9,9 @@ paths:
     csv_directory:
     subset_1_directory:
     subset_1_training_directory:
+    pt_ocl_dll:
+    dependency_dlls:
+
+system:
+  specs:
+    compute_platform:

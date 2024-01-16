@@ -56,7 +56,6 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
     test_tensors_path.mkdir(parents=True, exist_ok=True)
     cross_test_tensors_path.mkdir(parents=True, exist_ok=True)
 
-
     if not SKIP_TRAIN:
         # if batch has been saved already then skip it:
         if SKIP_EXISTING:
