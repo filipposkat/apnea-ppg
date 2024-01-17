@@ -57,9 +57,10 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
     cross_test_tensors_path.mkdir(parents=True, exist_ok=True)
 
     if not SKIP_TRAIN:
+        batches = len(train_loader)
         # if batch has been saved already then skip it:
+        last_existing_batch = 0
         if SKIP_EXISTING:
-            last_existing_batch = 0
             while train_tensors_path.joinpath(f"batch-{last_existing_batch}").exists():
                 last_existing_batch += 1
 
@@ -71,8 +72,8 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
             train_loader.sampler.first_batch_index = last_existing_batch
 
         print("Saving batches from train loader:")
-        batches = len(train_loader)
-        for (i, item) in tqdm(enumerate(train_loader), total=batches):
+        for (i, item) in tqdm(enumerate(train_loader, start=last_existing_batch), initial=last_existing_batch,
+                              total=batches):
             batch_path = train_tensors_path.joinpath(f"batch-{i}")
 
             batch_path.mkdir(exist_ok=True)

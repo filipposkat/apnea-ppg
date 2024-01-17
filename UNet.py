@@ -104,6 +104,17 @@ class DecoderBlock(nn.Module):
 class UNet(nn.Module):
     def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_factor=2,
                  sampling_method="pooling", skip_connection=True):
+        """
+        :param nclass:
+        :param in_chans:
+        :param max_channels:
+        :param depth:
+        :param layers:
+        :param kernel_size:
+        :param sampling_factor:
+        :param sampling_method: either "pooling" or "conv_stride"
+        :param skip_connection:
+        """
         super().__init__()
         self.nclass = nclass
         self.in_chans = in_chans

@@ -19,7 +19,7 @@ BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 32768
 SEED = 33
-NUM_WORKERS = 1  # better to use power of two, otherwise each worker will have different number of subject ids
+NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
 PREFETCH_FACTOR = 1
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
 
@@ -176,34 +176,35 @@ class MappedDataset(Dataset):
 
         return self.total_windows
 
-    def __getitem__(self, batch_2d_indices: list[tuple[int, int]]) -> tuple[np.array, np.array]:
+    def __getitem__(self, batch_windows_by_sub: dict[int: list[int]]) -> tuple[np.array, np.array]:
         """
-        :param batch_2d_indices: List of (subject_id, window_id) pairs, constituting a batch
+        :param batch_windows_by_sub: Dict: {subject_id: [window_index1, window_index2, ...]}
         :return: (signal, labels) where shape of signal: (batch_size, 1, window_size)
         and of labels: (batch_size, window_size)
         """
-        batch_2d_indices = sorted(batch_2d_indices)
+
         X_batch = []
         y_batch = []
+        for sub_id in batch_windows_by_sub.keys():
+            window_indices = batch_windows_by_sub[sub_id]
+            signals, labels = self.get_specific_windows(sub_id, window_indices)
+            X_batch.append(signals)
+            y_batch.append(labels)
 
-        windows_indices = []
-        for i in range(len(batch_2d_indices)):
-            index_2d = batch_2d_indices[i]
-            sub_id = index_2d[0]
-            windows_indices.append(index_2d[0])
+        # batch_2d_indices = sorted(batch_2d_indices)
+        # windows_indices = []
+        # for i in range(len(batch_2d_indices)):
+        #     index_2d = batch_2d_indices[i]
+        #     sub_id = index_2d[0]
+        #     windows_indices.append(index_2d[1])
+        #
+        #     # Check if the next id is different:
+        #     if i == len(batch_2d_indices) - 1 or sub_id != batch_2d_indices[i + 1][0]:
+        #         signals, labels = self.get_specific_windows(sub_id, windows_indices)
+        #         X_batch.append(signals)
+        #         y_batch.append(labels)
+        #         windows_indices = []
 
-            # Check if the next id is different:
-            if i==len(batch_2d_indices)-1 or sub_id != batch_2d_indices[i+1][0]:
-                signals, labels = self.get_specific_windows(sub_id, windows_indices)
-                X_batch.append(signals)
-                y_batch.append(labels)
-                windows_indices = []
-
-        # for sub_id in self.subject_ids:
-        #     windows_indices = [two_dim_index[1] for two_dim_index in batch_2d_indices if two_dim_index[0] == sub_id]
-        #     signals, labels = self.get_specific_windows(sub_id, windows_indices)
-        #     X_batch.append(signals)
-        #     y_batch.append(labels)
         X_batch = np.concatenate(X_batch, axis=0)
         y_batch = np.concatenate(y_batch, axis=0)
         return X_batch, y_batch
@@ -244,8 +245,12 @@ class BatchSampler(Sampler[list[int]]):
 
     def __iter__(self):
         batch = 0
-        # by default tuples are sorted with preference given to the first elements (subject in this case):
-        used_2d_indices = SortedList()
+        # # by default tuples are sorted with preference given to the first elements (subject in this case):
+        # used_2d_indices = SortedList()
+
+        used_windows_by_sub: dict[int: SortedList] = {}
+        for sub_id in self.subject_ids:
+            used_windows_by_sub[sub_id] = SortedList()
 
         # Shuffle ids in-place:
         if self.shuffle:
@@ -265,9 +270,12 @@ class BatchSampler(Sampler[list[int]]):
             n_windows2 = self.id_size_dict[sub_id2]
             n_windows3 = self.id_size_dict[sub_id3]
 
-            indices1 = [(sub_id1, i) for i in range(n_windows1) if (sub_id1, i) not in used_2d_indices]
-            indices2 = [(sub_id2, i) for i in range(n_windows2) if (sub_id2, i) not in used_2d_indices]
-            indices3 = [(sub_id3, i) for i in range(n_windows3) if (sub_id3, i) not in used_2d_indices]
+            # indices1 = [(sub_id1, i) for i in range(n_windows1) if (sub_id1, i) not in used_2d_indices]
+            # indices2 = [(sub_id2, i) for i in range(n_windows2) if (sub_id2, i) not in used_2d_indices]
+            # indices3 = [(sub_id3, i) for i in range(n_windows3) if (sub_id3, i) not in used_2d_indices]
+            indices1 = [(sub_id1, i) for i in range(n_windows1) if i not in used_windows_by_sub[sub_id1]]
+            indices2 = [(sub_id2, i) for i in range(n_windows2) if i not in used_windows_by_sub[sub_id2]]
+            indices3 = [(sub_id3, i) for i in range(n_windows3) if i not in used_windows_by_sub[sub_id3]]
 
             combined_indices = [*indices1, *indices2, *indices3]
             n_combined_indices = len(combined_indices)
@@ -280,7 +288,9 @@ class BatchSampler(Sampler[list[int]]):
                 # Get the number of windows in the third subject, this will be needed to calculate the last index
                 n_windows = self.id_size_dict[next_sub_id]
 
-                indices_to_add = [(next_sub_id, i) for i in range(n_windows) if (next_sub_id, i) not in used_2d_indices]
+                # indices_to_add = [(next_sub_id, i) for i in range(n_windows) if (next_sub_id, i) not in used_2d_indices]
+                indices_to_add = [(next_sub_id, i) for i in range(n_windows) if
+                                  i not in used_windows_by_sub[next_sub_id]]
                 combined_indices.extend(indices_to_add)
                 ids_tmp.append(next_sub_id)
 
@@ -290,23 +300,40 @@ class BatchSampler(Sampler[list[int]]):
             if len(batch_2d_indices) != self.batch_size:
                 print("Indices less than batch size")
 
+            # Transform 2d_index to dict and save used batches:
+            batch_windows_by_sub: dict[int: list] = {}
+            for sub_id in ids_tmp:
+                batch_windows_by_sub[sub_id] = []
+
+            for index_2d in batch_2d_indices:
+                sub_id = index_2d[0]
+                window_id = index_2d[1]
+                batch_windows_by_sub[sub_id].append(window_id)
+                used_windows_by_sub[sub_id].add(window_id)
+
+            # used_2d_indices.update(batch_2d_indices)
+
             # Check if this batch should be yielded or skipped
             if batch >= self.first_batch_index:
-                yield batch_2d_indices
+                yield batch_windows_by_sub
+                # yield batch_2d_indices
 
-            used_2d_indices.update(batch_2d_indices)
             batch += 1
 
         # The last batch may contain less than the batch_size:
-        unused_2d_indices = []
+        # unused_2d_indices = []
+        unused_windows_by_sub: dict[int: list] = {}
         for sub_id in self.subject_ids:
             n_windows = self.id_size_dict[sub_id]
             for window_index in range(n_windows):
-                if (sub_id, window_index) not in used_2d_indices:
-                    unused_2d_indices.append((sub_id, window_index))
+                if window_index not in used_windows_by_sub[sub_id]:
+                    unused_windows_by_sub[sub_id].append(window_index)
+                # if (sub_id, window_index) not in used_2d_indices:
+                #     unused_2d_indices.append((sub_id, window_index))
 
-        assert len(unused_2d_indices) <= self.batch_size
-        yield unused_2d_indices
+        yield unused_windows_by_sub
+        # assert len(unused_2d_indices) <= self.batch_size
+        # yield unused_2d_indices
 
 
 def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
@@ -450,6 +477,7 @@ if __name__ == "__main__":
     print(f"Train batches: {len(train_loader)}  bs: {BATCH_SIZE}")
     print(f"Test batches: {len(test_loader)}  bs: {BATCH_SIZE_TEST}")
     print(f"Test_cross batches: {len(test_cross_sub_loader)}  bs: {BATCH_SIZE_TEST}")
+    # train_loader.sampler.first_batch_index = 51303
 
     for (i, item) in tqdm(enumerate(train_loader), total=len(train_loader)):
         X, y = item

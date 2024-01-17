@@ -27,6 +27,11 @@ BATCH_SIZE_TEST = 32768
 NUM_WORKERS = 2
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = True
+LR_WARMUP_EPOCH_DURATION = 3
+LR_WARMUP_STEP_EPOCH_INTERVAL = 1
+LR_WARMUP_STEP_BATCH_INTERVAL = 0
+OPTIMIZER = "adam"  # sgd, adam
+SAVE_MODEL_BATCH_INTERVAL = 10000
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 
@@ -193,49 +198,62 @@ if __name__ == "__main__":
     test_loader = get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
     # Create Network:
-    unet = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="pooling")
-    unet = unet.to(device)
+    net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="conv_stride")
+    net = net.to(device)
 
-    summary(unet, input_size=(BATCH_SIZE, 1, 512),
+    summary(net, input_size=(BATCH_SIZE, 1, 512),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 
-    # Define loss and optimizer:
-    ce_loss = nn.CrossEntropyLoss()
+    # Define loss:
+    loss = nn.CrossEntropyLoss()
+
+    # Set LR:
     lr = LR_TO_BATCH_RATIO * BATCH_SIZE
-    optim_kwargs = {"lr": 0.01, "momentum": 0.7}
+
+    # Define optimizer:
+    if OPTIMIZER == "adam":
+        optim_kwargs = {"lr": lr, "betas": (0.9, 0.999), "eps": 1e-08}
+        optimizer = optim.Adam(net.parameters(), **optim_kwargs)
+    else:  # sgd
+        optim_kwargs = {"lr": lr, "momentum": 0.7}
+        optimizer = optim.SGD(net.parameters(), **optim_kwargs)
+
     print(optim_kwargs)
-    sgd = optim.SGD(unet.parameters(), **optim_kwargs)
     if LR_WARMUP:
-        lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=sgd, start_factor=0.3, end_factor=1, total_iters=3)
+        lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, start_factor=0.3, end_factor=1, total_iters=3)
     else:
         lr_scheduler = None
 
     # Train:
     print(datetime.datetime.now())
     unix_time_start = time.time()
-    checkpoint_kwargs = {"net": unet,
-                         "optimizer": sgd,
+    checkpoint_kwargs = {"net": net,
+                         "optimizer": optimizer,
                          "optimizer_kwargs": optim_kwargs,
-                         "criterion": ce_loss,
+                         "criterion": loss,
                          "net_type": "UNET",
                          "identifier": 1,
                          "batch_size": BATCH_SIZE}
 
     for epoch in range(1, EPOCHS + 1):  # loop over the dataset multiple times
+        if epoch > LR_WARMUP_EPOCH_DURATION:
+            lr_scheduler = None
+
         checkpoint_kwargs["epoch"] = epoch
         # print(f"Batches in epoch: {batches}")
-        train_loop(train_dataloader=train_loader, net=unet, optimizer=sgd, criterion=ce_loss,
-                   device=device, print_batch_interval=10000, lr_step_batch_interval=0,
-                   checkpoint_batch_interval=10000, save_checkpoint_kwargs=checkpoint_kwargs)
+        train_loop(train_dataloader=train_loader, net=net, optimizer=optimizer, criterion=loss,
+                   lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
+                   device=device, print_batch_interval=10000,
+                   checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL, save_checkpoint_kwargs=checkpoint_kwargs)
 
         time_elapsed = time.time() - unix_time_start
         print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
 
-        if lr_scheduler:
+        if lr_scheduler and epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == LR_WARMUP_STEP_EPOCH_INTERVAL - 1:
             lr_scheduler.step()
 
         if epoch % TESTING_EPOCH_INTERVAL == TESTING_EPOCH_INTERVAL - 1:
-            metrics = test_loop(net=unet, test_loader=test_loader, verbose=False)
+            metrics = test_loop(net=net, test_loader=test_loader, verbose=False)
             # Save model:
             save_checkpoint(**checkpoint_kwargs, metrics=metrics)
         elif SAVE_MODEL_EVERY_EPOCH:
