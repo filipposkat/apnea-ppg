@@ -378,7 +378,7 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
     def __iter__(self):
         batch_ids = []
 
-        for batch_indices_file in self.batch_indices_path.iterdir():
+        for batch_indices_file in sorted(self.batch_indices_path.iterdir()):
             batch_id = int(batch_indices_file.name.split('-')[1])
             batch_ids.append(batch_id)
 
@@ -440,7 +440,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "train"
             if batch_indices_path.is_dir():
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=loader.sampler.shuffle,
+                                                     shuffle=False,
                                                      seed=loader.sampler.seed)
                 loader.sampler = sampler
 
@@ -505,7 +505,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, p
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "test"
             if batch_indices_path.is_dir():
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=loader.sampler.shuffle,
+                                                     shuffle=False,
                                                      seed=loader.sampler.seed)
                 loader.sampler = sampler
 
@@ -571,7 +571,7 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "cross_test"
             if batch_indices_path.is_dir():
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=loader.sampler.shuffle,
+                                                     shuffle=False,
                                                      seed=loader.sampler.seed)
                 loader.sampler = sampler
 

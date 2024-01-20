@@ -44,10 +44,13 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
     else:
         pre_fetch_factor = 1
 
-    train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
-    test_loader = get_saved_test_loader(BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor)
+    train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor,
+                                          use_existing_batch_indices=True)
+    test_loader = get_saved_test_loader(BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor,
+                                        use_existing_batch_indices=True)
     cross_test_loader = get_saved_test_cross_sub_loader(BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
-                                                        pre_fetch=pre_fetch_factor)
+                                                        pre_fetch=pre_fetch_factor,
+                                                        use_existing_batch_indices=True)
 
     train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{BATCH_SIZE}", "train")
     test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{BATCH_SIZE_TEST}", "test")
