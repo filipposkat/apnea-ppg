@@ -26,7 +26,7 @@ BATCH_SIZE = 256
 BATCH_SIZE_TEST = 32768
 NUM_WORKERS = 2
 LR_TO_BATCH_RATIO = 1 / 25600
-LR_WARMUP = True
+LR_WARMUP = False
 LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
@@ -141,6 +141,7 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterio
     for (i, data) in tqdm(enumerate(train_dataloader), total=batches):
         # get the inputs; data is a list of [inputs, labels]
         inputs, labels = data
+
         inputs = inputs.to(device)
         labels = labels.to(device)
 
@@ -150,7 +151,11 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterio
         # forward + backward + optimize
         outputs = net(inputs)
 
-        loss = criterion(outputs, labels.long())
+        m = nn.LogSoftmax(dim=1)
+        criterion = nn.NLLLoss()
+        loss = criterion(m(outputs), labels.long())
+        # loss = criterion(outputs, labels.long())
+
         loss.backward()
         optimizer.step()
 
@@ -198,7 +203,7 @@ if __name__ == "__main__":
     test_loader = get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
     # Create Network:
-    net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_method="conv_stride")
+    net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=5, sampling_method="conv_stride")
     net = net.to(device)
 
     summary(net, input_size=(BATCH_SIZE, 1, 512),
