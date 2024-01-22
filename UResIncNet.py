@@ -208,6 +208,14 @@ class UResIncNet(nn.Module):
     def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=8, kernel_size=4, sampling_factor=2,
                  sampling_method="conv_stride", skip_connection=True):
         super().__init__()
+        self.nclass = nclass
+        self.in_chans = in_chans
+        self.max_channels = max_channels
+        self.depth = depth
+        self.kernel_size = kernel_size
+        self.sampling_factor = sampling_factor
+        self.sampling_method = sampling_method
+        self.skip_connection = skip_connection
 
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
@@ -258,3 +266,13 @@ class UResIncNet(nn.Module):
 
         # Return the logits
         return self.logits(x)
+
+    def get_args_summary(self):
+        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
+                f"- Sampling {self.sampling_method}")
+
+    def get_kwargs(self):
+        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
+                  "depth": self.depth, "kernel_size": self.kernel_size,  "sampling_factor": self.sampling_factor,
+                  "sampling_method": self.sampling_method, "skip_connection": self.skip_connection}
+        return kwargs
