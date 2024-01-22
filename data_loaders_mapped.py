@@ -267,11 +267,10 @@ class BatchSampler(Sampler[list[int]]):
             pbar = tqdm(total=total_batches)
 
         while batch < total_batches - 1:
+            ids_tmp = []
             sub_id1 = next(pool)
             sub_id2 = next(pool)
             sub_id3 = next(pool)
-
-            ids_tmp = [sub_id1, sub_id2, sub_id3]
 
             # Get the number of windows in the third subject, this will be needed to calculate the last index
             n_windows1 = self.id_size_dict[sub_id1]
@@ -281,28 +280,50 @@ class BatchSampler(Sampler[list[int]]):
             # indices1 = [(sub_id1, i) for i in range(n_windows1) if (sub_id1, i) not in used_2d_indices]
             # indices2 = [(sub_id2, i) for i in range(n_windows2) if (sub_id2, i) not in used_2d_indices]
             # indices3 = [(sub_id3, i) for i in range(n_windows3) if (sub_id3, i) not in used_2d_indices]
-            indices1 = [(sub_id1, i) for i in range(n_windows1) if i not in used_windows_by_sub[sub_id1]]
-            indices2 = [(sub_id2, i) for i in range(n_windows2) if i not in used_windows_by_sub[sub_id2]]
-            indices3 = [(sub_id3, i) for i in range(n_windows3) if i not in used_windows_by_sub[sub_id3]]
+            if len(used_windows_by_sub[sub_id1]) == n_windows1:
+                indices1 = []
+            else:
+                indices1 = [(sub_id1, i) for i in range(n_windows1) if i not in used_windows_by_sub[sub_id1]]
+                ids_tmp.append(sub_id1)
+
+            if len(used_windows_by_sub[sub_id2]) == n_windows2:
+                indices2 = []
+            else:
+                indices2 = [(sub_id2, i) for i in range(n_windows2) if i not in used_windows_by_sub[sub_id2]]
+                ids_tmp.append(sub_id2)
+
+            if len(used_windows_by_sub[sub_id3]) == n_windows3:
+                indices3 = []
+            else:
+                indices3 = [(sub_id3, i) for i in range(n_windows3) if i not in used_windows_by_sub[sub_id3]]
+                ids_tmp.append(sub_id3)
 
             combined_indices = [*indices1, *indices2, *indices3]
 
             # Check if the windows available for sampling are enough for a batch:
-            while len(combined_indices) < self.batch_size:
+            extra_indices = []
+            while len(combined_indices) + len(extra_indices) < self.batch_size:
                 # If three subjects do not have enough windows then use more:
                 next_sub_id = next(pool)
 
                 # Get the number of windows in the third subject, this will be needed to calculate the last index
                 n_windows = self.id_size_dict[next_sub_id]
 
+                if used_windows_by_sub[next_sub_id] == n_windows:
+                    continue
                 # indices_to_add = [(next_sub_id, i) for i in range(n_windows) if (next_sub_id, i) not in used_2d_indices]
                 indices_to_add = [(next_sub_id, i) for i in range(n_windows) if
                                   i not in used_windows_by_sub[next_sub_id]]
-                combined_indices.extend(indices_to_add)
+
+                extra_indices.extend(indices_to_add)
                 ids_tmp.append(next_sub_id)
 
             # Sample windows:
-            batch_2d_indices = self.rng.sample(combined_indices, self.batch_size)
+            if len(combined_indices) >= self.batch_size:
+                batch_2d_indices = self.rng.sample(combined_indices, self.batch_size)
+            else:
+                extra_indices = self.rng.sample(extra_indices, self.batch_size - len(combined_indices))
+                batch_2d_indices = [*combined_indices, *extra_indices]
 
             if len(batch_2d_indices) != self.batch_size:
                 print("Indices less than batch size")
@@ -336,7 +357,10 @@ class BatchSampler(Sampler[list[int]]):
             n_windows = self.id_size_dict[sub_id]
             for window_index in range(n_windows):
                 if window_index not in used_windows_by_sub[sub_id]:
-                    unused_windows_by_sub[sub_id].append(window_index)
+                    if sub_id not in unused_windows_by_sub.keys():
+                        unused_windows_by_sub[sub_id] = [window_index]
+                    else:
+                        unused_windows_by_sub[sub_id].append(window_index)
                 # if (sub_id, window_index) not in used_2d_indices:
                 #     unused_2d_indices.append((sub_id, window_index))
 
@@ -378,9 +402,11 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
     def __iter__(self):
         batch_ids = []
 
-        for batch_indices_file in sorted(self.batch_indices_path.iterdir()):
+        for batch_indices_file in self.batch_indices_path.iterdir():
             batch_id = int(batch_indices_file.name.split('-')[1])
             batch_ids.append(batch_id)
+
+        batch_ids = sorted(batch_ids)
 
         # Shuffle ids in-place:
         if self.shuffle:
@@ -392,7 +418,7 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
                 batch_indices_file = self.batch_indices_path / f"batch-{batch_id}"
                 with open(batch_indices_file, mode="rb") as f:
                     batch_windows_by_sub = pickle.load(f)
-
+                    f.close()
                 yield batch_windows_by_sub
 
 
@@ -439,10 +465,13 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
         if use_existing_batch_indices:
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "train"
             if batch_indices_path.is_dir():
+                dataset = loader.dataset
+
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
                                                      shuffle=False,
                                                      seed=loader.sampler.seed)
-                loader.sampler = sampler
+                loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
+                                    num_workers=num_workers, prefetch_factor=pre_fetch)
 
     return loader
 
@@ -502,12 +531,14 @@ def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, p
             loader.dataset.arrays_dir = arrays_dir
 
         if use_existing_batch_indices:
+            dataset = loader.dataset
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "test"
             if batch_indices_path.is_dir():
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
                                                      shuffle=False,
                                                      seed=loader.sampler.seed)
-                loader.sampler = sampler
+                loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
+                                    num_workers=num_workers, prefetch_factor=pre_fetch)
 
     return loader
 
@@ -570,10 +601,12 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_
         if use_existing_batch_indices:
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "cross_test"
             if batch_indices_path.is_dir():
+                dataset = loader.dataset
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
                                                      shuffle=False,
                                                      seed=loader.sampler.seed)
-                loader.sampler = sampler
+                loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
+                                    num_workers=num_workers, prefetch_factor=pre_fetch)
 
     return loader
 
@@ -599,7 +632,7 @@ if __name__ == "__main__":
     print(cross_sub_test_ids)
 
     train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS,
-                                          pre_fetch=PREFETCH_FACTOR)
+                                          pre_fetch=PREFETCH_FACTOR, use_existing_batch_indices=False)
     test_loader = get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                         pre_fetch=PREFETCH_FACTOR)
     test_cross_sub_loader = get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST,
@@ -610,15 +643,17 @@ if __name__ == "__main__":
     print(f"Test_cross batches: {len(test_cross_sub_loader)}  bs: {BATCH_SIZE_TEST}")
     # train_loader.sampler.first_batch_index = 51303
 
-    save_batch_indices_train(batch_size=BATCH_SIZE)
-    save_batch_indices_test(batch_size=BATCH_SIZE_TEST)
-    save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE_TEST)
-    # for (i, item) in tqdm(enumerate(train_loader), total=len(train_loader)):
-    #     X, y = item
-    #     print(f"batch: {i},  X shape: {X.shape},  y shape: {y.shape}")
+    # save_batch_indices_train(batch_size=BATCH_SIZE)
+    # save_batch_indices_test(batch_size=BATCH_SIZE_TEST)
+    # save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE_TEST)
+
+    for (i, item) in tqdm(enumerate(train_loader), total=len(train_loader)):
+        X, y = item
+        print(f"batch: {i},  X shape: {X.shape},  y shape: {y.shape}")
+        print(f"X dtype: {X.dtype}  y dtype: {y.dtype}")
     #     print(X)
     #     print(y)
-        # print(X.dtype)
-        # print(y)
-        # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()
-        # print(f"Memory Usage: {memory_usage_in_bytes} bytes")
+    # print(X.dtype)
+    # print(y)
+    # memory_usage_in_bytes = X.element_size() * X.nelement() + y.element_size() * y.nelement()
+    # print(f"Memory Usage: {memory_usage_in_bytes} bytes")

@@ -18,7 +18,7 @@ BATCH_SIZE_TEST = 32768
 SEED = 33
 NUM_WORKERS = 2
 SKIP_EXISTING = True
-SKIP_TRAIN = False
+SKIP_TRAIN = True
 SKIP_TEST = False
 SKIP_CROSS_TEST = False
 
@@ -68,7 +68,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
                 last_existing_batch += 1
 
             last_existing_batch -= 1
-
+            last_existing_batch = max(0, last_existing_batch)
             # Inform dataloader to skip all batches with index less than last_existing_batch:
             # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
             # corrupted.
@@ -94,7 +94,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
                 last_existing_batch += 1
 
             last_existing_batch -= 1
-
+            last_existing_batch = max(0, last_existing_batch)
             # Inform dataloader to skip all batches with index less than last_existing_batch:
             # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
             # corrupted.
@@ -116,7 +116,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE):
             last_existing_batch += 1
 
         last_existing_batch -= 1
-
+        last_existing_batch = max(0, last_existing_batch)
         # Inform dataloader to skip all batches with index less than last_existing_batch:
         # The last saved batch (=> batch-(i+1) does not exist) should not be skipped because it may be
         # corrupted.

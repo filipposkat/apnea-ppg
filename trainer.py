@@ -31,7 +31,7 @@ LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 10000
+SAVE_MODEL_BATCH_INTERVAL = 1000
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 
@@ -53,9 +53,9 @@ else:
 
 def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion,
                     net_type: str, identifier: str | int,
-                    batch_size: int, epoch: int, batch: int, metrics: dict = None,
+                    batch_size: int, epoch: int, batch: int = None, metrics: dict = None,
                     other_details: str = ""):
-    model_path = models_path.joinpath(f"{net_type}", identifier, f"epoch:{epoch}")
+    model_path = models_path.joinpath(f"{net_type}", str(identifier), f"epoch-{epoch}")
     model_path.mkdir(parents=True, exist_ok=True)
     # identifier = 1
     # while net_path.joinpath(f"{identifier}").is_dir():
@@ -85,12 +85,12 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
         'criterion_class': criterion.__class__,
         'criterion_state_dict': criterion.state_dict()
     }
-    if batch is not None:
+    if batch is None:
         batch = "final"
-    torch.save(state, model_path.joinpath(f"batch:{batch}.pt"))
+    torch.save(state, model_path.joinpath(f"batch-{batch}.pt"))
 
     if metrics is not None:
-        with open(model_path.joinpath(f"batch:{batch}-metrics.json"), 'w') as file:
+        with open(model_path.joinpath(f"batch-{batch}-metrics.json"), 'w') as file:
             json.dump(metrics, file)
 
 
@@ -98,7 +98,7 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int):
     if batch is None:
         batch = "final"
 
-    model_path = models_path.joinpath(f"{net_type}", identifier, f"epoch:{epoch}", f"batch:{batch}.pt")
+    model_path = models_path.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
     state = torch.load(model_path)
     net_class = state["net_class"]
     net_state = state["net_state_dict"]
@@ -168,9 +168,9 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterio
         if print_batch_interval > 0 and i % print_batch_interval == print_batch_interval - 1:
             time_elapsed = time.time() - unix_time_start
 
-            print(f'[Batch{i + 1:7d}/{batches:7d}]'
-                  f' Running Avg loss: {running_loss / print_batch_interval:.3f}'
-                  f' Minutes/Batch: {time_elapsed / (i + 1) / 60}')
+            print(f'[Batch{i + 1:5d}/{batches:5d}]'
+                  f' Running Avg loss: {running_loss / print_batch_interval:.4f}'
+                  f' Secs/Batch: {time_elapsed / (i + 1) / 3600:.2f}')
             running_loss = 0.0
 
         # Save checkpoint:
@@ -237,7 +237,7 @@ if __name__ == "__main__":
                          "optimizer_kwargs": optim_kwargs,
                          "criterion": loss,
                          "net_type": "UNET",
-                         "identifier": 1,
+                         "identifier": "ks5-stride-0",
                          "batch_size": BATCH_SIZE}
 
     for epoch in range(1, EPOCHS + 1):  # loop over the dataset multiple times
@@ -248,7 +248,7 @@ if __name__ == "__main__":
         # print(f"Batches in epoch: {batches}")
         train_loop(train_dataloader=train_loader, net=net, optimizer=optimizer, criterion=loss,
                    lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
-                   device=device, print_batch_interval=10000,
+                   device=device, print_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
                    checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL, save_checkpoint_kwargs=checkpoint_kwargs)
 
         time_elapsed = time.time() - unix_time_start
