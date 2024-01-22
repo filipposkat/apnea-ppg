@@ -15,3 +15,7 @@ paths:
 system:
   specs:
     compute_platform:
+
+
+other:
+  ssh_pass:
