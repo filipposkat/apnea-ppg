@@ -18,9 +18,15 @@ from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched
     get_pre_batched_test_cross_sub_loader
 
 from UNet import UNet
+from UResIncNet import UResIncNet
 from tester import test_loop
 
 # --- START OF CONSTANTS --- #
+NET_TYPE: str = "UNET"  # UNET or UResIncNet
+IDENTIFIER: str = ""
+LOAD_CHECKPOINT: bool = True  # True or False
+LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
+LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
 EPOCHS = 100
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 32768
@@ -94,7 +100,8 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
             json.dump(metrics, file)
 
 
-def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int):
+def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int | str = None) \
+        -> tuple[nn.Module, torch.optim.Optimizer, dict, nn.Module]:
     if batch is None:
         batch = "final"
 
@@ -118,13 +125,26 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int):
     criterion = criterion_class()
     criterion.load_state_dict(criterion_state_dict)
 
-    return net, optimizer, criterion
+    return net, optimizer, optimizer_kwargs, criterion
 
 
-def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterion, lr_scheduler=None,
-               device=torch.device("cpu"),
-               lr_step_batch_interval: int = 10000, print_batch_interval: int = 10000,
-               checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None):
+def get_last_epoch_batch(net_type: str, identifier: str) -> tuple[int, int]:
+    model_path = models_path.joinpath(f"{net_type}", identifier)
+    last_existing_epoch = 0
+    while model_path.joinpath(f"epoch-{last_existing_epoch + 1}").exists():
+        last_existing_epoch += 1
+
+    model_path = model_path / f"epoch-{last_existing_epoch}"
+    last_existing_batch = -1
+    while model_path.joinpath(f"epoch-{last_existing_batch + 1}").exists():
+        last_existing_batch += 1
+
+    return last_existing_epoch, last_existing_batch
+
+
+def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
+               lr_scheduler=None, lr_step_batch_interval: int = 10000, print_batch_interval: int = 10000,
+               checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None, device=torch.device("cpu")):
     if lr_step_batch_interval > 0:
         assert lr_scheduler is not None
 
@@ -151,9 +171,7 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer, criterio
         # forward + backward + optimize
         outputs = net(inputs)
 
-        m = nn.LogSoftmax(dim=1)
-        criterion = nn.NLLLoss()
-        loss = criterion(m(outputs), labels.long())
+        loss = criterion(outputs, labels.long())
         # loss = criterion(outputs, labels.long())
 
         loss.backward()
@@ -203,25 +221,47 @@ if __name__ == "__main__":
     test_loader = get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
     # Create Network:
-    net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=5, sampling_method="conv_stride")
-    net = net.to(device)
+    if LOAD_CHECKPOINT and LOAD_FROM_EPOCH != "no" and LOAD_FROM_BATCH != "no":
+        if LOAD_FROM_EPOCH == "last" and LOAD_FROM_BATCH == "last":
+            epoch, batch = get_last_epoch_batch(net_type=NET_TYPE, identifier=IDENTIFIER)
+        elif LOAD_FROM_EPOCH == "last":
+            epoch, _ = get_last_epoch_batch(net_type=NET_TYPE, identifier=IDENTIFIER)
+            batch = LOAD_FROM_BATCH
+        elif LOAD_FROM_BATCH == "last":
+            epoch = LOAD_FROM_EPOCH
+            batch = "final"
+        else:
+            epoch = LOAD_FROM_EPOCH
+            batch = LOAD_FROM_BATCH
+
+        net, optimizer, optim_kwargs, loss = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER,
+                                                             epoch=epoch, batch=batch)
+    else:
+        if NET_TYPE == "UNET":
+            net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=5,
+                       sampling_method="conv_stride")
+            net = net.to(device)
+        else:
+            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=4, sampling_factor=2,
+                             sampling_method="conv_stride", skip_connection=True)
+            net = net.to(device)
+
+        # Define loss:
+        loss = nn.CrossEntropyLoss()
+
+        # Set LR:
+        lr = LR_TO_BATCH_RATIO * BATCH_SIZE
+
+        # Define optimizer:
+        if OPTIMIZER == "adam":
+            optim_kwargs = {"lr": lr, "betas": (0.9, 0.999), "eps": 1e-08}
+            optimizer = optim.Adam(net.parameters(), **optim_kwargs)
+        else:  # sgd
+            optim_kwargs = {"lr": lr, "momentum": 0.7}
+            optimizer = optim.SGD(net.parameters(), **optim_kwargs)
 
     summary(net, input_size=(BATCH_SIZE, 1, 512),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
-
-    # Define loss:
-    loss = nn.CrossEntropyLoss()
-
-    # Set LR:
-    lr = LR_TO_BATCH_RATIO * BATCH_SIZE
-
-    # Define optimizer:
-    if OPTIMIZER == "adam":
-        optim_kwargs = {"lr": lr, "betas": (0.9, 0.999), "eps": 1e-08}
-        optimizer = optim.Adam(net.parameters(), **optim_kwargs)
-    else:  # sgd
-        optim_kwargs = {"lr": lr, "momentum": 0.7}
-        optimizer = optim.SGD(net.parameters(), **optim_kwargs)
 
     print(optim_kwargs)
     if LR_WARMUP:
