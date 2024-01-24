@@ -17,11 +17,14 @@ N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
-BATCH_SIZE_TEST = 32768
+BATCH_SIZE_TEST = 1024  # 8192
 SEED = 33
 NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
 PREFETCH_FACTOR = 1
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
+SAVE_BATCH_INDICES_TRAIN = False
+SAVE_BATCH_INDICES_TEST = True
+SAVE_BATCH_INDICES_CROSS_TEST = True
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -257,6 +260,7 @@ class BatchSampler(Sampler[list[int]]):
         # Shuffle ids in-place:
         if self.shuffle:
             self.rng.shuffle(self.subject_ids)
+            self.rng.getstate()
 
         # Cyclic iterator of our ids:
         pool = cycle(self.subject_ids)
@@ -368,6 +372,7 @@ class BatchSampler(Sampler[list[int]]):
 
         if self.pbar:
             pbar.update(1)
+            pbar.close()
         # assert len(unused_2d_indices) <= self.batch_size
         # yield unused_2d_indices
 
@@ -411,7 +416,6 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
         # Shuffle ids in-place:
         if self.shuffle:
             self.rng.shuffle(batch_ids)
-
         for batch_id in batch_ids:
             if batch_id >= self.first_batch_index:
                 batch_windows_by_sub: dict
@@ -422,14 +426,15 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
                 yield batch_windows_by_sub
 
 
-def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, shuffle=True) \
+        -> DataLoader:
     dataset = MappedDataset(subject_ids=train_ids,
                             dataset_split="train",
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
 
     sampler = BatchSampler(subject_ids=train_ids, batch_size=batch_size, id_size_dict=dataset.id_size_dict,
-                           shuffle=True, seed=SEED)
+                           shuffle=shuffle, seed=SEED)
 
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
@@ -438,7 +443,7 @@ def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fet
 
 
 def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
-                           arrays_dir: Path = None, use_existing_batch_indices=False) -> DataLoader:
+                           arrays_dir: Path = None, use_existing_batch_indices=False, shuffle=True) -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
 
@@ -446,7 +451,8 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Mapped_Train_Loader.pickle")
     if not object_file.exists():
-        loader = get_new_train_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
+        loader = get_new_train_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch,
+                                      shuffle=shuffle)
 
         # Save train loader for future use
         with open(object_file, "wb") as file:
@@ -456,6 +462,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
         with open(object_file, "rb") as f:
             loader = pickle.load(f)
 
+        loader.sampler.shuffle = shuffle
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
 
@@ -468,7 +475,7 @@ def get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_f
                 dataset = loader.dataset
 
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=False,
+                                                     shuffle=loader.sampler.shuffle,
                                                      seed=loader.sampler.seed)
                 loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
                                     num_workers=num_workers, prefetch_factor=pre_fetch)
@@ -491,14 +498,15 @@ def save_batch_indices_train(batch_size=BATCH_SIZE):
         batch += 1
 
 
-def get_new_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+def get_new_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, shuffle=False) \
+        -> DataLoader:
     dataset = MappedDataset(subject_ids=train_ids,
                             dataset_split="test",
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
 
     sampler = BatchSampler(subject_ids=train_ids, batch_size=batch_size, id_size_dict=dataset.id_size_dict,
-                           shuffle=True, seed=SEED)
+                           shuffle=shuffle, seed=SEED)
 
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
@@ -507,7 +515,7 @@ def get_new_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre
 
 
 def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
-                          arrays_dir: Path = None, use_existing_batch_indices=False) -> DataLoader:
+                          arrays_dir: Path = None, use_existing_batch_indices=False, shuffle=False) -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
 
@@ -515,7 +523,8 @@ def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, p
     object_file = dataloaders_path.joinpath(f"bs{batch_size}",
                                             f"PlethToLabel_Mapped_Test_Loader.pickle")
     if not object_file.exists():
-        loader = get_new_test_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch)
+        loader = get_new_test_loader(batch_size=batch_size, num_workers=num_workers, pre_fetch=pre_fetch,
+                                     shuffle=shuffle)
 
         # Save test loader for future use
         with open(object_file, "wb") as file:
@@ -525,6 +534,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, p
         with open(object_file, "rb") as f:
             loader = pickle.load(f)
 
+        loader.sampler.shuffle = shuffle
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
         if arrays_dir:
@@ -535,7 +545,7 @@ def get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, p
             batch_indices_path = dataloaders_path / f"bs{batch_size}" / "batch-indices" / "test"
             if batch_indices_path.is_dir():
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=False,
+                                                     shuffle=loader.sampler.shuffle,
                                                      seed=loader.sampler.seed)
                 loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
                                     num_workers=num_workers, prefetch_factor=pre_fetch)
@@ -559,14 +569,14 @@ def save_batch_indices_test(batch_size=BATCH_SIZE):
 
 
 def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
-                                  pre_fetch=PREFETCH_FACTOR) -> DataLoader:
+                                  pre_fetch=PREFETCH_FACTOR, shuffle=False) -> DataLoader:
     dataset = MappedDataset(subject_ids=cross_sub_test_ids,
                             dataset_split="cross_test",
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
 
     sampler = BatchSampler(subject_ids=cross_sub_test_ids, batch_size=batch_size, id_size_dict=dataset.id_size_dict,
-                           shuffle=True, seed=SEED)
+                           shuffle=shuffle, seed=SEED)
 
     # It is important to set batch_size=None which disables automatic batching,
     # because dataset returns them batched already:
@@ -575,7 +585,8 @@ def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WO
 
 
 def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
-                                    arrays_dir: Path = None, use_existing_batch_indices=False) -> DataLoader:
+                                    arrays_dir: Path = None, use_existing_batch_indices=False, shuffle=False) \
+        -> DataLoader:
     if NUM_WORKERS == 0:
         pre_fetch = None
 
@@ -593,6 +604,7 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_
         with open(object_file, "rb") as f:
             loader = pickle.load(f)
 
+        loader.sampler.shuffle = shuffle
         loader.num_workers = num_workers
         loader.prefetch_factor = pre_fetch
         if arrays_dir:
@@ -603,7 +615,7 @@ def get_saved_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_
             if batch_indices_path.is_dir():
                 dataset = loader.dataset
                 sampler = BatchFromSavedBatchIndices(batch_indices_path=batch_indices_path,
-                                                     shuffle=False,
+                                                     shuffle=loader.sampler.shuffle,
                                                      seed=loader.sampler.seed)
                 loader = DataLoader(dataset, batch_size=None, sampler=sampler, pin_memory=True,
                                     num_workers=num_workers, prefetch_factor=pre_fetch)
@@ -643,9 +655,12 @@ if __name__ == "__main__":
     print(f"Test_cross batches: {len(test_cross_sub_loader)}  bs: {BATCH_SIZE_TEST}")
     # train_loader.sampler.first_batch_index = 51303
 
-    # save_batch_indices_train(batch_size=BATCH_SIZE)
-    # save_batch_indices_test(batch_size=BATCH_SIZE_TEST)
-    # save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE_TEST)
+    if SAVE_BATCH_INDICES_TRAIN:
+        save_batch_indices_train(batch_size=BATCH_SIZE)
+    if SAVE_BATCH_INDICES_TEST:
+        save_batch_indices_test(batch_size=BATCH_SIZE_TEST)
+    if SAVE_BATCH_INDICES_CROSS_TEST:
+        save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE_TEST)
 
     for (i, item) in tqdm(enumerate(train_loader), total=len(train_loader)):
         X, y = item

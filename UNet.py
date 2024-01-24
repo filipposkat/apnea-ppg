@@ -77,14 +77,15 @@ class DecoderBlock(nn.Module):
             pad = (kernel_size - sampling_factor + out_pad) // 2
 
         assert (kernel_size - sampling_factor - 2 * pad + out_pad) == 0
+
         self.tconv = nn.ConvTranspose1d(in_chans, in_chans // 2, stride=sampling_factor, kernel_size=kernel_size,
                                         padding=pad, output_padding=out_pad)
 
-        self.decoder.append(nn.Conv1d(in_chans // skip_factor, out_chans, kernel_size, 1, padding="same"))
+        self.decoder.append(nn.Conv1d(in_chans // skip_factor, out_chans, kernel_size, stride=1, padding="same"))
         self.decoder.append(nn.BatchNorm1d(out_chans))
         self.decoder.append(nn.LeakyReLU(0.2))
         for _ in range(layers - 1):
-            self.decoder.append(nn.Conv1d(out_chans, out_chans, kernel_size, 1, padding="same"))
+            self.decoder.append(nn.Conv1d(out_chans, out_chans, kernel_size, stride=1, padding="same"))
             self.decoder.append(nn.BatchNorm1d(out_chans))
             self.decoder.append(nn.LeakyReLU(0.2))
 
@@ -155,7 +156,7 @@ class UNet(nn.Module):
                                              sampling_factor=sampling_factor))
 
         # Add a 1x1 convolution to produce final classes
-        self.logits = nn.Conv1d(out_chans, nclass, 1, 1)
+        self.logits = nn.Conv1d(out_chans, nclass, kernel_size=1, stride=1)
 
     def forward(self, x):
         encoded = []
@@ -174,7 +175,7 @@ class UNet(nn.Module):
         return self.logits(x)
 
     def get_args_summary(self):
-        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Layers{self.layers} - "
+        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Layers {self.layers} - "
                 f"Kernel {self.kernel_size} - Sampling {self.sampling_method}")
 
     def get_kwargs(self):

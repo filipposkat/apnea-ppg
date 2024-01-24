@@ -245,10 +245,9 @@ class IterDataset(IterableDataset):
             indices3 = [(sub_id3, i) for i in range(n_windows3) if (sub_id3, i) not in used_2d_indices]
 
             combined_indices = [*indices1, *indices2, *indices3]
-            n_combined_indices = len(combined_indices)
 
             # Check if the windows available for sampling are enough for a batch:
-            while n_combined_indices < self.batch_size:
+            while len(combined_indices) < self.batch_size:
                 # If three subjects do not have enough windows then use more:
                 next_sub_id = next(pool)
 
