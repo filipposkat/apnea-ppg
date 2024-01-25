@@ -10,7 +10,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-
 import data_loaders_mapped
 
 # Local imports:
@@ -21,10 +20,9 @@ from UNet import UNet
 if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
 
-
 # --- START OF CONSTANTS --- #
-NET_TYPE: str = "UNET"  # UNET or UResIncNet
-IDENTIFIER: str = "ks5-stride-0"
+NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
+IDENTIFIER: str = "ks3-depth8-strided-0"
 EPOCHS = 100
 BATCH_SIZE_TEST = 8192
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them
@@ -397,6 +395,45 @@ def test_all_checkpoints(net_type: str, identifier: str, test_loader: DataLoader
             pbar1.update(1)
     if progress_bar:
         pbar1.close()
+
+
+def test_all_epochs(net_type: str, identifier: str, test_loader: DataLoader, device=DEVICE,
+                    max_batches=MAX_BATCHES, progress_bar=True):
+    if LOAD_FROM_BATCH > 0:
+        print("WARNING: Loading from test batch other than the first (0) is not supported by test_all_epochs! "
+              "Setting it to 0")
+        test_loader.sampler.first_batch_index = 0
+
+    pbar1 = None
+    epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=True)
+    if progress_bar:
+        pbar1 = tqdm(total=len(epochs), desc="Epoch checkpoint", leave=True)
+    for e in epochs:
+        b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
+        metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+        if metrics is None:
+            net, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+            metrics = test_loop(net=net, test_loader=test_loader, device=device, max_batches=max_batches,
+                                progress_bar=progress_bar, verbose=False)
+            save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
+        if progress_bar:
+            pbar1.update(1)
+    if progress_bar:
+        pbar1.close()
+
+
+def test_last_checkpoint(net_type: str, identifier: str, test_loader: DataLoader, device=DEVICE,
+                         max_batches=MAX_BATCHES, first_batch=0, progress_bar=True):
+    test_loader.sampler.first_batch_index = first_batch
+    e = get_last_epoch(net_type=net_type, identifier=identifier)
+    b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
+    metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+    if metrics is None:
+        net, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+        metrics = test_loop(net=net, test_loader=test_loader, device=device,
+                            first_batch=first_batch, max_batches=max_batches,
+                            progress_bar=progress_bar, verbose=False)
+        save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
 EPOCHS = 100
 BATCH_SIZE = 256
-BATCH_SIZE_TEST = 8192
+BATCH_SIZE_TEST = 1024
 NUM_WORKERS = 2
 PRE_FETCH = 2
 LR_TO_BATCH_RATIO = 1 / 25600
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     # Prepare train dataloader:
     # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, n_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
-    test_loader = get_saved_test_loader(batch_size=BATCH_SIZE, num_workers=1, pre_fetch=1)
+    test_loader = get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=1, pre_fetch=1)
 
 
     # Create Network:
