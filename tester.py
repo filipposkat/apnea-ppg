@@ -37,11 +37,15 @@ with open("config.yml", 'r') as f:
 if config is not None:
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
     PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    if "subset_1_saved_models_directory" in config:
+        MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
+    else:
+        MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
+    MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
 
-MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
@@ -437,7 +441,7 @@ def test_last_checkpoint(net_type: str, identifier: str, test_loader: DataLoader
 
 
 if __name__ == "__main__":
-    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, n_workers=2, pre_fetch=1, shuffle=False)
+    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2, pre_fetch=1, shuffle=False)
     # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2, pre_fetch=1,
     #                                                         shuffle=False, use_existing_batch_indices=True)
     test_loader.sampler.first_batch_index = LOAD_FROM_BATCH

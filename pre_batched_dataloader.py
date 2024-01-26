@@ -14,7 +14,7 @@ from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
 BATCH_SIZE = 256
-BATCH_SIZE_TEST = 8192
+BATCH_SIZE_TEST = 1024
 SEED = 33
 NUM_WORKERS = 2
 PREFETCH_FACTOR = 2
@@ -49,11 +49,11 @@ def get_available_batch_sizes() -> tuple[list[int], list[int], list[int]]:
             dirname = dir.name
             if "bs" in dirname:
                 bs = int(dirname.removeprefix("bs"))
-                if dir.joinpath("train").is_dir():
+                if dir.joinpath("train").is_dir() and any(dir.joinpath("train").iterdir()):
                     available_train_batches_sizes.append(bs)
-                if dir.joinpath("test").is_dir():
+                if dir.joinpath("test").is_dir() and any(dir.joinpath("test").iterdir()):
                     available_test_batches_sizes.append(bs)
-                if dir.joinpath("test-cross-subject").is_dir():
+                if dir.joinpath("test-cross-subject").is_dir() and any(dir.joinpath("test-cross-subject").iterdir()):
                     available_cross_test_batches_sizes.append(bs)
 
     available_train_batches_sizes.sort()
@@ -69,12 +69,12 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE, batch_size_test=BATCH_SIZE
         pre_fetch_factor = 1
 
     train_loader = get_saved_train_loader(batch_size, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor,
-                                          use_existing_batch_indices=True)
+                                          use_existing_batch_indices=True, shuffle=False)
     test_loader = get_saved_test_loader(batch_size_test, num_workers=NUM_WORKERS, pre_fetch=pre_fetch_factor,
-                                        use_existing_batch_indices=True)
+                                        use_existing_batch_indices=True, shuffle=False)
     cross_test_loader = get_saved_test_cross_sub_loader(batch_size_test, num_workers=NUM_WORKERS,
                                                         pre_fetch=pre_fetch_factor,
-                                                        use_existing_batch_indices=True)
+                                                        use_existing_batch_indices=True, shuffle=False)
 
     train_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{batch_size}", "train")
     test_tensors_path = PRE_BATCHED_TENSORS_PATH.joinpath(f"bs{batch_size_test}", "test")
@@ -100,7 +100,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE, batch_size_test=BATCH_SIZE
 
         print("Saving batches from train loader:")
         for (i, item) in tqdm(enumerate(train_loader, start=last_existing_batch), initial=last_existing_batch,
-                              total=batches):
+                              total=batches, desc="Train batches"):
             batch_path = train_tensors_path.joinpath(f"batch-{i}")
 
             batch_path.mkdir(exist_ok=True)
@@ -126,7 +126,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE, batch_size_test=BATCH_SIZE
 
         batches = len(test_loader)
         for (i, item) in tqdm(enumerate(test_loader, start=last_existing_batch), initial=last_existing_batch,
-                              total=batches):
+                              total=batches, desc="Test batches"):
             batch_path = test_tensors_path.joinpath(f"batch-{i}")
             batch_path.mkdir(exist_ok=True)
             X_path = batch_path.joinpath("X.pt")
@@ -149,7 +149,7 @@ def create_pre_batched_tensors(batch_size=BATCH_SIZE, batch_size_test=BATCH_SIZE
 
         batches = len(cross_test_loader)
         for (i, item) in tqdm(enumerate(cross_test_loader, start=last_existing_batch), initial=last_existing_batch,
-                              total=batches):
+                              total=batches, desc="Cross-test batches"):
             batch_path = cross_test_tensors_path.joinpath(f"batch-{i}")
             batch_path.mkdir(exist_ok=True)
             X_path = batch_path.joinpath("X.pt")
@@ -198,9 +198,9 @@ class PreBatchedSampler(Sampler):
     def __iter__(self):
         n_batches = len(self)
         indices = torch.randperm(n_batches, generator=self.rng).tolist()
-        for i in indices:
+        for i, batch_id in enumerate(indices):
             if i >= self.first_batch_index:
-                yield i
+                yield batch_id
 
 
 def adaptive_collate_fn(batches: list[tuple[torch.tensor, torch.tensor]]) -> tuple[torch.tensor, torch.tensor]:
@@ -218,7 +218,7 @@ def adaptive_collate_fn(batches: list[tuple[torch.tensor, torch.tensor]]) -> tup
     return combined_input_batches, combined_label_batches
 
 
-def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
+def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR,
                                  shuffle=True) -> DataLoader:
     available_train_bs, _, _ = get_available_batch_sizes()
     max_eligible_bs = max([bs for bs in available_train_bs if batch_size % bs == 0])
@@ -234,21 +234,21 @@ def get_pre_batched_train_loader(batch_size: int = BATCH_SIZE, n_workers=NUM_WOR
         rng.manual_seed(SEED)
         sampler = PreBatchedSampler(train_set, rng=rng)
         train_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                  sampler=sampler, pin_memory=True, num_workers=n_workers, prefetch_factor=pre_fetch)
+                                  sampler=sampler, pin_memory=True, num_workers=num_workers, prefetch_factor=pre_fetch)
     else:
         train_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                  shuffle=False, pin_memory=True, num_workers=n_workers, prefetch_factor=pre_fetch)
+                                  shuffle=False, pin_memory=True, num_workers=num_workers, prefetch_factor=pre_fetch)
     # train_loader = DataLoader(train_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn, shuffle=True,
     #                           generator=rng, pin_memory=True, num_workers=n_workers, prefetch_factor=pre_fetch)
     return train_loader
 
 
-def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE_TEST, n_workers=NUM_WORKERS,
+def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                 pre_fetch=PREFETCH_FACTOR, shuffle=False) -> DataLoader:
     _, available_test_bs, _ = get_available_batch_sizes()
-    max_eligible_bs = max([bs for bs in available_test_bs if batch_size % bs == 0])
-
-    assert batch_size % max_eligible_bs == 0
+    all_eligible_bs = [bs for bs in available_test_bs if batch_size % bs == 0]
+    assert len(all_eligible_bs) != 0
+    max_eligible_bs = max(all_eligible_bs)
 
     dir_path = PRE_BATCHED_TENSORS_PATH / f"bs{max_eligible_bs}" / "test"
     test_set = PreBatchedDataset(dir_path)
@@ -259,14 +259,14 @@ def get_pre_batched_test_loader(batch_size: int = BATCH_SIZE_TEST, n_workers=NUM
         rng.manual_seed(SEED)
         sampler = PreBatchedSampler(test_set, rng=rng)
         test_loader = DataLoader(test_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                 sampler=sampler, pin_memory=True, num_workers=n_workers, prefetch_factor=pre_fetch)
+                                 sampler=sampler, pin_memory=True, num_workers=num_workers, prefetch_factor=pre_fetch)
     else:
         test_loader = DataLoader(test_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                 shuffle=False, pin_memory=True, num_workers=n_workers, prefetch_factor=pre_fetch)
+                                 shuffle=False, pin_memory=True, num_workers=num_workers, prefetch_factor=pre_fetch)
     return test_loader
 
 
-def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE_TEST, n_workers=NUM_WORKERS,
+def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                           pre_fetch=PREFETCH_FACTOR, shuffle=False) -> DataLoader:
     _, _, available_cross_test_bs = get_available_batch_sizes()
     max_eligible_bs = max([bs for bs in available_cross_test_bs if batch_size % bs == 0])
@@ -283,11 +283,11 @@ def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE_TEST, n_w
         rng.manual_seed(SEED)
         sampler = PreBatchedSampler(cross_test_set, rng=rng)
         test_cross_sub_loader = DataLoader(cross_test_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                           sampler=sampler, pin_memory=True, num_workers=n_workers,
+                                           sampler=sampler, pin_memory=True, num_workers=num_workers,
                                            prefetch_factor=pre_fetch)
     else:
         test_cross_sub_loader = DataLoader(cross_test_set, batch_size=batch_multiplier, collate_fn=adaptive_collate_fn,
-                                           shuffle=False, pin_memory=True, num_workers=n_workers,
+                                           shuffle=False, pin_memory=True, num_workers=num_workers,
                                            prefetch_factor=pre_fetch)
     return test_cross_sub_loader
 

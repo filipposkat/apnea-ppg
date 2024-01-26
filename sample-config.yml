@@ -9,6 +9,7 @@ paths:
     csv_directory:
     subset_1_directory:
     subset_1_training_directory:
+    subset_1_saved_models_directory:
     pt_ocl_dll:
     dependency_dlls:
 

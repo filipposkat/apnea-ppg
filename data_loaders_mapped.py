@@ -416,8 +416,8 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
         # Shuffle ids in-place:
         if self.shuffle:
             self.rng.shuffle(batch_ids)
-        for batch_id in batch_ids:
-            if batch_id >= self.first_batch_index:
+        for i, batch_id in enumerate(batch_ids):
+            if i >= self.first_batch_index:
                 batch_windows_by_sub: dict
                 batch_indices_file = self.batch_indices_path / f"batch-{batch_id}"
                 with open(batch_indices_file, mode="rb") as f:

@@ -40,7 +40,7 @@ LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 1000
+SAVE_MODEL_BATCH_INTERVAL = 5000
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
@@ -51,13 +51,17 @@ with open("config.yml", 'r') as f:
 if config is not None:
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
     PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    if "subset_1_saved_models_directory" in config:
+        MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
+    else:
+        MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
+    MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
 
-MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
@@ -236,6 +240,9 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer: torch.op
                lr_scheduler=None, lr_step_batch_interval: int = 10000, device="cpu", first_batch: int = 0,
                initial_running_losses: list[float] = None, print_batch_interval: int = None,
                checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None):
+    # Resumes training from correct batch
+    train_loader.sampler.first_batch_index = first_batch
+
     if lr_step_batch_interval > 0:
         assert lr_scheduler is not None
 
@@ -325,7 +332,7 @@ if __name__ == "__main__":
         torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
         device = "privateuseone:0"
     elif torch.cuda.is_available():
-        device = torch.device("cuda")
+        device = torch.device("cuda:0")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
@@ -335,8 +342,8 @@ if __name__ == "__main__":
 
     # Prepare train dataloader:
     # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
-    train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, n_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
-    test_loader = get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=1, pre_fetch=1)
+    train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
+    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=1, pre_fetch=1)
 
 
     # Create Network:
