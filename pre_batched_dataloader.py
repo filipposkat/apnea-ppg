@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Callable, Any
 import yaml
@@ -14,11 +15,11 @@ from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
 BATCH_SIZE = 256
-BATCH_SIZE_TEST = 1024
+BATCH_SIZE_TEST = 8192
 SEED = 33
 NUM_WORKERS = 2
 PREFETCH_FACTOR = 2
-SKIP_EXISTING = True
+SKIP_EXISTING = False
 SKIP_TRAIN = True
 SKIP_TEST = False
 SKIP_CROSS_TEST = False
@@ -294,3 +295,17 @@ def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE_TEST, num
 
 if __name__ == "__main__":
     create_pre_batched_tensors(batch_size=BATCH_SIZE)
+
+    # test_loader = get_pre_batched_test_loader(batch_size=1024, num_workers=2, pre_fetch=1, shuffle=False)
+    # for data in tqdm(test_loader, total=len(test_loader)):
+    #     X, y = data
+    #     print(X.shape)
+    # 1009 and 112
+    # for i in tqdm(range(2254)):
+    #     if i != 1009:
+    #         pathX = PRE_BATCHED_TENSORS_PATH / "bs1024" / "test-cross-subject" / f"batch-{i}" / "X.pt"
+    #         pathy = PRE_BATCHED_TENSORS_PATH / "bs1024" / "test-cross-subject" / f"batch-{i}" / "y.pt"
+    #         X = torch.load(pathX)
+    #         y = torch.load(pathy)
+    #         # print(X.shape)
+    #         # print(y.shape)

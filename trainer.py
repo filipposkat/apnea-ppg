@@ -33,7 +33,9 @@ EPOCHS = 100
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024
 NUM_WORKERS = 2
+NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
+PRE_FETCH_TEST = 1
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = False
 LR_WARMUP_EPOCH_DURATION = 3
@@ -42,7 +44,7 @@ LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 5000
 SAVE_MODEL_EVERY_EPOCH = True
-TESTING_EPOCH_INTERVAL = 1
+TESTING_EPOCH_INTERVAL = 101
 RUNNING_LOSS_PERIOD = 100
 
 with open("config.yml", 'r') as f:
@@ -51,7 +53,7 @@ with open("config.yml", 'r') as f:
 if config is not None:
     PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
     PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
-    if "subset_1_saved_models_directory" in config:
+    if "subset_1_saved_models_directory" in config["paths"]["local"]:
         MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
     else:
         MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
@@ -134,10 +136,10 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
             json.dump(test_metrics, file)
 
 
-def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int) \
+def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
         -> tuple[nn.Module, torch.optim.Optimizer, dict, nn.Module, torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
-    state = torch.load(model_path)
+    state = torch.load(model_path, map_location=device)
     if "batch_size" in state.keys():
         batch_size = int(state["batch_size"])
         if batch_size != BATCH_SIZE:
@@ -152,31 +154,32 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int) \
     criterion_class = state["criterion_class"]
     criterion_state_dict = state["criterion_state_dict"]
 
-    net = net_class(**net_kwargs)
-    net.load_state_dict(net_state)
+    model = net_class(**net_kwargs)
+    model.load_state_dict(net_state)
+    model = model.to(device)
 
-    optimizer = optimizer_class(net.parameters(), **optimizer_kwargs)
+    optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
     optimizer.load_state_dict(optimizer_state_dict)
 
     criterion = criterion_class()
     criterion.load_state_dict(criterion_state_dict)
 
-    rng = None
+    random_number_generator = None
     if "rng_state" in state.keys():
         rng_state = state["rng_state"]
         if isinstance(rng_state, torch.ByteTensor):
-            rng = torch.Generator()
-            rng.set_state(rng_state)
+            random_number_generator = torch.Generator()
+            random_number_generator.set_state(rng_state)
         elif isinstance(rng_state, tuple):
-            rng = random.Random()
-            rng.setstate(rng_state)
+            random_number_generator = random.Random()
+            random_number_generator.setstate(rng_state)
 
     if "running_losses" in state.keys():
         run_losses = state["running_losses"]
     else:
         run_losses = None
 
-    return net, optimizer, optimizer_kwargs, criterion, rng, run_losses
+    return model, optimizer, optimizer_kwargs, criterion, random_number_generator, run_losses
 
 
 def get_saved_epochs(net_type: str, identifier: str) -> list[int]:
@@ -236,7 +239,7 @@ def get_last_batch(net_type: str, identifier: str, epoch: int | str) -> int:
     return last_existing_batch
 
 
-def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
+def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
                lr_scheduler=None, lr_step_batch_interval: int = 10000, device="cpu", first_batch: int = 0,
                initial_running_losses: list[float] = None, print_batch_interval: int = None,
                checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None):
@@ -249,10 +252,9 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer: torch.op
     if checkpoint_batch_interval > 0:
         assert save_checkpoint_kwargs is not None
 
-    net.to(device)
-
     # Ensure train mode:
-    net.train()
+    model.train()
+    model = model.to(device)
 
     unix_time_start = time.time()
 
@@ -288,7 +290,7 @@ def train_loop(train_dataloader: DataLoader, net: nn.Module, optimizer: torch.op
             optimizer.zero_grad()
 
             # forward + backward + optimize
-            outputs = net(inputs)
+            outputs = model(inputs)
 
             loss = criterion(outputs, labels)
 
@@ -343,8 +345,8 @@ if __name__ == "__main__":
     # Prepare train dataloader:
     # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
-    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=1, pre_fetch=1)
-
+    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS_TEST,
+                                              pre_fetch=PRE_FETCH_TEST, shuffle=False)
 
     # Create Network:
     last_epoch = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
@@ -370,7 +372,8 @@ if __name__ == "__main__":
         net, optimizer, optim_kwargs, loss, rng, initial_running_losses = load_checkpoint(net_type=NET_TYPE,
                                                                                           identifier=IDENTIFIER,
                                                                                           epoch=epoch,
-                                                                                          batch=batch)
+                                                                                          batch=batch,
+                                                                                          device=device)
 
         if rng is not None:
             # Save dataloader rng state in order to be able to resume training from the same batch
@@ -395,11 +398,9 @@ if __name__ == "__main__":
         if NET_TYPE == "UNET":
             net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=5,
                        sampling_method="conv_stride")
-            net = net.to(device)
         else:
             net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=3, sampling_factor=2,
                              sampling_method="conv_stride", skip_connection=True)
-            net = net.to(device)
 
         initial_running_losses = None
         start_from_epoch = 1
@@ -410,6 +411,9 @@ if __name__ == "__main__":
 
         # Set LR:
         lr = LR_TO_BATCH_RATIO * BATCH_SIZE
+
+        # Model should go to device first before initializing optimizer:
+        net = net.to(device)
 
         # Define optimizer:
         if OPTIMIZER == "adam":
@@ -454,21 +458,21 @@ if __name__ == "__main__":
             checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
 
         # print(f"Batches in epoch: {batches}")
-        train_loop(train_dataloader=train_loader, net=net, optimizer=optimizer, criterion=loss,
+        train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer, criterion=loss,
                    lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
                    device=device, first_batch=start_from_batch, initial_running_losses=initial_running_losses,
                    print_batch_interval=None, checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
                    save_checkpoint_kwargs=checkpoint_kwargs)
 
         time_elapsed = time.time() - unix_time_start
-        print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
+        # print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
 
         if lr_scheduler and epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == LR_WARMUP_STEP_EPOCH_INTERVAL - 1:
             lr_scheduler.step()
 
         if epoch % TESTING_EPOCH_INTERVAL == 0:
-            print(f"Testing epoch: {epoch}")
-            metrics = test_loop(net=net, test_loader=test_loader, device="cpu", verbose=False, progress_bar=True)
+            # print(f"Testing epoch: {epoch}")
+            metrics = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False, progress_bar=True)
             print(f"Test accuracy: {metrics['aggregate_accuracy']}")
             # Save model:
             save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1, test_metrics=metrics)
