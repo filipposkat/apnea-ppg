@@ -15,11 +15,11 @@ from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
 BATCH_SIZE = 256
-BATCH_SIZE_TEST = 8192
+BATCH_SIZE_TEST = 1024
 SEED = 33
 NUM_WORKERS = 2
 PREFETCH_FACTOR = 2
-SKIP_EXISTING = False
+SKIP_EXISTING = True
 SKIP_TRAIN = True
 SKIP_TEST = False
 SKIP_CROSS_TEST = False

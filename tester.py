@@ -24,8 +24,6 @@ if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
 
 # --- START OF CONSTANTS --- #
-NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
-IDENTIFIER: str = "ks3-depth8-strided-0"
 EPOCHS = 100
 BATCH_SIZE_TEST = 1024
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them
@@ -45,30 +43,48 @@ if config is not None:
     else:
         MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
+    NET_TYPE = config["variables"]["models"]["net_type"]
+    IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
     MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
+    NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
+    IDENTIFIER: str = "ks3-depth8-strided-0"  # "ks5-depth5-layers2-strided-0" or "ks3-depth8-strided-0"
 
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
 # --- END OF CONSTANTS --- #
-def save_confusion_matrix(confusion_matrix, net_type: str, identifier: str, epoch: int, batch: int):
-    cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cm.json")
+def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, identifier: str, epoch: int, batch: int,
+                          cross_subject=False):
+    if cross_subject:
+        cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cross_test_cm.json")
+    else:
+        cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_cm.json")
     with open(cm_path, 'w') as file:
         json.dump(confusion_matrix, file)
 
 
-def save_metrics(metrics: dict[str: float], net_type: str, identifier: str, epoch: int, batch: int):
-    metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_metrics.json")
+def save_metrics(metrics: dict[str: float], net_type: str, identifier: str, epoch: int, batch: int,
+                 cross_subject=False):
+    if cross_subject:
+        metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                            f"batch-{batch}-cross_test_metrics.json")
+    else:
+        metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                            f"batch-{batch}-test_metrics.json")
     with open(metrics_path, 'w') as file:
         json.dump(metrics, file)
 
 
-def load_confusion_matrix(net_type: str, identifier: str, epoch: int, batch: int) -> dict[str: float]:
-    cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cm.json")
+def load_confusion_matrix(net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False) \
+        -> list[list[float]] | None:
+    if cross_subject:
+        cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cross_test_cm.json")
+    else:
+        cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_cm.json")
     if cm_path.exists():
         with open(cm_path, 'r') as file:
             return json.load(file)
@@ -76,8 +92,13 @@ def load_confusion_matrix(net_type: str, identifier: str, epoch: int, batch: int
         return None
 
 
-def load_metrics(net_type: str, identifier: str, epoch: int, batch: int) -> dict[str: float]:
-    metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_metrics.json")
+def load_metrics(net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False) -> dict[str: float]:
+    if cross_subject:
+        metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                            f"batch-{batch}-cross_test_metrics.json")
+    else:
+        metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                            f"batch-{batch}-test_metrics.json")
     if metrics_path.exists():
         with open(metrics_path, 'r') as file:
             return json.load(file)
@@ -187,15 +208,19 @@ def f1_by_class(tp: dict, fp: dict, fn: dict, print_f1s=False):
     precision = precision_by_class(tp, fp, print_precisions=False)
     recall = recall_by_class(tp, fn, print_recalls=False)
     for c in tp.keys():
-        if precision[c] != "nan" and recall[c] != "nan":
+        if precision[c] == "nan" or recall[c] == "nan":
+            class_f1[c] = "nan"
+            if print_f1s:
+                print(f'F1 for class: {c} is nan')
+        elif (precision[c] + recall[c]) == 0:
+            class_f1[c] = 0
+            if print_f1s:
+                print(f'F1 for class: {c} is 0')
+        else:
             f1 = 2 * precision[c] * recall[c] / (precision[c] + recall[c])
             class_f1[c] = f1
             if print_f1s:
                 print(f'F1 for class: {c} is {100 * f1:.2f} %')
-        else:
-            class_f1[c] = "nan"
-            if print_f1s:
-                print(f'F1 for class: {c} is nan')
     return class_f1
 
 
@@ -230,9 +255,14 @@ def micro_average_recall(tp: dict, fn: dict, print_recall=False):
 def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
     micro_prec = micro_average_precision(tp, fp, print_precision=False)
     micro_rec = micro_average_recall(tp, fn, print_recall=False)
-    micro_f1 = 2 * micro_prec * micro_rec / (micro_prec + micro_rec)
-    if print_f1:
-        print(f'Micro Average F1: {100 * micro_f1:.2f} %')
+    if micro_rec + micro_rec == 0:
+        micro_f1 = 0
+        if print_f1:
+            print(f'Micro Average F1: 0')
+    else:
+        micro_f1 = 2 * micro_prec * micro_rec / (micro_prec + micro_rec)
+        if print_f1:
+            print(f'Micro Average F1: {100 * micro_f1:.2f} %')
     return micro_f1
 
 
@@ -355,7 +385,7 @@ def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.
 
 
 def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_batches=None,
-              progress_bar=True, verbose=False, first_batch=0) -> dict[str: float]:
+              progress_bar=True, verbose=False, first_batch=0) -> tuple[dict[str: float], list[list[float]]]:
     if verbose:
         print(datetime.datetime.now())
     loader = test_dataloader
@@ -370,7 +400,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    cm = torch.zeros((5, 5))
+    cm = torch.zeros((5, 5), device=device)
     correct_pred = 0
     total_pred = 0
     tp = {c: 0 for c in classes}
@@ -497,7 +527,7 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
     for e in epochs:
         batches = sorted(get_saved_batches(net_type=net_type, identifier=identifier, epoch=e), reverse=True)
         if progress_bar:
-            pbar2 = tqdm(total=len(batches), desc="Train checkpoint", leave=True)
+            pbar2 = tqdm(total=len(batches), desc="Batch checkpoint", leave=False)
         for b in batches:
             metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
             if metrics is None:
@@ -584,5 +614,7 @@ if __name__ == "__main__":
     # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2, pre_fetch=1,
     #                                                         shuffle=False, use_existing_batch_indices=True)
     test_loader.sampler.first_batch_index = LOAD_FROM_BATCH
-    test_all_checkpoints(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
-                         max_batches=MAX_BATCHES, progress_bar=True)
+    # test_all_checkpoints(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
+    #                      max_batches=MAX_BATCHES, progress_bar=True)
+    test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
+                    max_batches=MAX_BATCHES, progress_bar=True)

@@ -17,6 +17,10 @@ system:
   specs:
     compute_platform:
 
+variables:
+  models:
+    net_type: # UNET or UResIncNet
+    net_identifier:
 
 other:
   ssh_pass:

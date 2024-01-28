@@ -21,11 +21,10 @@ from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched
 
 from UNet import UNet
 from UResIncNet import UResIncNet
-from tester import test_loop
+from tester import test_loop, save_metrics, save_confusion_matrix
 
 # --- START OF CONSTANTS --- #
-NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
-IDENTIFIER: str = "ks3-depth8-strided-0"
+
 LOAD_CHECKPOINT: bool = True  # True or False
 LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
@@ -42,9 +41,9 @@ LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 5000
+SAVE_MODEL_BATCH_INTERVAL = 10000
 SAVE_MODEL_EVERY_EPOCH = True
-TESTING_EPOCH_INTERVAL = 101
+TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
 
 with open("config.yml", 'r') as f:
@@ -58,11 +57,15 @@ if config is not None:
     else:
         MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
+    NET_TYPE = config["variables"]["models"]["net_type"]
+    IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
     MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
+    NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
+    IDENTIFIER: str = "ks3-depth8-strided-0"  # ks5-depth5-layers2-strided-0 or ks3-depth8-strided-0
 
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -73,7 +76,8 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion,
                     net_type: str, identifier: str | int,
                     batch_size: int, epoch: int, batch: int, dataloader_rng_state: torch.ByteTensor | tuple,
-                    test_metrics: dict = None, running_losses: list[float] = None, other_details: str = ""):
+                    running_losses: list[float] = None, test_metrics: dict = None, test_cm: list[list[float]] = None,
+                    other_details: str = ""):
     """
     :param net: Neural network model to save
     :param optimizer: Torch optimizer object
@@ -88,6 +92,7 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
     It is either torch.ByteTensor if it was a generator of class: torch.Generator
     or tuple if it was a generator of class: random.Random
     :param test_metrics: A dictionary containing all relevant test metrics
+    :param test_cm: Confusion matrix
     :param running_losses: The running period losses of the train loop
     :param other_details: Any other details to be noted
     :return:
@@ -132,8 +137,11 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
     torch.save(state, model_path.joinpath(f"batch-{batch}.pt"))
 
     if test_metrics is not None:
-        with open(model_path.joinpath(f"batch-{batch}-test_metrics.json"), 'w') as file:
-            json.dump(test_metrics, file)
+        save_metrics(metrics=test_metrics, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch)
+        # with open(model_path.joinpath(f"batch-{batch}-test_metrics.json"), 'w') as file:
+        #     json.dump(test_metrics, file)
+    if test_cm is not None:
+        save_confusion_matrix(test_cm, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch)
 
 
 def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
@@ -167,7 +175,8 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     random_number_generator = None
     if "rng_state" in state.keys():
         rng_state = state["rng_state"]
-        if isinstance(rng_state, torch.ByteTensor):
+        if isinstance(rng_state, (torch.Tensor, torch.ByteTensor)):
+            rng_state = rng_state.type(torch.ByteTensor)
             random_number_generator = torch.Generator()
             random_number_generator.set_state(rng_state)
         elif isinstance(rng_state, tuple):
@@ -445,42 +454,45 @@ if __name__ == "__main__":
 
     batches_in_epoch = len(train_loader)
     # loop over the dataset multiple times:
-    for epoch in tqdm(range(start_from_epoch, EPOCHS + 1), initial=start_from_epoch - 1, total=EPOCHS,
-                      desc="Epochs finished", leave=True):
+    with tqdm(range(start_from_epoch, EPOCHS + 1), initial=start_from_epoch - 1, total=EPOCHS,
+              desc="Epochs finished", leave=True) as tqdm_epochs:
+        for epoch in tqdm_epochs:
 
-        if epoch > LR_WARMUP_EPOCH_DURATION:
-            lr_scheduler = None
+            if epoch > LR_WARMUP_EPOCH_DURATION:
+                lr_scheduler = None
 
-        checkpoint_kwargs["epoch"] = epoch
-        if isinstance(train_loader.sampler.rng, torch.Generator):
-            checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.get_state()
-        else:
-            checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
+            checkpoint_kwargs["epoch"] = epoch
+            if isinstance(train_loader.sampler.rng, torch.Generator):
+                checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.get_state()
+            else:
+                checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
 
-        # print(f"Batches in epoch: {batches}")
-        train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer, criterion=loss,
-                   lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
-                   device=device, first_batch=start_from_batch, initial_running_losses=initial_running_losses,
-                   print_batch_interval=None, checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
-                   save_checkpoint_kwargs=checkpoint_kwargs)
+            # print(f"Batches in epoch: {batches}")
+            train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer, criterion=loss,
+                       lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
+                       device=device, first_batch=start_from_batch, initial_running_losses=initial_running_losses,
+                       print_batch_interval=None, checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
+                       save_checkpoint_kwargs=checkpoint_kwargs)
 
-        time_elapsed = time.time() - unix_time_start
-        # print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
+            time_elapsed = time.time() - unix_time_start
+            # print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
 
-        if lr_scheduler and epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == LR_WARMUP_STEP_EPOCH_INTERVAL - 1:
-            lr_scheduler.step()
+            if lr_scheduler and epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == LR_WARMUP_STEP_EPOCH_INTERVAL - 1:
+                lr_scheduler.step()
 
-        if epoch % TESTING_EPOCH_INTERVAL == 0:
-            # print(f"Testing epoch: {epoch}")
-            metrics = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False, progress_bar=True)
-            print(f"Test accuracy: {metrics['aggregate_accuracy']}")
-            # Save model:
-            save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1, test_metrics=metrics)
-        elif SAVE_MODEL_EVERY_EPOCH:
-            # Save model:
-            save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1)
+            if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
+                # print(f"Testing epoch: {epoch}")
+                metrics, cm = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False,
+                                    progress_bar=True)
+                test_acc = metrics['aggregate_accuracy']
+                tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
+                # Save model:
+                save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm)
+            elif SAVE_MODEL_EVERY_EPOCH:
+                # Save model:
+                save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1)
 
-        start_from_batch = 0
+            start_from_batch = 0
     print('Finished Training')
     print(datetime.datetime.now())
 
