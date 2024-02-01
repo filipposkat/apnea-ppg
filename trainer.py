@@ -35,13 +35,14 @@ NUM_WORKERS = 2
 NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
 PRE_FETCH_TEST = 1
+
 LR_TO_BATCH_RATIO = 1 / 25600
 LR_WARMUP = False
 LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 10000
+SAVE_MODEL_BATCH_INTERVAL = 20000
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
@@ -50,35 +51,51 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
-    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    subset_id = int(config["variables"]["dataset"]["subset"])
+    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if "subset_1_saved_models_directory" in config["paths"]["local"]:
         MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
     else:
-        MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
+        MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
+    KERNEL_SIZE = config["variables"]["models"]["kernel_size"]
+    DEPTH = config["variables"]["models"]["depth"]
+    LAYERS = config["variables"]["models"]["layers"]
+    SAMPLING_METHOD = config["variables"]["models"]["sampling_method"]
+    use_weighted_loss = config["variables"]["models"]["use_weighted_loss"]
 else:
-    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
-    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
-    MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
+    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
+    MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
     NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
     IDENTIFIER: str = "ks3-depth8-strided-0"  # ks5-depth5-layers2-strided-0 or ks3-depth8-strided-0
-
+    KERNEL_SIZE = 3
+    DEPTH = 8
+    LAYERS = 2
+    SAMPLING_METHOD = "conv_stride"
+    use_weighted_loss = False
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
-
+# Class weights:
+# Subset1: Balance based on samples: [1, 176, 23, 12, 3]
+# Subset1: Balance based on final recall: [1, 59, 20, 17, 1]
+if use_weighted_loss:
+    CLASS_WEIGHTS = [1, 59, 20, 17, 1]  # None or list of weights.
+else:
+    CLASS_WEIGHTS = None
 # --- END OF CONSTANTS --- #
 
 
-def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion,
-                    net_type: str, identifier: str | int,
-                    batch_size: int, epoch: int, batch: int, dataloader_rng_state: torch.ByteTensor | tuple,
-                    running_losses: list[float] = None, test_metrics: dict = None, test_cm: list[list[float]] = None,
-                    other_details: str = ""):
+def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module,
+                    optimizer, optimizer_kwargs: dict | None, criterion, criterion_kwargs: dict | None,
+                    dataloader_rng_state: torch.ByteTensor | tuple, running_losses: list[float] = None,
+                    test_metrics: dict = None, test_cm: list[list[float]] = None, other_details: str = ""):
     """
+    :param criterion_kwargs:
     :param net: Neural network model to save
     :param optimizer: Torch optimizer object
     :param optimizer_kwargs: Parameters used in the initialization of Optimizer
@@ -108,6 +125,7 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
         details = [f'NET args: {net.get_args_summary()}\n',
                    f'Model: {type(net).__name__}\n',
                    f'Criterion: {type(criterion).__name__}\n',
+                   f'Criterion kwargs: {criterion_kwargs}\n',
                    f'Optimizer: {type(optimizer).__name__}\n',
                    f'Optimizer kwargs: {optimizer_kwargs}\n',
                    f'Batch size: {batch_size}\n',
@@ -130,6 +148,7 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
         'optimizer_kwargs': optimizer_kwargs,
         'criterion_class': criterion.__class__,
         'criterion_state_dict': criterion.state_dict(),
+        'criterion_kwargs': criterion_kwargs,
         'rng_state': dataloader_rng_state,
         'running_losses': running_losses
     }
@@ -145,7 +164,8 @@ def save_checkpoint(net: nn.Module, optimizer, optimizer_kwargs: dict, criterion
 
 
 def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
-        -> tuple[nn.Module, torch.optim.Optimizer, dict, nn.Module, torch.Generator | random.Random | None, float]:
+        -> tuple[
+            nn.Module, torch.optim.Optimizer, dict, nn.Module, dict, torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
     state = torch.load(model_path, map_location=device)
     if "batch_size" in state.keys():
@@ -158,7 +178,6 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     net_kwargs = state["net_kwargs"]
     optimizer_class = state["optimizer_class"]
     optimizer_state_dict = state["optimizer_state_dict"]
-    optimizer_kwargs = state["optimizer_kwargs"]
     criterion_class = state["criterion_class"]
     criterion_state_dict = state["criterion_state_dict"]
 
@@ -166,12 +185,26 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     model.load_state_dict(net_state)
     model = model.to(device)
 
-    optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
+    # Initialize Optimizer:
+    if "optimizer_kwargs" in state.keys() and state["optimizer_kwargs"] is not None:
+        optimizer_kwargs = state["optimizer_kwargs"]
+        optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
+    else:
+        optimizer_kwargs = None
+        optimizer = optimizer_class(model.parameters())
+
     optimizer.load_state_dict(optimizer_state_dict)
 
-    criterion = criterion_class()
+    # Initialize Loss:
+    if "criterion_kwargs" in state.keys() and state["criterion_kwargs"] is not None:
+        criterion_kwargs = state["criterion_kwargs"]
+        criterion = criterion_class(**criterion_kwargs)
+    else:
+        criterion_kwargs = None
+        criterion = criterion_class()
     criterion.load_state_dict(criterion_state_dict)
 
+    # Resume RNG state:
     random_number_generator = None
     if "rng_state" in state.keys():
         rng_state = state["rng_state"]
@@ -188,7 +221,7 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     else:
         run_losses = None
 
-    return model, optimizer, optimizer_kwargs, criterion, random_number_generator, run_losses
+    return model, optimizer, optimizer_kwargs, criterion, criterion_kwargs, random_number_generator, run_losses
 
 
 def get_saved_epochs(net_type: str, identifier: str) -> list[int]:
@@ -251,7 +284,7 @@ def get_last_batch(net_type: str, identifier: str, epoch: int | str) -> int:
 def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
                lr_scheduler=None, lr_step_batch_interval: int = 10000, device="cpu", first_batch: int = 0,
                initial_running_losses: list[float] = None, print_batch_interval: int = None,
-               checkpoint_batch_interval: int = 0, save_checkpoint_kwargs: dict = None):
+               checkpoint_batch_interval: int = None, save_checkpoint_kwargs: dict = None):
     # Resumes training from correct batch
     train_loader.sampler.first_batch_index = first_batch
 
@@ -331,8 +364,8 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                       f' Secs/Batch: {time_elapsed / (i + 1) / 3600:.3f}')
 
             # Save checkpoint:
-            if checkpoint_batch_interval > 0 and i % checkpoint_batch_interval == checkpoint_batch_interval - 1:
-                save_checkpoint(**save_checkpoint_kwargs, batch=i, running_losses=period_losses)
+            if checkpoint_batch_interval is not None and i % checkpoint_batch_interval == checkpoint_batch_interval - 1:
+                save_checkpoint(batch=i, criterion_kwargs=None, running_losses=period_losses, **save_checkpoint_kwargs)
 
 
 if __name__ == "__main__":
@@ -364,6 +397,11 @@ if __name__ == "__main__":
         print("WARNING: load from checkpoint was requested but no checkpoint found! Creating new model...")
         LOAD_CHECKPOINT = False
 
+    # Class weights:
+    weights = None
+    if CLASS_WEIGHTS is not None:
+        weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(device)
+
     if LOAD_CHECKPOINT and LOAD_FROM_EPOCH != "no" and LOAD_FROM_BATCH != "no":
         if LOAD_FROM_EPOCH == "last" and LOAD_FROM_BATCH == "last":
             epoch = last_epoch
@@ -378,11 +416,13 @@ if __name__ == "__main__":
             epoch = LOAD_FROM_EPOCH
             batch = LOAD_FROM_BATCH
 
-        net, optimizer, optim_kwargs, loss, rng, initial_running_losses = load_checkpoint(net_type=NET_TYPE,
-                                                                                          identifier=IDENTIFIER,
-                                                                                          epoch=epoch,
-                                                                                          batch=batch,
-                                                                                          device=device)
+        net, optimizer, optim_kwargs, loss, loss_kwargs, rng, initial_running_losses = load_checkpoint(
+            net_type=NET_TYPE,
+            identifier=IDENTIFIER,
+            epoch=epoch,
+            batch=batch,
+            device=device)
+        # loss.weight = weights
 
         if rng is not None:
             # Save dataloader rng state in order to be able to resume training from the same batch
@@ -405,18 +445,19 @@ if __name__ == "__main__":
             start_from_batch = batch + 1
     else:
         if NET_TYPE == "UNET":
-            net = UNet(nclass=5, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=5,
-                       sampling_method="conv_stride")
+            net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
+                       sampling_method=SAMPLING_METHOD)
         else:
-            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=3, sampling_factor=2,
-                             sampling_method="conv_stride", skip_connection=True)
+            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, kernel_size=KERNEL_SIZE,
+                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
 
         initial_running_losses = None
         start_from_epoch = 1
         start_from_batch = 0
 
         # Define loss:
-        loss = nn.CrossEntropyLoss()
+        loss_kwargs = {"weight": weights}
+        loss = nn.CrossEntropyLoss(**loss_kwargs)
 
         # Set LR:
         lr = LR_TO_BATCH_RATIO * BATCH_SIZE
@@ -448,6 +489,7 @@ if __name__ == "__main__":
                          "optimizer": optimizer,
                          "optimizer_kwargs": optim_kwargs,
                          "criterion": loss,
+                         "criterion_kwargs": loss_kwargs,
                          "net_type": NET_TYPE,
                          "identifier": IDENTIFIER,
                          "batch_size": BATCH_SIZE}
@@ -483,14 +525,15 @@ if __name__ == "__main__":
             if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
                 # print(f"Testing epoch: {epoch}")
                 metrics, cm = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False,
-                                    progress_bar=True)
+                                        progress_bar=True)
                 test_acc = metrics['aggregate_accuracy']
                 tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
                 # Save model:
-                save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm)
+                save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, test_metrics=metrics, test_cm=cm,
+                                **checkpoint_kwargs)
             elif SAVE_MODEL_EVERY_EPOCH:
                 # Save model:
-                save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1)
+                save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, **checkpoint_kwargs)
 
             start_from_batch = 0
     print('Finished Training')
@@ -499,4 +542,4 @@ if __name__ == "__main__":
     checkpoint_kwargs["epoch"] = EPOCHS
 
     # Save model:
-    save_checkpoint(**checkpoint_kwargs, batch=batches_in_epoch - 1)
+    save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, **checkpoint_kwargs)

@@ -36,19 +36,20 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
-    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    subset_id = int(config["variables"]["dataset"]["subset"])
+    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if "subset_1_saved_models_directory" in config["paths"]["local"]:
         MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
     else:
-        MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
+        MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
-    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
-    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
-    MODELS_PATH = PATH_TO_SUBSET1_TRAINING.joinpath("saved-models")
+    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
+    MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
     NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
     IDENTIFIER: str = "ks3-depth8-strided-0"  # "ks5-depth5-layers2-strided-0" or "ks3-depth8-strided-0"
@@ -531,8 +532,8 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
         for b in batches:
             metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
             if metrics is None:
-                net, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                     device=device)
+                net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                                        device=device)
                 metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                         max_batches=max_batches,
                                         progress_bar=progress_bar, verbose=False)
@@ -563,8 +564,8 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
         b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
         metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
         if metrics is None:
-            net, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                 device=device)
+            net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                                    device=device)
             metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device, max_batches=max_batches,
                                     progress_bar=progress_bar, verbose=False)
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
@@ -584,7 +585,8 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
     b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
     metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
     if metrics is None:
-        net, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b, device=device)
+        net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                                device=device)
         metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                 first_batch=first_batch, max_batches=max_batches,
                                 progress_bar=progress_bar, verbose=False)

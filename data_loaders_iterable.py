@@ -30,16 +30,17 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
-    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    subset_id = int(config["variables"]["dataset"]["subset"])
+    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
 else:
-    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
-    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
+    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
 
-ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
+ARRAYS_DIR = PATH_TO_SUBSET.joinpath("arrays")
 
 # Paths for saving dataloaders:
-dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders-iterable")
+dataloaders_path = PATH_TO_SUBSET_TRAINING.joinpath("dataloaders-iterable")
 
 # Get all ids in the directory with arrays. Each subdir is one subject
 if GENERATE_TRAIN_TEST_SPLIT:
