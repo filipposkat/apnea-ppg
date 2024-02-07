@@ -31,6 +31,7 @@ NO_APNEA_TO_APNEA_EVENTS_RATIO = 5  # Central, Obstructive and Hypopnea are take
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
 EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
+EVENT_RATIO_BY_SAMPLES = True  # whether to target NO_APNEA_TO_APNEA_EVENTS_RATIO with windows or with samples
 COUNT_LABELS = True
 SAVE_ARRAYS_EXPANDED = False
 SEED = 33
@@ -326,26 +327,67 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
         y_test = [window_df["event_index"] for window_df in test_windows_dfs]
 
         def window_dropping_continuous(X, y):
-            num_of_apnea_windows = np.count_nonzero([window[(window >= 1) | (window <= 3)].sum() for window in y])
-            num_of_no_apnea_windows = len(y) - num_of_apnea_windows
-            target_num_no_apnea_windows = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_windows
-            diff = num_of_no_apnea_windows - target_num_no_apnea_windows
+            if not EVENT_RATIO_BY_SAMPLES:
+                num_of_apnea_windows = sum([any((window >= 1) & (window <= 3)) for window in y])
+                num_of_no_apnea_windows = len(y) - num_of_apnea_windows
+                target_num_no_apnea_windows = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_windows
+                diff = num_of_no_apnea_windows - target_num_no_apnea_windows
+            else:
+                total_samples = sum([len(window) for window in y])
+                num_of_apnea_samples = sum([sum((window >= 1) & (window <= 3)) for window in y])
+                num_of_no_apnea_samples = total_samples - num_of_apnea_samples
+                target_num_no_apnea_samples = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_samples
+                diff = num_of_no_apnea_samples - target_num_no_apnea_samples
 
             # Shuffle X, y without losing order:
             combined_xy = list(zip(X, y))  # Combine X,y and y_continuous into one list
             random.shuffle(combined_xy)  # Shuffle
 
             if diff > 0:
-                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-                # Reduce no event windows by num_to_drop:
-                combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): all((Xy[1] == 0) | (Xy[1] == 4))
-                                                      and next(c) < num_to_drop, combined_xy))
+                if not EVENT_RATIO_BY_SAMPLES:
+                    num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                    # Reduce no event windows by num_to_drop:
+                    combined_xy = list(
+                        filterfalse(lambda Xy, c=count(): all((Xy[1] == 0) | (Xy[1] == 4))
+                                                          and next(c) < num_to_drop, combined_xy))
+                else:
+                    num_to_drop = abs(diff)
+                    samples_dropped = 0
+                    windows_to_keep = []
+                    for window_i in range(len(combined_xy)):
+                        if samples_dropped > num_to_drop:
+                            break
+                        else:
+                            xy = combined_xy[window_i]
+                            # Check if it contains apnea
+                            if any((xy[1] >= 1) & (xy[1] <= 3)):
+                                windows_to_keep.append(window_i)
+                            else:
+                                # To be dropped
+                                samples_dropped += len(xy[1])
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
+
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-                # Reduce event windows by num_to_drop:
-                combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): Xy[1].sum() != 0 and next(c) < num_to_drop, combined_xy))
+                if not EVENT_RATIO_BY_SAMPLES:
+                    # Reduce event windows by num_to_drop:
+                    combined_xy = list(
+                        filterfalse(lambda Xy, c=count(): all((Xy[1] >= 1) & (Xy[1] <= 3)) and next(c) < num_to_drop, combined_xy))
+                else:
+                    samples_dropped = 0
+                    windows_to_keep = []
+                    for window_i in range(len(combined_xy)):
+                        if samples_dropped > num_to_drop:
+                            break
+                        else:
+                            xy = combined_xy[window_i]
+                            # Check if it contains apnea
+                            if any((xy[1] == 0) | (xy[1] == 4)):
+                                windows_to_keep.append(window_i)
+                            else:
+                                # To be dropped
+                                samples_dropped += len(xy[1])
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 

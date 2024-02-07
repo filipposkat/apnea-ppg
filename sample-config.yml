@@ -31,5 +31,6 @@ variables:
     layers: 2
     sampling_method: conv_stride
     use_weighted_loss: False
+    class_weights:  # List of class weights
 other:
   ssh_pass:

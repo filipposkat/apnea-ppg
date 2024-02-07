@@ -28,7 +28,7 @@ from tester import test_loop, save_metrics, save_confusion_matrix
 LOAD_CHECKPOINT: bool = True  # True or False
 LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
-EPOCHS = 100
+EPOCHS = 150
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024
 NUM_WORKERS = 2
@@ -42,7 +42,7 @@ LR_WARMUP_EPOCH_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 20000
+SAVE_MODEL_BATCH_INTERVAL = 35000
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
@@ -61,11 +61,21 @@ if config is not None:
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
-    KERNEL_SIZE = config["variables"]["models"]["kernel_size"]
-    DEPTH = config["variables"]["models"]["depth"]
-    LAYERS = config["variables"]["models"]["layers"]
+    KERNEL_SIZE = int(config["variables"]["models"]["kernel_size"])
+    DEPTH = int(config["variables"]["models"]["depth"])
+    LAYERS = int(config["variables"]["models"]["layers"])
     SAMPLING_METHOD = config["variables"]["models"]["sampling_method"]
     use_weighted_loss = config["variables"]["models"]["use_weighted_loss"]
+    if use_weighted_loss:
+        # Class weights:
+        # Subset1: Balance based on samples: [1, 176, 23, 12, 3]
+        # Subset1 UResIncNET-"ks3-depth8-strided-0": Balance based on final recall: [1, 59, 20, 17, 1]
+        assert "class_weights" in config["variables"]["models"]
+        cw_tmp = config["variables"]["models"]["class_weights"]
+        assert cw_tmp is not None
+        CLASS_WEIGHTS = cw_tmp
+    else:
+        CLASS_WEIGHTS = None
 else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
@@ -75,18 +85,11 @@ else:
     IDENTIFIER: str = "ks3-depth8-strided-0"  # ks5-depth5-layers2-strided-0 or ks3-depth8-strided-0
     KERNEL_SIZE = 3
     DEPTH = 8
-    LAYERS = 2
+    LAYERS = 1
     SAMPLING_METHOD = "conv_stride"
     use_weighted_loss = False
-MODELS_PATH.mkdir(parents=True, exist_ok=True)
-
-# Class weights:
-# Subset1: Balance based on samples: [1, 176, 23, 12, 3]
-# Subset1: Balance based on final recall: [1, 59, 20, 17, 1]
-if use_weighted_loss:
-    CLASS_WEIGHTS = [1, 59, 20, 17, 1]  # None or list of weights.
-else:
     CLASS_WEIGHTS = None
+MODELS_PATH.mkdir(parents=True, exist_ok=True)
 # --- END OF CONSTANTS --- #
 
 
@@ -198,6 +201,9 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     # Initialize Loss:
     if "criterion_kwargs" in state.keys() and state["criterion_kwargs"] is not None:
         criterion_kwargs = state["criterion_kwargs"]
+        for k, v in criterion_kwargs.items():
+            if isinstance(v, torch.Tensor):
+                criterion_kwargs[k] = v.to(device)
         criterion = criterion_class(**criterion_kwargs)
     else:
         criterion_kwargs = None
@@ -365,7 +371,7 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             # Save checkpoint:
             if checkpoint_batch_interval is not None and i % checkpoint_batch_interval == checkpoint_batch_interval - 1:
-                save_checkpoint(batch=i, criterion_kwargs=None, running_losses=period_losses, **save_checkpoint_kwargs)
+                save_checkpoint(batch=i, running_losses=period_losses, **save_checkpoint_kwargs)
 
 
 if __name__ == "__main__":
@@ -448,7 +454,7 @@ if __name__ == "__main__":
             net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
         else:
-            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, kernel_size=KERNEL_SIZE,
+            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
 
         initial_running_losses = None
@@ -529,17 +535,21 @@ if __name__ == "__main__":
                 test_acc = metrics['aggregate_accuracy']
                 tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
                 # Save model:
-                save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, test_metrics=metrics, test_cm=cm,
+                save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm,
                                 **checkpoint_kwargs)
             elif SAVE_MODEL_EVERY_EPOCH:
                 # Save model:
-                save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, **checkpoint_kwargs)
+                save_checkpoint(batch=batches_in_epoch - 1, **checkpoint_kwargs)
 
             start_from_batch = 0
     print('Finished Training')
     print(datetime.datetime.now())
 
     checkpoint_kwargs["epoch"] = EPOCHS
+    if isinstance(train_loader.sampler.rng, torch.Generator):
+        checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.get_state()
+    else:
+        checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
 
     # Save model:
-    save_checkpoint(batch=batches_in_epoch - 1, criterion_kwargs=None, **checkpoint_kwargs)
+    save_checkpoint(batch=batches_in_epoch - 1, **checkpoint_kwargs)
