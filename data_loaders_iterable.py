@@ -30,16 +30,17 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
-    PATH_TO_SUBSET1_TRAINING = Path(config["paths"]["local"]["subset_1_training_directory"])
+    subset_id = int(config["variables"]["dataset"]["subset"])
+    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
 else:
-    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
-    PATH_TO_SUBSET1_TRAINING = PATH_TO_SUBSET1
+    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
 
-ARRAYS_DIR = PATH_TO_SUBSET1.joinpath("arrays")
+ARRAYS_DIR = PATH_TO_SUBSET.joinpath("arrays")
 
 # Paths for saving dataloaders:
-dataloaders_path = PATH_TO_SUBSET1_TRAINING.joinpath("dataloaders-iterable")
+dataloaders_path = PATH_TO_SUBSET_TRAINING.joinpath("dataloaders-iterable")
 
 # Get all ids in the directory with arrays. Each subdir is one subject
 if GENERATE_TRAIN_TEST_SPLIT:
@@ -245,10 +246,9 @@ class IterDataset(IterableDataset):
             indices3 = [(sub_id3, i) for i in range(n_windows3) if (sub_id3, i) not in used_2d_indices]
 
             combined_indices = [*indices1, *indices2, *indices3]
-            n_combined_indices = len(combined_indices)
 
             # Check if the windows available for sampling are enough for a batch:
-            while n_combined_indices < self.batch_size:
+            while len(combined_indices) < self.batch_size:
                 # If three subjects do not have enough windows then use more:
                 next_sub_id = next(pool)
 

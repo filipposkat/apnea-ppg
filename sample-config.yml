@@ -9,13 +9,28 @@ paths:
     csv_directory:
     subset_1_directory:
     subset_1_training_directory:
+    subset_1_saved_models_directory:
+    subset_2_directory:
+    subset_2_training_directory:
+    subset_2_saved_models_directory:
     pt_ocl_dll:
     dependency_dlls:
 
 system:
+  dataset:
+    subset:  # int
   specs:
     compute_platform:
 
-
+variables:
+  models:
+    net_type: # UNET or UResIncNet
+    net_identifier:
+    kernel_size: 3
+    depth: 8
+    layers: 2
+    sampling_method: conv_stride
+    use_weighted_loss: False
+    class_weights:  # List of class weights
 other:
   ssh_pass:
