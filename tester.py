@@ -117,7 +117,8 @@ def save_metrics(metrics: dict[str: float], net_type: str, identifier: str, epoc
 def load_rocs(net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False) \
         -> dict[str: dict[str: list | float]] | None:
     if cross_subject:
-        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cross_test_roc.json")
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                        f"batch-{batch}-cross_test_roc.json")
     else:
         roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.json")
     if roc_path.exists():
@@ -272,8 +273,7 @@ def f1_by_class(tp: dict, fp: dict, fn: dict, print_f1s=False):
     return class_f1
 
 
-def micro_average_precision(tp: dict, fp: dict, print_precision=False):
-    # print precision for each class:
+def micro_average_precision(tp: dict, fp: dict, print_precision=False) -> float:
     num = 0
     den = 0
     for c in tp.keys():
@@ -286,7 +286,7 @@ def micro_average_precision(tp: dict, fp: dict, print_precision=False):
     return precision
 
 
-def micro_average_recall(tp: dict, fn: dict, print_recall=False):
+def micro_average_recall(tp: dict, fn: dict, print_recall=False) -> float:
     # print precision for each class:
     num = 0
     den = 0
@@ -300,7 +300,34 @@ def micro_average_recall(tp: dict, fn: dict, print_recall=False):
     return recall
 
 
-def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
+def micro_average_accuracy(tp: dict, tn: dict, fp: dict, fn: dict, print_accuracy=False) -> float:
+    num = 0
+    den = 0
+    for c in tp.keys():
+        num += (tp[c] + tn[c])
+        den += (tp[c] + tn[c] + fp[c] + fn[c])
+
+    micro_acc = num / den
+    if print_accuracy:
+        print(f'Micro Average accuracy: {100 * micro_acc:.2f} %')
+    return micro_acc
+
+
+def micro_average_specificity(tn: dict, fp: dict, print_specificity=False) -> float:
+    # print precision for each class:
+    num = 0
+    den = 0
+    for c in tn.keys():
+        num += tn[c]
+        den += tn[c] + fp[c]
+
+    micro_spec = num / den
+    if print_specificity:
+        print(f'Micro Average Specificity: {100 * micro_spec:.2f} %')
+    return micro_spec
+
+
+def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False) -> float:
     micro_prec = micro_average_precision(tp, fp, print_precision=False)
     micro_rec = micro_average_recall(tp, fn, print_recall=False)
     if micro_rec + micro_rec == 0:
@@ -314,26 +341,45 @@ def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
     return micro_f1
 
 
-def macro_average_precision(tp: dict, fp: dict, print_precision=False):
+def macro_average_precision(tp: dict, fp: dict, print_precision=False) -> float:
     precisions = precision_by_class(tp, fp, print_precisions=False)
 
     vals = [val for val in precisions.values() if val != "nan"]
-    macro_prec = np.mean(vals)
+    macro_prec = float(np.mean(vals))
     if print_precision:
         print(f'Macro Average Precision: {100 * macro_prec:.2f} %')
     return macro_prec
 
 
-def macro_average_recall(tp: dict, fn: dict, print_recall=False):
+def macro_average_recall(tp: dict, fn: dict, print_recall=False) -> float:
     recalls = recall_by_class(tp, fn, print_recalls=False)
     vals = [val for val in recalls.values() if val != "nan"]
-    macro_rec = np.mean(vals)
+    macro_rec = float(np.mean(vals))
     if print_recall:
         print(f'Macro Average Recall: {100 * macro_rec:.2f} %')
     return macro_rec
 
 
-def macro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False):
+def macro_average_specificity(tn: dict, fp: dict, print_specificity=False) -> float:
+    specs = specificity_by_class(tn, fp, print_specificity=False)
+    vals = [val for val in specs.values() if val != "nan"]
+    macro_spec = float(np.mean(vals))
+    if print_specificity:
+        print(f'Macro Average Specificity: {100 * macro_spec:.2f} %')
+    return macro_spec
+
+
+def macro_average_accuracy(tp: dict, tn: dict, fp: dict, fn: dict, print_accuracy=False) -> float:
+    class_accs = accuracy_by_class(tp, tn, fp, fn, print_accuracies=False)
+
+    vals = [val for val in class_accs.values() if val != "nan"]
+    macro_acc = float(np.mean(vals))
+    if print_accuracy:
+        print(f'Macro Average accuracy: {100 * macro_acc:.2f} %')
+    return macro_acc
+
+
+def macro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False) -> float:
     macro_prec = macro_average_precision(tp, fp, print_precision=False)
     macro_rec = macro_average_recall(tp, fn, print_recall=False)
     macro_f1 = 2 * macro_prec * macro_rec / (macro_prec + macro_rec)
@@ -563,10 +609,6 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     if progress_bar:
         pbar_test_loop.close()
 
-    aggregate_acc = correct_pred / total_pred
-    if verbose:
-        print(f"Intuitive aggregate accuracy: {100 * aggregate_acc:.2f}%")
-
     # Compute threshold average ROC for each class:
     roc_info_by_class = {}
     average_auc_by_class = {}
@@ -587,31 +629,46 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
             "average_auc": average_auc.item()
         }
 
+    aggregate_acc = correct_pred / total_pred
+    if verbose:
+        print(f"Intuitive aggregate accuracy: {100 * aggregate_acc:.2f}%")
+
     acc_by_class = accuracy_by_class(tp, tn, fp, fn, print_accuracies=verbose)
     prec_by_class = precision_by_class(tp, fp, print_precisions=verbose)
     rec_by_class = recall_by_class(tp, fn, print_recalls=verbose)
-    sepc_by_class = specificity_by_class(tn, fp, print_specificity=verbose)
+    spec_by_class = specificity_by_class(tn, fp, print_specificity=verbose)
     f1_per_class = f1_by_class(tp, fp, fn, print_f1s=verbose)
+
+    micro_acc = micro_average_accuracy(tp, tn, fp, fn, print_accuracy=verbose)
     micro_prec = micro_average_precision(tp, fp, print_precision=verbose)
     micro_rec = micro_average_recall(tp, fn, print_recall=verbose)
+    micro_spec = micro_average_specificity(tn, fp, print_specificity=verbose)
     micro_f1 = micro_average_f1(tp, fp, fn, print_f1=verbose)
 
+    macro_acc = macro_average_accuracy(tp, tn, fp, fn, print_accuracy=verbose)
     macro_prec = macro_average_precision(tp, fp, print_precision=verbose)
     macro_rec = macro_average_recall(tp, fn, print_recall=verbose)
+    macro_spec = macro_average_specificity(tn, fp, print_specificity=verbose)
     macro_f1 = macro_average_f1(tp, fp, fn, print_f1=verbose)
 
+    # Note: In multiclass classification with symmetric costs, the micro average precision, recall,
+    # and aggregate accuracy scores are mathematically equivalent because the sum of fp and sum of fn are equal.
     metrics = {"aggregate_accuracy": aggregate_acc,
+               "macro_accuracy": macro_acc,
                "macro_precision": macro_prec,
                "macro_recall": macro_rec,
+               "macro_spec": macro_spec,
                "macro_f1": macro_f1,
+               "micro_accuracy": micro_acc,
                "micro_precision": micro_prec,
                "micro_recall": micro_rec,
+               "micro_spec": micro_spec,
                "micro_f1": micro_f1,
                "accuracy_by_class": acc_by_class,
                "precision_by_class": prec_by_class,
                "recall_by_class": rec_by_class,
                "f1_by_class": f1_per_class,
-               "specificity_by_class": sepc_by_class,
+               "specificity_by_class": spec_by_class,
                "average_auc_by_class": average_auc_by_class}
 
     if verbose:
@@ -739,15 +796,18 @@ if __name__ == "__main__":
 
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
+    micro_accuracies = [m["micro_accuracy"] for m in metrics if "micro_accuracy" in m.keys()]
+    macro_accuracies = [m["macro_accuracy"] for m in metrics if "macro_accuracy" in m.keys()]
     macro_precisions = [m["macro_precision"] for m in metrics]
     macro_recalls = [m["macro_recall"] for m in metrics]
     macro_f1s = [m["macro_f1"] for m in metrics]
 
-    print(accuracies)
-
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")
+    if len(micro_accuracies) == len(macro_accuracies) == len(epoch_frac):
+        plt.plot(epoch_frac, micro_accuracies, label="micro_accuracies")
+        plt.plot(epoch_frac, macro_accuracies, label="macro_accuracies")
     plt.plot(epoch_frac, macro_precisions, label="macro_precision")
     plt.plot(epoch_frac, macro_recalls, label="macro_recall")
     plt.plot(epoch_frac, macro_f1s, label="macro_f1")
