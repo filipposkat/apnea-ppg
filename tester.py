@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import yaml
 from pathlib import Path
 import datetime, time
@@ -8,7 +9,10 @@ from tqdm import tqdm
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
+from torchmetrics import ROC, AUROC
+from sklearn.metrics import auc
 from torchmetrics.functional import confusion_matrix
 from torch.utils.data import DataLoader, Dataset
 from torch.multiprocessing import Pool, set_start_method
@@ -31,6 +35,7 @@ LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
+TEST_MODEL = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -58,6 +63,35 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
 # --- END OF CONSTANTS --- #
+def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
+              net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False, save_plot=True):
+    if cross_subject:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                        f"batch-{batch}-cross_test_roc.json")
+    else:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.json")
+    with open(roc_path, 'w') as file:
+        json.dump(roc_info_by_class, file)
+
+    if save_plot:
+        fig, axs = plt.subplots(3, 2)
+        axs = axs.ravel()
+        for c in range(len(roc_info_by_class.keys())):
+            class_name = roc_info_by_class.keys()[c]
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
+            average_fpr = roc_info_by_class[class_name]["average_fpr"]
+            average_tpr = roc_info_by_class[class_name]["average_tpr"]
+            average_auc = roc_info_by_class[class_name]["average_auc"]
+
+            ax = axs[c]
+            ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+            ax.set_xlim([0, 1])
+            ax.set_ylim([0, 1])
+            ax.set_xlabel("FPR")
+            ax.set_ylabel("TPR")
+            fig.savefig(str(plot_path))
+
+
 def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, identifier: str, epoch: int, batch: int,
                           cross_subject=False):
     if cross_subject:
@@ -78,6 +112,19 @@ def save_metrics(metrics: dict[str: float], net_type: str, identifier: str, epoc
                                             f"batch-{batch}-test_metrics.json")
     with open(metrics_path, 'w') as file:
         json.dump(metrics, file)
+
+
+def load_rocs(net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False) \
+        -> dict[str: dict[str: list | float]] | None:
+    if cross_subject:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-cross_test_roc.json")
+    else:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.json")
+    if roc_path.exists():
+        with open(roc_path, 'r') as file:
+            return json.load(file)
+    else:
+        return None
 
 
 def load_confusion_matrix(net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False) \
@@ -361,14 +408,28 @@ def get_window_stats(window_labels: torch.tensor, window_predictions: torch.tens
     return total_pred_win, correct_pred_win, tp_win, tn_win, fp_win, fn_win
 
 
+def get_window_label(window_labels: torch.tensor):
+    if torch.max(window_labels) == 0:
+        return torch.tensor(0, dtype=torch.int64)
+    else:
+        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+        unique_events, event_counts = window_labels.unique(
+            return_counts=True)  # Tensor containing counts of unique values.
+        prominent_event_index = torch.argmax(event_counts)
+        prominent_event = unique_events[prominent_event_index]
+
+        # print(event_counts)
+        return prominent_event.type(torch.int64)
+
+
 def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.tensor):
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
     cm_win = confusion_matrix(target=window_labels, preds=window_predictions, num_classes=5, task="multiclass")
 
     total_pred_win = torch.sum(cm_win)
     tps = torch.diag(cm_win)
-    fps = torch.sum(cm_win, dim=0) - tps
-    fns = torch.sum(cm_win, dim=1) - tps
+    fps = torch.sum(cm_win, dim=0, keepdim=False) - tps
+    fns = torch.sum(cm_win, dim=1, keepdim=False) - tps
     tns = total_pred_win - (fps + fns + tps)
     correct_pred_win = torch.sum(tps)
 
@@ -386,7 +447,8 @@ def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.
 
 
 def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_batches=None,
-              progress_bar=True, verbose=False, first_batch=0) -> tuple[dict[str: float], list[list[float]]]:
+              progress_bar=True, verbose=False, first_batch=0) \
+        -> tuple[dict[str: float], list[list[float]], dict[str: dict[str: list | float]]]:
     if verbose:
         print(datetime.datetime.now())
     loader = test_dataloader
@@ -401,6 +463,11 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
+    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
+    tprs_by_class = {}
+    fprs_by_class = {}
+    aucs_by_class = {}
+
     cm = torch.zeros((5, 5), device=device)
     correct_pred = 0
     total_pred = 0
@@ -427,7 +494,27 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
             # Predictions:
             batch_outputs = model(batch_inputs)
+            batch_output_probs = F.softmax(batch_outputs, dim=1)
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
+
+            # Adjust labels in case of by window classification
+            if batch_outputs.shape.numel() != batch_inputs.shape.numel() * 5:
+                # Per window classification:
+                labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)
+                for batch_j in range(batch_labels.shape[0]):
+                    labels_by_window[batch_j] = get_window_label(batch_labels[batch_j, :])
+                batch_labels = labels_by_window
+
+            # Compute RoC:
+            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=5)
+            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=5)
+            fprs, tprs, _ = roc(batch_output_probs, batch_labels)
+            aucs = auroc(batch_output_probs, batch_labels)
+            for c in range(len(classes)):
+                class_name = classes[c]
+                fprs_by_class[class_name].append(fprs[c, :])
+                tprs_by_class[class_name].append(tprs[c, :])
+                aucs_by_class[class_name].append(aucs[c])
 
             # collect the correct predictions for each class
             if device == "cpu":
@@ -480,6 +567,26 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     if verbose:
         print(f"Intuitive aggregate accuracy: {100 * aggregate_acc:.2f}%")
 
+    # Compute threshold average ROC for each class:
+    roc_info_by_class = {}
+    average_auc_by_class = {}
+    for class_name in classes:
+        fprs = torch.cat(fprs_by_class[class_name], dim=0)
+        average_fpr = torch.mean(fprs, dim=0, keepdim=False)
+        tprs = torch.cat(tprs_by_class[class_name], dim=0)
+        average_tpr = torch.mean(tprs, dim=0, keepdim=False)
+        aucs = torch.cat(aucs_by_class[class_name], dim=0)
+        average_auc = torch.mean(aucs, keepdim=False)
+
+        average_auc_by_class[class_name] = average_auc.item()
+
+        roc_info_by_class[class_name] = {
+            "thresholds": thresholds.tolist(),
+            "average_fpr": average_fpr.tolist(),
+            "average_tpr": average_tpr.tolist(),
+            "average_auc": average_auc.item()
+        }
+
     acc_by_class = accuracy_by_class(tp, tn, fp, fn, print_accuracies=verbose)
     prec_by_class = precision_by_class(tp, fp, print_precisions=verbose)
     rec_by_class = recall_by_class(tp, fn, print_recalls=verbose)
@@ -504,13 +611,14 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
                "precision_by_class": prec_by_class,
                "recall_by_class": rec_by_class,
                "f1_by_class": f1_per_class,
-               "specificity_by_class": sepc_by_class}
+               "specificity_by_class": sepc_by_class,
+               "average_auc_by_class": average_auc_by_class}
 
     if verbose:
         print('Finished Testing')
         print(datetime.datetime.now())
 
-    return metrics, cm.tolist()
+    return metrics, cm.tolist(), roc_info_by_class
 
 
 def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,
@@ -532,14 +640,17 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
         for b in batches:
             metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
             if metrics is None:
-                net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                        device=device)
-                metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                        max_batches=max_batches,
-                                        progress_bar=progress_bar, verbose=False)
+                net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e,
+                                                              batch=b,
+                                                              device=device)
+                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                                  max_batches=max_batches,
+                                                  progress_bar=progress_bar, verbose=False)
                 save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
                 save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                                       batch=b)
+                save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
+
             if pbar2 is not None:
                 pbar2.update(1)
         if progress_bar:
@@ -564,14 +675,16 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
         b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
         metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
         if metrics is None:
-            net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                    device=device)
-            metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device, max_batches=max_batches,
-                                    progress_bar=progress_bar, verbose=False)
+            net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                                          device=device)
+            metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                              max_batches=max_batches,
+                                              progress_bar=progress_bar, verbose=False)
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
                          batch=b)
             save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                                   batch=b)
+            save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
         if progress_bar:
             pbar1.update(1)
     if progress_bar:
@@ -585,14 +698,15 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
     b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
     metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
     if metrics is None:
-        net, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                device=device)
-        metrics, cm = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                first_batch=first_batch, max_batches=max_batches,
-                                progress_bar=progress_bar, verbose=False)
+        net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                                      device=device)
+        metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                          first_batch=first_batch, max_batches=max_batches,
+                                          progress_bar=progress_bar, verbose=False)
         save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
         save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                               batch=b)
+        save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
 
 
 if __name__ == "__main__":
@@ -609,14 +723,36 @@ if __name__ == "__main__":
     else:
         test_device = torch.device("cpu")
 
-    print(f"Device: {test_device}")
+    if TEST_MODEL:
+        print(f"Device: {test_device}")
 
-    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PRE_FETCH,
-                                              shuffle=False)
-    # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2, pre_fetch=1,
-    #                                                         shuffle=False, use_existing_batch_indices=True)
-    test_loader.sampler.first_batch_index = LOAD_FROM_BATCH
-    # test_all_checkpoints(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
-    #                      max_batches=MAX_BATCHES, progress_bar=True)
-    test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
-                    max_batches=MAX_BATCHES, progress_bar=True)
+        test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+                                                  pre_fetch=PRE_FETCH,
+                                                  shuffle=False)
+        # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2,
+        # pre_fetch=1, shuffle=False, use_existing_batch_indices=True)
+        test_loader.sampler.first_batch_index = LOAD_FROM_BATCH
+        # test_all_checkpoints(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader,
+        # device=test_device, max_batches=MAX_BATCHES, progress_bar=True)
+        test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
+                        max_batches=MAX_BATCHES, progress_bar=True)
+
+    epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
+    accuracies = [m["aggregate_accuracy"] for m in metrics]
+    macro_precisions = [m["macro_precision"] for m in metrics]
+    macro_recalls = [m["macro_recall"] for m in metrics]
+    macro_f1s = [m["macro_f1"] for m in metrics]
+
+    print(accuracies)
+
+    # fig, axis = plt.subplots(4, 2)
+    plt.figure()
+    plt.plot(epoch_frac, accuracies, label="accuracy")
+    plt.plot(epoch_frac, macro_precisions, label="macro_precision")
+    plt.plot(epoch_frac, macro_recalls, label="macro_recall")
+    plt.plot(epoch_frac, macro_f1s, label="macro_f1")
+    plt.legend()
+    plt.xlabel("Epoch")
+    plt.ylabel("Metric")
+    plt.title(f"Model ({NET_TYPE}) test performance over epochs")
+    plt.show()
