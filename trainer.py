@@ -312,18 +312,19 @@ def get_lr(optimizer: torch.optim.Optimizer):
         return param_group['lr']
 
 
-def get_window_label(window_labels: torch.tensor):
-    if torch.max(window_labels) == 0:
-        return torch.tensor(0, dtype=torch.int64)
+def get_window_label(window_labels: torch.tensor) -> tuple[torch.tensor, float]:
+    if torch.sum(window_labels) == 0:
+        return torch.tensor(0, dtype=torch.int64), 1.0
     else:
         # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
         unique_events, event_counts = window_labels.unique(
             return_counts=True)  # Tensor containing counts of unique values.
         prominent_event_index = torch.argmax(event_counts)
         prominent_event = unique_events[prominent_event_index]
+        confidence = event_counts[prominent_event] / torch.numel(window_labels)
 
         # print(event_counts)
-        return prominent_event.type(torch.int64)
+        return prominent_event.type(torch.int64), float(confidence)
 
 
 def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
@@ -376,11 +377,11 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             # forward + backward + optimize
             outputs = model(inputs)
 
-            if outputs.shape.numel() != inputs.shape.numel() * 5:
-                # Per window classification:
+            if outputs.shape.numel() != inputs.shape.numel() * 5 and labels.shape[0] != labels.shape.numel():
+                # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_index in range(labels.shape[0]):
-                    labels_by_window[batch_index] = get_window_label(labels[batch_index, :])
+                    labels_by_window[batch_index] = get_window_label(labels[batch_index, :])[0].to(device)
                 batch_loss = criterion(outputs, labels_by_window)
             else:
                 batch_loss = criterion(outputs, labels)

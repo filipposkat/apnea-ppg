@@ -317,3 +317,85 @@ class UResIncNet(nn.Module):
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
                   "skip_connection": self.skip_connection}
         return kwargs
+
+
+class ResIncClassifer(nn.Module):
+    def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
+                 sampling_method="conv_stride", skip_connection=True):
+        super().__init__()
+        self.nclass = nclass
+        self.in_chans = in_chans
+        self.max_channels = max_channels
+        self.depth = depth
+        self.kernel_size = kernel_size
+        self.layers = layers
+        self.sampling_factor = sampling_factor
+        self.sampling_method = sampling_method
+        self.skip_connection = skip_connection
+
+        self.encoder = nn.ModuleList()
+
+        first_out_chans = max_channels // (2 ** (depth - 1))
+        if first_out_chans % 4 == 0:
+            out_chans = first_out_chans
+        else:
+            out_chans = 4
+
+        # First block is special, input channel dimensionality has to be adjusted otherwise residual block will fail.
+        # Also, the first block should not do any downsampling (stride = 1):
+        self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers, sampling_factor=1,
+                                         sampling_method=sampling_method))
+
+        for _ in range(depth - 1):
+            if out_chans * 2 <= max_channels:
+                in_chans, out_chans = out_chans, out_chans * 2
+            else:
+                in_chans, out_chans = out_chans, out_chans
+
+            self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers,
+                                             sampling_factor=sampling_factor, sampling_method=sampling_method))
+
+        self.fc = nn.Sequential(
+            nn.Linear(in_features=out_chans, out_features=out_chans),
+            nn.BatchNorm1d(out_chans),
+            nn.LeakyReLU(0.2),
+            nn.Linear(in_features=out_chans, out_features=out_chans),
+            nn.BatchNorm1d(out_chans),
+            nn.LeakyReLU(0.2),
+        )
+
+        self.logits = nn.Linear(out_chans, nclass)
+
+    def forward(self, x):
+        encoded = []
+        for enc in self.encoder:
+            x = enc(x)
+            encoded.append(x)
+
+        x = torch.flatten(x)
+        x = self.fc(x)
+        # Return the logits
+        return self.logits(x)
+
+    def get_args_summary(self):
+        # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "layers"):
+            layers = self.layers
+        else:
+            layers = 1
+
+        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
+                f"- Layers {layers} - Sampling {self.sampling_method}")
+
+    def get_kwargs(self):
+        # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "layers"):
+            layers = self.layers
+        else:
+            layers = 1
+
+        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
+                  "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
+                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
+                  "skip_connection": self.skip_connection}
+        return kwargs

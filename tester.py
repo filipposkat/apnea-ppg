@@ -35,7 +35,8 @@ LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
-TEST_MODEL = False
+TEST_MODEL = True
+OVERWRITE_METRICS = True
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -455,17 +456,18 @@ def get_window_stats(window_labels: torch.tensor, window_predictions: torch.tens
 
 
 def get_window_label(window_labels: torch.tensor):
-    if torch.max(window_labels) == 0:
-        return torch.tensor(0, dtype=torch.int64)
+    if torch.sum(window_labels) == 0:
+        return torch.tensor(0, dtype=torch.int64), 1.0
     else:
         # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
         unique_events, event_counts = window_labels.unique(
             return_counts=True)  # Tensor containing counts of unique values.
         prominent_event_index = torch.argmax(event_counts)
         prominent_event = unique_events[prominent_event_index]
+        confidence = event_counts[prominent_event] / torch.numel(window_labels)
 
         # print(event_counts)
-        return prominent_event.type(torch.int64)
+        return prominent_event.type(torch.int64), float(confidence)
 
 
 def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.tensor):
@@ -510,9 +512,9 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
     thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
-    tprs_by_class = {}
-    fprs_by_class = {}
-    aucs_by_class = {}
+    tprs_by_class = {c: [] for c in classes}
+    fprs_by_class = {c: [] for c in classes}
+    aucs_by_class = {c: [] for c in classes}
 
     cm = torch.zeros((5, 5), device=device)
     correct_pred = 0
@@ -531,10 +533,15 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     else:
         pbar_test_loop = None
 
+
     with torch.no_grad():
         for (batch_i, data) in enumerate(loader, start=first_batch):
             # get the inputs; data is a list of [inputs, labels]
             batch_inputs, batch_labels = data
+
+            # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
+            batch_labels = batch_labels.type(torch.int64)
+
             batch_inputs = batch_inputs.to(device)
             batch_labels = batch_labels.to(device)
 
@@ -544,16 +551,16 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
-            if batch_outputs.shape.numel() != batch_inputs.shape.numel() * 5:
-                # Per window classification:
+            if batch_outputs.numel() != batch_inputs.numel() * 5 and batch_labels.shape[0] != batch_labels.numel():
+                # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_j in range(batch_labels.shape[0]):
-                    labels_by_window[batch_j] = get_window_label(batch_labels[batch_j, :])
+                    labels_by_window[batch_j] = get_window_label(batch_labels[batch_j, :])[0].to(device)
                 batch_labels = labels_by_window
 
             # Compute RoC:
-            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=5)
-            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=5)
+            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=5).to(device)
+            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=5, average="none").to(device)
             fprs, tprs, _ = roc(batch_output_probs, batch_labels)
             aucs = auroc(batch_output_probs, batch_labels)
             for c in range(len(classes)):
@@ -678,6 +685,46 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     return metrics, cm.tolist(), roc_info_by_class
 
 
+def plot_sample_prediction_sequence(model: nn.Module, test_dataloader: DataLoader, device="cpu", n_batches=1):
+    loader = test_dataloader
+
+    # Switch to eval mode:
+    model.eval()
+    model = model.to(device)
+
+    saved_preds_for_stats = []
+    saved_labels_for_stats = []
+    with torch.no_grad():
+        for (batch_i, data) in enumerate(loader):
+            if batch_i == n_batches:
+                break
+
+            # get the inputs; data is a list of [inputs, labels]
+            batch_inputs, batch_labels = data
+
+            # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
+            batch_labels = batch_labels.type(torch.int64)
+
+            batch_inputs = batch_inputs.to(device)
+            batch_labels = batch_labels.to(device)
+
+            # Predictions:
+            batch_outputs = model(batch_inputs)
+            _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
+
+            saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
+            saved_labels_for_stats.extend(batch_labels.ravel().tolist())
+
+        plt.figure()
+        plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
+        plt.scatter(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels",s=0.1)
+        plt.legend(loc='upper right')
+        plt.ylabel("Class label")
+        plt.xlabel("Sample i")
+        plt.show()
+        plt.close()
+
+
 def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,
                          max_batches=MAX_BATCHES, progress_bar=True):
     if LOAD_FROM_BATCH > 0:
@@ -728,15 +775,21 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
     epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=True)
     if progress_bar:
         pbar1 = tqdm(total=len(epochs), desc="Epoch checkpoint", leave=True)
+    tmp = False
     for e in epochs:
         b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
         metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
-        if metrics is None:
+        if metrics is None or OVERWRITE_METRICS:
+
             net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                           device=device)
+            if tmp:
+                plot_sample_prediction_sequence(model=net,test_dataloader=test_dataloader, device=device, n_batches=10)
+                tmp = False
             metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                               max_batches=max_batches,
                                               progress_bar=progress_bar, verbose=False)
+
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
                          batch=b)
             save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,

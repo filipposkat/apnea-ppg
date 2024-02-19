@@ -131,7 +131,9 @@ class MappedDataset(Dataset):
         if "flow" == self.target:
             y = X[:, 0, :]
         else:
-            y = np.load(str(y_path)).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+            y = np.load(str(y_path)).astype("uint8")
+            if y.ndim != 1:
+                y = y.reshape(X.shape[0], WINDOW_SAMPLES_SIZE)
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
@@ -147,7 +149,9 @@ class MappedDataset(Dataset):
         if "flow" == self.target:
             y = X[:, 0, :]
         else:
-            y = np.load(str(y_path)).reshape(-1, WINDOW_SAMPLES_SIZE).astype("uint8")
+            y = np.load(str(y_path)).astype("uint8")
+            if y.ndim != 1:
+                y = y.reshape(X.shape[0], WINDOW_SAMPLES_SIZE)
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
@@ -168,7 +172,10 @@ class MappedDataset(Dataset):
         X, y = self.load_arrays(subject_id)
 
         signals = X[windows_indices, :]
-        labels = y[windows_indices, :]
+        if y.ndim == 1:
+            labels = y[windows_indices]
+        else:
+            labels = y[windows_indices, :]
         return signals, labels
 
     def __len__(self):

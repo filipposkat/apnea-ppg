@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 
 class EncoderBlock(nn.Module):
@@ -172,6 +173,83 @@ class UNet(nn.Module):
             x = dec(x, enc_output)
 
         # Return the logits
+        return self.logits(x)
+
+    def get_args_summary(self):
+        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Layers {self.layers} - "
+                f"Kernel {self.kernel_size} - Sampling {self.sampling_method}")
+
+    def get_kwargs(self):
+        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
+                  "depth": self.depth, "layers": self.layers, "kernel_size": self.kernel_size,
+                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
+                  "skip_connection": self.skip_connection}
+
+        return kwargs
+
+
+class ConvClassifier(nn.Module):
+    def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_factor=2,
+                 sampling_method="pooling", skip_connection=True):
+        """
+        :param nclass:
+        :param in_chans:
+        :param max_channels:
+        :param depth:
+        :param layers:
+        :param kernel_size:
+        :param sampling_factor:
+        :param sampling_method: either "pooling" or "conv_stride"
+        :param skip_connection:
+        """
+        super().__init__()
+        self.nclass = nclass
+        self.in_chans = in_chans
+        self.max_channels = max_channels
+        self.depth = depth
+        self.layers = layers
+        self.kernel_size = kernel_size
+        self.sampling_factor = sampling_factor
+        self.sampling_method = sampling_method
+        self.skip_connection = skip_connection
+
+        self.encoder = nn.ModuleList()
+
+        first_out_chans = max_channels // (2 ** (depth - 1))
+        if first_out_chans % 4 == 0:
+            out_chans = first_out_chans
+        else:
+            out_chans = 4
+
+        # The first block should not do any down-sampling (stride = 1 and no pooling):
+        self.encoder.append(EncoderBlock(in_chans, out_chans, layers, kernel_size=kernel_size,
+                                         sampling_factor=1, sampling_method="no sampling"))
+
+        for _ in range(depth - 1):
+            if out_chans * 2 <= max_channels:
+                in_chans, out_chans = out_chans, out_chans * 2
+            else:
+                in_chans, out_chans = out_chans, out_chans
+            self.encoder.append(EncoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
+                                             sampling_factor=sampling_factor, sampling_method=sampling_method))
+
+        self.fc = nn.Sequential(
+            nn.Linear(in_features=out_chans, out_features=out_chans),
+            nn.BatchNorm1d(out_chans),
+            nn.LeakyReLU(0.2),
+            nn.Linear(in_features=out_chans, out_features=out_chans),
+            nn.BatchNorm1d(out_chans),
+            nn.LeakyReLU(0.2),
+        )
+        self.logits = nn.Linear(out_chans, nclass)
+
+    def forward(self, x):
+        for enc in self.encoder:
+            x = enc(x)
+
+        # Return the logits
+        x = torch.flatten(x)
+        x = self.fc(x)
         return self.logits(x)
 
     def get_args_summary(self):

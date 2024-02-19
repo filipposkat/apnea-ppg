@@ -17,20 +17,22 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 STEP = 16  # The step between each window
-CONTINUOUS_LABEL = True
+CONTINUOUS_LABEL = False
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
+MIN_TRAIN_WINDOW_LABEL_CONFIDENCE = 0.7
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
-NO_EVENTS_TO_EVENTS_RATIO = 5
+NO_APNEA_TO_APNEA_EVENTS_RATIO = 5  # Central, Obstructive and Hypopnea are taken into account
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
 EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
+EVENT_RATIO_BY_SAMPLES = True  # whether to target NO_APNEA_TO_APNEA_EVENTS_RATIO with windows or with samples
 COUNT_LABELS = True
 SAVE_ARRAYS_EXPANDED = False
 SEED = 33
@@ -41,16 +43,16 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_OBJECTS = config["paths"]["local"]["subject_objects_directory"]
-    PATH_TO_SUBSET1 = config["paths"]["local"]["subset_1_directory"]
+    PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
+    PATH_TO_SUBSET3 = Path(config["paths"]["local"]["subset_3_directory"])
 else:
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
-    PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET3 = Path(__file__).parent.joinpath("data", "subset-3")
 
 
 # --- END OF CONSTANTS --- #
 def get_best_ids():
-    path = Path(PATH_TO_SUBSET1).joinpath("ids.npy")
+    path = PATH_TO_SUBSET3.joinpath("ids.npy")
     if path.is_file():
         best_ids_arr = np.load(str(path))  # array to save the best subject ids
         best_ids = best_ids_arr.tolist()  # equivalent list
@@ -130,7 +132,7 @@ def get_best_ids():
             best_ids = top_screened_ids  # List with top 400 ids
 
         best_ids_arr = np.array(best_ids)  # Equivalent array
-        path = Path(PATH_TO_SUBSET1).joinpath("ids")
+        path = PATH_TO_SUBSET3.joinpath("ids")
         np.save(str(path), best_ids_arr)
 
     return best_ids.copy()
@@ -141,7 +143,7 @@ def get_best_ids():
 # print(best_ids)
 
 
-def assign_window_label(window_labels: pd.Series) -> int:
+def assign_window_label(window_labels: pd.Series) -> tuple[int, float]:
     """
     :param window_labels: A pandas Series with the event labels for each sample in the window
     :return: One label representing the whole window, specifically the label with most occurrences.
@@ -149,15 +151,13 @@ def assign_window_label(window_labels: pd.Series) -> int:
     if not isinstance(window_labels, pd.Series):
         window_labels = pd.Series(window_labels)
 
-    if window_labels.sum() == 0:
-        return 0
-    else:
-        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
-        event_counts = window_labels.value_counts()  # Series containing counts of unique values.
-        prominent_event_index = event_counts.argmax()
-        prominent_event = event_counts.index[prominent_event_index]
-        # print(event_counts)
-        return int(prominent_event)
+    # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+    event_counts = window_labels.value_counts()  # Series containing counts of unique values.
+    prominent_event_index = event_counts.argmax()
+    prominent_event = event_counts.index[prominent_event_index]
+    confidence = event_counts[prominent_event] / WINDOW_SAMPLES_SIZE
+    # print(event_counts)
+    return int(prominent_event), float(confidence)
 
 
 def relative_entropy(P: pd.Series, Q: pd.Series) -> float:
@@ -330,25 +330,68 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
         y_test = [window_df["event_index"] for window_df in test_windows_dfs]
 
         def window_dropping_continuous(X, y):
-            num_of_event_windows = np.count_nonzero([window.sum() for window in y])
-            num_of_no_event_windows = len(y) - num_of_event_windows
-            target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
-            diff = num_of_no_event_windows - target_num_no_event_windows
+            if not EVENT_RATIO_BY_SAMPLES:
+                num_of_apnea_windows = sum([any((window >= 1) & (window <= 3)) for window in y])
+                num_of_no_apnea_windows = len(y) - num_of_apnea_windows
+                target_num_no_apnea_windows = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_windows
+                diff = num_of_no_apnea_windows - target_num_no_apnea_windows
+            else:
+                total_samples = sum([len(window) for window in y])
+                num_of_apnea_samples = sum([sum((window >= 1) & (window <= 3)) for window in y])
+                num_of_no_apnea_samples = total_samples - num_of_apnea_samples
+                target_num_no_apnea_samples = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_samples
+                diff = num_of_no_apnea_samples - target_num_no_apnea_samples
 
             # Shuffle X, y without losing order:
             combined_xy = list(zip(X, y))  # Combine X,y and y_continuous into one list
             random.shuffle(combined_xy)  # Shuffle
 
             if diff > 0:
-                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-                # Reduce no event windows by num_to_drop:
-                combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): Xy[1].sum() == 0 and next(c) < num_to_drop, combined_xy))
+                if not EVENT_RATIO_BY_SAMPLES:
+                    num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
+                    # Reduce no event windows by num_to_drop:
+                    combined_xy = list(
+                        filterfalse(lambda Xy, c=count(): all((Xy[1] == 0) | (Xy[1] == 4))
+                                                          and next(c) < num_to_drop, combined_xy))
+                else:
+                    num_to_drop = abs(diff)
+                    samples_dropped = 0
+                    windows_to_keep = []
+                    for window_i in range(len(combined_xy)):
+                        if samples_dropped > num_to_drop:
+                            break
+                        else:
+                            xy = combined_xy[window_i]
+                            # Check if it contains apnea
+                            if any((xy[1] >= 1) & (xy[1] <= 3)):
+                                windows_to_keep.append(window_i)
+                            else:
+                                # To be dropped
+                                samples_dropped += len(xy[1])
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
+
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
-                # Reduce event windows by num_to_drop:
-                combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): Xy[1].sum() != 0 and next(c) < num_to_drop, combined_xy))
+                if not EVENT_RATIO_BY_SAMPLES:
+                    # Reduce event windows by num_to_drop:
+                    combined_xy = list(
+                        filterfalse(lambda Xy, c=count(): all((Xy[1] >= 1) & (Xy[1] <= 3)) and next(c) < num_to_drop,
+                                    combined_xy))
+                else:
+                    samples_dropped = 0
+                    windows_to_keep = []
+                    for window_i in range(len(combined_xy)):
+                        if samples_dropped > num_to_drop:
+                            break
+                        else:
+                            xy = combined_xy[window_i]
+                            # Check if it contains apnea
+                            if any((xy[1] == 0) | (xy[1] == 4)):
+                                windows_to_keep.append(window_i)
+                            else:
+                                # To be dropped
+                                samples_dropped += len(xy[1])
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
@@ -356,14 +399,16 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
         # X_test, y_test = window_dropping_continuous(X_test, y_test)
     else:
         # One label per window / non-continuous
-        y_train = [assign_window_label(window_df["event_index"]) for window_df in train_windows_dfs]
-        y_test = [assign_window_label(window_df["event_index"]) for window_df in test_windows_dfs]
+        y_train = [assign_window_label(window_df["event_index"])[0] for window_df in train_windows_dfs
+                   if assign_window_label(window_df["event_index"])[1] >= MIN_TRAIN_WINDOW_LABEL_CONFIDENCE]
+        y_test = [assign_window_label(window_df["event_index"])[0] for window_df in test_windows_dfs]
 
         def window_dropping(X, y):
-            num_of_event_windows = np.count_nonzero(y)
-            num_of_no_event_windows = len(y) - num_of_event_windows
-            target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
-            diff = num_of_no_event_windows - target_num_no_event_windows
+            num_of_apnea_windows = len([yi for yi in y if (yi >= 1) and (yi <= 3)])
+            num_of_no_apnea_windows = len(y) - num_of_apnea_windows
+
+            target_num_no_apnea_windows = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_windows
+            diff = num_of_no_apnea_windows - target_num_no_apnea_windows
 
             # Shuffle X, y without losing order:
             combined_xy = list(zip(X, y))  # Combine X and y into one list
@@ -372,7 +417,8 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if diff > 0:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce no event windows by num_to_drop:
-                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < num_to_drop, combined_xy))
+                combined_xy = list(filterfalse(lambda Xy, c=count(): (Xy[1] == 0 or Xy[1] == 4)
+                                                                     and next(c) < num_to_drop, combined_xy))
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce event windows by num_to_drop:
@@ -528,9 +574,11 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
     print({k: f"{100 * v / sum(test_label_counts.values()):.2f}%" for (k, v) in test_label_counts.items()})
     if CONTINUOUS_LABEL:
         print(f"Train-Cont: {train_label_counts_cont} total={sum(train_label_counts_cont.values())}")
-        print({k: f"{100 * v / sum(train_label_counts_cont.values()):.2f}%" for (k, v) in train_label_counts_cont.items()})
+        print({k: f"{100 * v / sum(train_label_counts_cont.values()):.2f}%" for (k, v) in
+               train_label_counts_cont.items()})
         print(f"Test-Cont: {test_label_counts_cont} total={sum(test_label_counts_cont.values())}")
-        print({k: f"{100*v / sum(test_label_counts_cont.values()):.2f}%" for (k,v) in test_label_counts_cont.items()})
+        print(
+            {k: f"{100 * v / sum(test_label_counts_cont.values()):.2f}%" for (k, v) in test_label_counts_cont.items()})
 
     labels = list(train_label_counts.keys())
     train_counts = list(train_label_counts.values())
@@ -558,7 +606,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         ax[1].set_ylabel("Count")
         ax[1].legend()
 
-        fig.savefig(Path(PATH_TO_SUBSET1).joinpath("histogram_continuous_label.png"))
+        fig.savefig(Path(PATH_TO_SUBSET3).joinpath("histogram_continuous_label.png"))
     else:
         fig, ax = plt.subplots(nrows=1, ncols=2)
 
@@ -576,7 +624,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         ax[1].set_ylabel("Count")
         ax[1].legend()
 
-        fig.savefig(Path(PATH_TO_SUBSET1).joinpath("stats", "histogram_window_label.png"))
+        fig.savefig(Path(PATH_TO_SUBSET3).joinpath("stats", "histogram_window_label.png"))
     plt.show()
 
 
@@ -591,7 +639,7 @@ def create_arrays(ids: list[int]):
     train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
-        subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
+        subject_arrs_path = PATH_TO_SUBSET3.joinpath("arrays", str(id).zfill(4))
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
             continue
@@ -608,8 +656,8 @@ def create_arrays(ids: list[int]):
             if CONTINUOUS_LABEL:
                 train_event_counts_cont = Counter(train_y_cont)  # Series containing counts of unique values.
                 test_event_counts_cont = Counter(test_y_cont)  # Series containing counts of unique values.
-                train_event_counts = Counter([assign_window_label(window) for window in train_y])
-                test_event_counts = Counter([assign_window_label(window) for window in test_y])
+                train_event_counts = Counter([assign_window_label(window)[0] for window in train_y])
+                test_event_counts = Counter([assign_window_label(window)[0] for window in test_y])
                 for i in train_label_counts.keys():  # There are 5 labels
                     train_label_counts_cont[i] += train_event_counts_cont[i]
                     test_label_counts_cont[i] += test_event_counts_cont[i]
@@ -630,7 +678,7 @@ def create_arrays(ids: list[int]):
 
 
 if __name__ == "__main__":
-    PATH_TO_SUBSET1.mkdir(exist_ok=True)
+    PATH_TO_SUBSET3.mkdir(exist_ok=True)
     best_ids = get_best_ids()
     print(best_ids)
 
@@ -642,7 +690,7 @@ if __name__ == "__main__":
         train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
         test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
         for id in tqdm(best_ids):
-            subject_arrs_path = Path(PATH_TO_SUBSET1).joinpath("arrays", str(id).zfill(4))
+            subject_arrs_path = Path(PATH_TO_SUBSET3).joinpath("arrays", str(id).zfill(4))
             y_train_path = subject_arrs_path.joinpath("y_train.npy")
             y_test_path = subject_arrs_path.joinpath("y_test.npy")
 
@@ -658,8 +706,8 @@ if __name__ == "__main__":
             if CONTINUOUS_LABEL:
                 train_event_counts_cont = Counter(train_y_cont)  # Series containing counts of unique values.
                 test_event_counts_cont = Counter(test_y_cont)  # Series containing counts of unique values.
-                train_event_counts = Counter([assign_window_label(window) for window in train_y.tolist()])
-                test_event_counts = Counter([assign_window_label(window) for window in test_y.tolist()])
+                train_event_counts = Counter([assign_window_label(window)[0] for window in train_y.tolist()])
+                test_event_counts = Counter([assign_window_label(window)[0] for window in test_y.tolist()])
                 for i in train_label_counts.keys():  # There are 5 labels
                     train_label_counts_cont[i] += train_event_counts_cont[i]
                     test_label_counts_cont[i] += test_event_counts_cont[i]
