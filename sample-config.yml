@@ -13,6 +13,9 @@ paths:
     subset_2_directory:
     subset_2_training_directory:
     subset_2_saved_models_directory:
+    subset_3_directory:
+    subset_3_training_directory:
+    subset_3_saved_models_directory:
     pt_ocl_dll:
     dependency_dlls:
 

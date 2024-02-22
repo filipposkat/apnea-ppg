@@ -21,7 +21,7 @@ from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched
 
 from UNet import UNet
 from UResIncNet import UResIncNet
-from tester import test_loop, save_metrics, save_confusion_matrix
+from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
 
 # --- START OF CONSTANTS --- #
 
@@ -35,14 +35,13 @@ NUM_WORKERS = 2
 NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
 PRE_FETCH_TEST = 1
-
+CLASSIFY_PER_SAMPLE = True
 LR_TO_BATCH_RATIO = 1 / 25600
-LR_WARMUP = False
-LR_WARMUP_EPOCH_DURATION = 3
+LR_WARMUP = True
+LR_WARMUP_DURATION = 5
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
-LR_WARMUP_STEP_BATCH_INTERVAL = 0
 OPTIMIZER = "adam"  # sgd, adam
-SAVE_MODEL_BATCH_INTERVAL = 35000
+SAVE_MODEL_BATCH_INTERVAL = 999999999
 SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
@@ -54,8 +53,8 @@ if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
-    if "subset_1_saved_models_directory" in config["paths"]["local"]:
-        MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
+    if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
+        MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
     else:
         MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
@@ -90,14 +89,22 @@ else:
     use_weighted_loss = False
     CLASS_WEIGHTS = None
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
+
+
 # --- END OF CONSTANTS --- #
 
 
 def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module,
                     optimizer, optimizer_kwargs: dict | None, criterion, criterion_kwargs: dict | None,
+                    lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None, lr_scheduler_kwargs: dict | None,
                     dataloader_rng_state: torch.ByteTensor | tuple, running_losses: list[float] = None,
-                    test_metrics: dict = None, test_cm: list[list[float]] = None, other_details: str = ""):
+                    test_metrics: dict = None, test_cm: list[list[float]] = None,
+                    roc_info: dict[str: dict[str: list | float]] = None,
+                    other_details: str = ""):
     """
+    :param roc_info:
+    :param lr_scheduler_kwargs:
+    :param lr_scheduler:
     :param criterion_kwargs:
     :param net: Neural network model to save
     :param optimizer: Torch optimizer object
@@ -136,9 +143,6 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                    f'{other_details}\n']
         file.writelines("% s\n" % line for line in details)
 
-    if running_losses is None:
-        running_losses = []
-
     state = {
         'epoch': epoch,
         'batch': batch,
@@ -155,6 +159,9 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
         'rng_state': dataloader_rng_state,
         'running_losses': running_losses
     }
+    if lr_scheduler is not None and lr_scheduler_kwargs is not None:
+        state["lr_scheduler_class"] = lr_scheduler.__class__
+        state["lr_scheduler_state_dict"] = lr_scheduler.state_dict()
 
     torch.save(state, model_path.joinpath(f"batch-{batch}.pt"))
 
@@ -165,12 +172,16 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
     if test_cm is not None:
         save_confusion_matrix(test_cm, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch)
 
+    if roc_info is not None:
+        save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch, save_plot=True)
+
 
 def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
         -> tuple[
-            nn.Module, torch.optim.Optimizer, dict, nn.Module, dict, torch.Generator | random.Random | None, float]:
+            nn.Module, torch.optim.Optimizer, dict, nn.Module, dict, torch.optim.lr_scheduler.LRScheduler, dict,
+            torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
-    state = torch.load(model_path, map_location=device)
+    state = torch.load(model_path)
     if "batch_size" in state.keys():
         batch_size = int(state["batch_size"])
         if batch_size != BATCH_SIZE:
@@ -210,6 +221,14 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
         criterion = criterion_class()
     criterion.load_state_dict(criterion_state_dict)
 
+    lr_scheduler = None
+    lr_scheduler_kwargs = None
+    if "lr_scheduler_class" in state.keys() and state["lr_scheduler_class"] is not None:
+        if "lr_scheduler_kwargs" in state.keys() and state["lr_scheduler_kwargs"] is not None:
+            lr_scheduler_class = state["lr_scheduler_class"]
+            lr_scheduler_kwargs = state["lr_scheduler_kwargs"]
+            lr_scheduler = lr_scheduler_class(optimizer=optimizer, **lr_scheduler_kwargs)
+
     # Resume RNG state:
     random_number_generator = None
     if "rng_state" in state.keys():
@@ -227,7 +246,8 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     else:
         run_losses = None
 
-    return model, optimizer, optimizer_kwargs, criterion, criterion_kwargs, random_number_generator, run_losses
+    return model, optimizer, optimizer_kwargs, criterion, criterion_kwargs, lr_scheduler, lr_scheduler_kwargs, \
+        random_number_generator, run_losses
 
 
 def get_saved_epochs(net_type: str, identifier: str) -> list[int]:
@@ -287,15 +307,32 @@ def get_last_batch(net_type: str, identifier: str, epoch: int | str) -> int:
     return last_existing_batch
 
 
+def get_lr(optimizer: torch.optim.Optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+
+def get_window_label(window_labels: torch.tensor) -> tuple[torch.tensor, float]:
+    if torch.sum(window_labels) == 0:
+        return torch.tensor(0, dtype=torch.int64), 1.0
+    else:
+        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+        unique_events, event_counts = window_labels.unique(
+            return_counts=True)  # Tensor containing counts of unique values.
+        prominent_event_index = torch.argmax(event_counts)
+        prominent_event = unique_events[prominent_event_index]
+        confidence = event_counts[prominent_event] / torch.numel(window_labels)
+
+        # print(event_counts)
+        return prominent_event.type(torch.int64), float(confidence)
+
+
 def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
-               lr_scheduler=None, lr_step_batch_interval: int = 10000, device="cpu", first_batch: int = 0,
-               initial_running_losses: list[float] = None, print_batch_interval: int = None,
-               checkpoint_batch_interval: int = None, save_checkpoint_kwargs: dict = None):
+               device="cpu", first_batch: int = 0, init_running_losses: list[float] = None,
+               print_batch_interval: int = None, checkpoint_batch_interval: int = None,
+               save_checkpoint_kwargs: dict = None):
     # Resumes training from correct batch
     train_loader.sampler.first_batch_index = first_batch
-
-    if lr_step_batch_interval > 0:
-        assert lr_scheduler is not None
 
     if checkpoint_batch_interval > 0:
         assert save_checkpoint_kwargs is not None
@@ -306,8 +343,8 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
     unix_time_start = time.time()
 
-    if initial_running_losses is not None:
-        period_losses = initial_running_losses
+    if init_running_losses is not None:
+        period_losses = init_running_losses
     else:
         period_losses = []
 
@@ -340,17 +377,20 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             # forward + backward + optimize
             outputs = model(inputs)
 
-            loss = criterion(outputs, labels)
-
-            loss.backward()
+            if outputs.shape.numel() != inputs.shape.numel() * 5 and labels.shape[0] != labels.shape.numel():
+                # Per window classification nut labels per sample:
+                labels_by_window = torch.zeros((labels.shape[0]), device=device, dtype=torch.int64)
+                for batch_index in range(labels.shape[0]):
+                    labels_by_window[batch_index] = get_window_label(labels[batch_index, :])[0].to(device)
+                batch_loss = criterion(outputs, labels_by_window)
+            else:
+                batch_loss = criterion(outputs, labels)
+            batch_loss.backward()
             optimizer.step()
 
-            # Update lr:
-            if lr_scheduler and i % lr_step_batch_interval == lr_step_batch_interval - 1:
-                lr_scheduler.step()
-
             # Compute running loss:
-            period_losses.append(loss.item())
+            period_losses.append(batch_loss.item())
+
             if len(period_losses) > RUNNING_LOSS_PERIOD:
                 period_losses = period_losses[-RUNNING_LOSS_PERIOD:]
 
@@ -422,7 +462,8 @@ if __name__ == "__main__":
             epoch = LOAD_FROM_EPOCH
             batch = LOAD_FROM_BATCH
 
-        net, optimizer, optim_kwargs, loss, loss_kwargs, rng, initial_running_losses = load_checkpoint(
+        net, optimizer, optim_kwargs, loss, loss_kwargs, \
+            lr_scheduler, lr_scheduler_kwargs, rng, initial_running_losses = load_checkpoint(
             net_type=NET_TYPE,
             identifier=IDENTIFIER,
             epoch=epoch,
@@ -454,16 +495,23 @@ if __name__ == "__main__":
             net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
         else:
-            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
+            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+                             kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
 
         initial_running_losses = None
+        lr_scheduler = None
+        lr_scheduler_kwargs = None
         start_from_epoch = 1
         start_from_batch = 0
 
         # Define loss:
-        loss_kwargs = {"weight": weights}
-        loss = nn.CrossEntropyLoss(**loss_kwargs)
+        if weights is not None:
+            loss_kwargs = {"weight": weights}
+            loss = nn.CrossEntropyLoss(**loss_kwargs)
+        else:
+            loss_kwargs = None
+            loss = nn.CrossEntropyLoss()
 
         # Set LR:
         lr = LR_TO_BATCH_RATIO * BATCH_SIZE
@@ -483,10 +531,15 @@ if __name__ == "__main__":
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 
     print(optim_kwargs)
-    if LR_WARMUP:
-        lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, start_factor=0.3, end_factor=1, total_iters=3)
-    else:
-        lr_scheduler = None
+
+    if lr_scheduler is None:
+        last_completed_epoch = start_from_epoch - 1
+        if LR_WARMUP and last_completed_epoch < LR_WARMUP_DURATION:
+            warmup_iters = LR_WARMUP_DURATION - last_completed_epoch
+            starting_factor = 0.25 + last_completed_epoch * (1 - 0.25) / LR_WARMUP_DURATION
+            lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 1, "total_iters": warmup_iters}
+            lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, start_factor=0.3, end_factor=1,
+                                                       total_iters=warmup_iters)
 
     # Train:
     print(datetime.datetime.now())
@@ -497,16 +550,17 @@ if __name__ == "__main__":
                          "criterion": loss,
                          "criterion_kwargs": loss_kwargs,
                          "net_type": NET_TYPE,
+                         "lr_scheduler": lr_scheduler,
+                         "lr_scheduler_kwargs": lr_scheduler_kwargs,
                          "identifier": IDENTIFIER,
                          "batch_size": BATCH_SIZE}
-
     batches_in_epoch = len(train_loader)
     # loop over the dataset multiple times:
     with tqdm(range(start_from_epoch, EPOCHS + 1), initial=start_from_epoch - 1, total=EPOCHS,
               desc="Epochs finished", leave=True) as tqdm_epochs:
         for epoch in tqdm_epochs:
 
-            if epoch > LR_WARMUP_EPOCH_DURATION:
+            if epoch > LR_WARMUP_DURATION:
                 lr_scheduler = None
 
             checkpoint_kwargs["epoch"] = epoch
@@ -516,32 +570,34 @@ if __name__ == "__main__":
                 checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
 
             # print(f"Batches in epoch: {batches}")
-            train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer, criterion=loss,
-                       lr_scheduler=lr_scheduler, lr_step_batch_interval=LR_WARMUP_STEP_BATCH_INTERVAL,
-                       device=device, first_batch=start_from_batch, initial_running_losses=initial_running_losses,
+            train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer, criterion=loss, device=device,
+                       first_batch=start_from_batch, init_running_losses=initial_running_losses,
                        print_batch_interval=None, checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
                        save_checkpoint_kwargs=checkpoint_kwargs)
 
             time_elapsed = time.time() - unix_time_start
             # print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
 
-            if lr_scheduler and epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == LR_WARMUP_STEP_EPOCH_INTERVAL - 1:
-                lr_scheduler.step()
+            if lr_scheduler is not None:
+                if epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == 0:
+                    lr_scheduler.step()
+                tqdm_epochs.set_postfix(current_base_lr=f"{lr_scheduler.get_last_lr():.5f}")
 
             if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
                 # print(f"Testing epoch: {epoch}")
-                metrics, cm = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False,
-                                        progress_bar=True)
+                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False,
+                                                  progress_bar=True)
                 test_acc = metrics['aggregate_accuracy']
                 tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
                 # Save model:
-                save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm,
+                save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm, roc_info=roc_info,
                                 **checkpoint_kwargs)
             elif SAVE_MODEL_EVERY_EPOCH:
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1, **checkpoint_kwargs)
 
             start_from_batch = 0
+            initial_running_losses = None
     print('Finished Training')
     print(datetime.datetime.now())
 

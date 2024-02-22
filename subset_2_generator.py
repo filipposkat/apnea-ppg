@@ -17,7 +17,7 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -142,20 +142,24 @@ def get_best_ids():
 # print(best_ids)
 
 
-def assign_window_label(window_labels: pd.Series) -> int:
+def assign_window_label(window_labels: pd.Series) -> tuple[int, float]:
     """
     :param window_labels: A pandas Series with the event labels for each sample in the window
     :return: One label representing the whole window, specifically the label with most occurrences.
     """
-    if window_labels.max() == 0:
-        return 0
+    if not isinstance(window_labels, pd.Series):
+        window_labels = pd.Series(window_labels)
+
+    if window_labels.sum() == 0:
+        return 0, 1.0
     else:
         # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
         event_counts = window_labels.value_counts()  # Series containing counts of unique values.
         prominent_event_index = event_counts.argmax()
         prominent_event = event_counts.index[prominent_event_index]
+        confidence = event_counts[prominent_event] / WINDOW_SAMPLES_SIZE
         # print(event_counts)
-        return int(prominent_event)
+        return int(prominent_event), float(confidence)
 
 
 def relative_entropy(P: pd.Series, Q: pd.Series) -> float:
@@ -201,7 +205,8 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None):
+def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
+        -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
@@ -372,7 +377,8 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                 if not EVENT_RATIO_BY_SAMPLES:
                     # Reduce event windows by num_to_drop:
                     combined_xy = list(
-                        filterfalse(lambda Xy, c=count(): all((Xy[1] >= 1) & (Xy[1] <= 3)) and next(c) < num_to_drop, combined_xy))
+                        filterfalse(lambda Xy, c=count(): all((Xy[1] >= 1) & (Xy[1] <= 3)) and next(c) < num_to_drop,
+                                    combined_xy))
                 else:
                     samples_dropped = 0
                     windows_to_keep = []
@@ -392,11 +398,11 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             return X, y
 
         X_train, y_train = window_dropping_continuous(X_train, y_train)
-        X_test, y_test = window_dropping_continuous(X_test, y_test)
+        # X_test, y_test = window_dropping_continuous(X_test, y_test)
     else:
         # One label per window / non-continuous
-        y_train = [assign_window_label(window_df["event_index"]) for window_df in train_windows_dfs]
-        y_test = [assign_window_label(window_df["event_index"]) for window_df in test_windows_dfs]
+        y_train = [assign_window_label(window_df["event_index"])[0] for window_df in train_windows_dfs]
+        y_test = [assign_window_label(window_df["event_index"])[0] for window_df in test_windows_dfs]
 
         def window_dropping(X, y):
             num_of_apnea_windows = np.count_nonzero([yi for yi in y if (y >= 1) and (y <= 3)])
@@ -412,7 +418,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if diff > 0:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce no event windows by num_to_drop:
-                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 or Xy[1] == 4
+                combined_xy = list(filterfalse(lambda Xy, c=count(): (Xy[1] == 0 or Xy[1] == 4)
                                                                      and next(c) < num_to_drop, combined_xy))
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
@@ -422,7 +428,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             return X, y
 
         X_train, y_train = window_dropping(X_train, y_train)
-        X_test, y_test = window_dropping(X_test, y_test)
+        # X_test, y_test = window_dropping(X_test, y_test)
 
     # # 5. Split into train and test:
     # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
@@ -562,14 +568,75 @@ def save_arrays_expanded(subject_arrs_path: Path, X_train, y_train, X_test, y_te
         np.save(str(y_window_path), y_window)
 
 
+def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont):
+    print(f"Train: {train_label_counts} total={sum(train_label_counts.values())}")
+    print({k: f"{100 * v / sum(train_label_counts.values()):.2f}%" for (k, v) in train_label_counts.items()})
+    print(f"Test: {test_label_counts} total={sum(test_label_counts.values())}")
+    print({k: f"{100 * v / sum(test_label_counts.values()):.2f}%" for (k, v) in test_label_counts.items()})
+    if CONTINUOUS_LABEL:
+        print(f"Train-Cont: {train_label_counts_cont} total={sum(train_label_counts_cont.values())}")
+        print({k: f"{100*v / sum(train_label_counts_cont.values()):.2f}%" for (k, v) in train_label_counts_cont.items()})
+        print(f"Test-Cont: {test_label_counts_cont} total={sum(test_label_counts_cont.values())}")
+        print({k: f"{100*v / sum(test_label_counts_cont.values()):.2f}%" for (k,v) in test_label_counts_cont.items()})
+
+    labels = list(train_label_counts.keys())
+    train_counts = list(train_label_counts.values())
+    test_counts = list(test_label_counts.values())
+    X_axis = np.array(labels)
+    if CONTINUOUS_LABEL:
+        train_counts_cont = list(train_label_counts_cont.values())
+        test_counts_cont = list(test_label_counts_cont.values())
+
+        fig, ax = plt.subplots(nrows=1, ncols=2)
+
+        ax[0].set_title("Train set label counts")
+        ax[0].bar(X_axis - 0.2, train_counts, 0.4, label='Window Labels')
+        ax[0].bar(X_axis + 0.2, train_counts_cont, 0.4, label='Sample Labels')
+        ax[0].set_xticks(X_axis, [str(x) for x in labels])
+        ax[0].set_xlabel("Event index")
+        ax[0].set_ylabel("Count")
+        ax[0].legend()
+
+        ax[1].set_title("Test set label counts")
+        ax[1].bar(X_axis - 0.2, test_counts, 0.4, label='Window Labels')
+        ax[1].bar(X_axis + 0.2, test_counts_cont, 0.4, label='Sample Labels')
+        ax[1].set_xticks(X_axis, [str(x) for x in labels])
+        ax[1].set_xlabel("Event index")
+        ax[1].set_ylabel("Count")
+        ax[1].legend()
+
+        fig.savefig(Path(PATH_TO_SUBSET2).joinpath("histogram_continuous_label.png"))
+    else:
+        fig, ax = plt.subplots(nrows=1, ncols=2)
+
+        ax[0].set_title("Train set label counts")
+        ax[0].bar(X_axis, train_counts, label='Window Labels')
+        ax[0].set_xticks(X_axis, [str(x) for x in labels])
+        ax[0].set_xlabel("Event index")
+        ax[0].set_ylabel("Count")
+        ax[0].legend()
+
+        ax[1].set_title("Test set label counts")
+        ax[1].bar(X_axis, test_counts, label='Window Labels')
+        ax[1].set_xticks(X_axis, [str(x) for x in labels])
+        ax[1].set_xlabel("Event index")
+        ax[1].set_ylabel("Count")
+        ax[1].legend()
+
+        fig.savefig(Path(PATH_TO_SUBSET2).joinpath("stats", "histogram_window_label.png"))
+    plt.show()
+
+
 def create_arrays(ids: list[int]):
     if ids is None:
         ids = get_best_ids()
 
     random.seed(SEED)  # Set the seed
 
-    label_counts: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
-    label_counts_cont: dict[int: list[int]] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    test_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+    test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
         subject_arrs_path = PATH_TO_SUBSET2.joinpath("arrays", str(id).zfill(4))
 
@@ -579,53 +646,77 @@ def create_arrays(ids: list[int]):
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
-            y_cont = np.array([*y_train, *y_test]).flatten()
-            y = pd.concat([pd.Series(y_train), pd.Series(y_test)], axis=0)
+            train_y_cont = np.array(y_train).flatten()
+            test_y_cont = np.array(y_test).flatten()
+            train_y = y_train
+            test_y = y_test
+            # y_cont = np.array([*y_train, *y_test]).flatten()
+            # y = pd.concat([pd.Series(y_train), pd.Series(y_test)], axis=0)
             if CONTINUOUS_LABEL:
-                event_counts_cont = Counter(y_cont)  # Series containing counts of unique values.
-                event_counts = Counter([assign_window_label(window) for window in y])
-                for i in label_counts.keys():  # There are 5 labels
-                    label_counts_cont[i] += event_counts_cont[i]
-                    label_counts[i] += event_counts[i]
+                train_event_counts_cont = Counter(train_y_cont)  # Series containing counts of unique values.
+                test_event_counts_cont = Counter(test_y_cont)  # Series containing counts of unique values.
+                train_event_counts = Counter([assign_window_label(window)[0] for window in train_y])
+                test_event_counts = Counter([assign_window_label(window)[0] for window in test_y])
+                for i in train_label_counts.keys():  # There are 5 labels
+                    train_label_counts_cont[i] += train_event_counts_cont[i]
+                    test_label_counts_cont[i] += test_event_counts_cont[i]
+                    train_label_counts[i] += train_event_counts[i]
+                    test_label_counts[i] += test_event_counts[i]
             else:
-                event_counts = Counter(y)  # Series containing counts of unique values.
-                for i in label_counts.keys():  # There are 5 labels
-                    label_counts[i] += event_counts[i]
+                train_event_counts = Counter(train_y)  # Series containing counts of unique values.
+                test_event_counts = Counter(test_y)  # Series containing counts of unique values.
+                for i in train_label_counts.keys():  # There are 5 labels
+                    train_label_counts[i] += train_event_counts[i]
+                    test_label_counts[i] += test_event_counts[i]
 
         if SAVE_ARRAYS_EXPANDED:
             save_arrays_expanded(subject_arrs_path, X_train, y_train, X_test, y_test)
         else:
             save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
 
-    print(label_counts)
-    X = list(label_counts.keys())
-    y = list(label_counts.values())
-    X_axis = np.array(X)
-    if CONTINUOUS_LABEL:
-        y_cont = list(label_counts_cont.values())
-        plt.bar(X_axis - 0.2, y, 0.4, label='Window Labels')
-        plt.bar(X_axis + 0.2, y_cont, 0.4, label='Sample Labels')
-
-        plt.xticks(X_axis, [str(x) for x in X])
-        plt.xlabel("Event index")
-        plt.ylabel("Count")
-        plt.legend()
-
-        plt.savefig(PATH_TO_SUBSET2.joinpath("histogram_continuous_label.png"))
-    else:
-        plt.bar(X_axis, y, label='Window Labels')
-
-        plt.xticks(X_axis, [str(x) for x in X])
-        plt.xlabel("Event index")
-        plt.ylabel("Count")
-        plt.legend()
-
-        plt.savefig(PATH_TO_SUBSET2.joinpath("stats", "histogram_window_label.png"))
-    plt.show()
+    plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
 
 
-if CREATE_ARRAYS and __name__ == "__main__":
+if __name__ == "__main__":
     PATH_TO_SUBSET2.mkdir(exist_ok=True)
     best_ids = get_best_ids()
     print(best_ids)
-    create_arrays(best_ids)
+
+    if CREATE_ARRAYS:
+        create_arrays(best_ids)
+    else:
+        train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        test_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        for id in tqdm(best_ids):
+            subject_arrs_path = Path(PATH_TO_SUBSET2).joinpath("arrays", str(id).zfill(4))
+            y_train_path = subject_arrs_path.joinpath("y_train.npy")
+            y_test_path = subject_arrs_path.joinpath("y_test.npy")
+
+            y_train = np.load(str(y_train_path))
+            y_test = np.load(str(y_test_path))
+
+            train_y_cont = y_train.flatten()
+            test_y_cont = y_test.flatten()
+            train_y = y_train.tolist()
+            test_y = y_test.tolist()
+            # y_cont = np.array([*y_train, *y_test]).flatten()
+            # y = pd.concat([pd.Series(y_train), pd.Series(y_test)], axis=0)
+            if CONTINUOUS_LABEL:
+                train_event_counts_cont = Counter(train_y_cont)  # Series containing counts of unique values.
+                test_event_counts_cont = Counter(test_y_cont)  # Series containing counts of unique values.
+                train_event_counts = Counter([assign_window_label(window)[0] for window in train_y])
+                test_event_counts = Counter([assign_window_label(window)[0] for window in test_y])
+                for i in train_label_counts.keys():  # There are 5 labels
+                    train_label_counts_cont[i] += train_event_counts_cont[i]
+                    test_label_counts_cont[i] += test_event_counts_cont[i]
+                    train_label_counts[i] += train_event_counts[i]
+                    test_label_counts[i] += test_event_counts[i]
+            else:
+                train_event_counts = Counter(train_y)  # Series containing counts of unique values.
+                test_event_counts = Counter(test_y)  # Series containing counts of unique values.
+                for i in train_label_counts.keys():  # There are 5 labels
+                    train_label_counts[i] += train_event_counts[i]
+                    test_label_counts[i] += test_event_counts[i]
+        plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
