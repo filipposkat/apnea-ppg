@@ -75,22 +75,25 @@ def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
         json.dump(roc_info_by_class, file)
 
     if save_plot:
-        fig, axs = plt.subplots(3, 2)
+        fig, axs = plt.subplots(3, 2, figsize=(15, 15))
         axs = axs.ravel()
-        for c in range(len(roc_info_by_class.keys())):
-            class_name = roc_info_by_class.keys()[c]
-            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
+
+        plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
+        for c, class_name in enumerate(roc_info_by_class.keys()):
+
             average_fpr = roc_info_by_class[class_name]["average_fpr"]
             average_tpr = roc_info_by_class[class_name]["average_tpr"]
             average_auc = roc_info_by_class[class_name]["average_auc"]
 
             ax = axs[c]
+            ax.plot(average_fpr, average_tpr)
             ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
             ax.set_xlim([0, 1])
             ax.set_ylim([0, 1])
             ax.set_xlabel("FPR")
             ax.set_ylabel("TPR")
-            fig.savefig(str(plot_path))
+        fig.savefig(str(plot_path))
+        plt.close(fig)
 
 
 def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, identifier: str, epoch: int, batch: int,
@@ -620,12 +623,12 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     roc_info_by_class = {}
     average_auc_by_class = {}
     for class_name in classes:
-        fprs = torch.cat(fprs_by_class[class_name], dim=0)
+        fprs = torch.stack(fprs_by_class[class_name], dim=0)
         average_fpr = torch.mean(fprs, dim=0, keepdim=False)
-        tprs = torch.cat(tprs_by_class[class_name], dim=0)
+        tprs = torch.stack(tprs_by_class[class_name], dim=0)
         average_tpr = torch.mean(tprs, dim=0, keepdim=False)
-        aucs = torch.cat(aucs_by_class[class_name], dim=0)
-        average_auc = torch.mean(aucs, keepdim=False)
+        aucs = torch.tensor(aucs_by_class[class_name])
+        average_auc = torch.mean(aucs)
 
         average_auc_by_class[class_name] = average_auc.item()
 
