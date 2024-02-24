@@ -19,8 +19,8 @@ from data_loaders_iterable import IterDataset, get_saved_train_loader, get_saved
 from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched_test_loader, \
     get_pre_batched_test_cross_sub_loader
 
-from UNet import UNet
-from UResIncNet import UResIncNet
+from UNet import UNet, ConvNet
+from UResIncNet import UResIncNet, ResIncNet
 from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
 
 # --- START OF CONSTANTS --- #
@@ -67,7 +67,7 @@ if config is not None:
     use_weighted_loss = config["variables"]["models"]["use_weighted_loss"]
     if use_weighted_loss:
         # Class weights:
-        # Subset1: Balance based on samples: [1, 176, 23, 12, 3]
+        # Subset1: Balance based on samples: old[1, 176, 23, 12, 3] now: [1, 95, 13, 7, 2]
         # Subset1 UResIncNET-"ks3-depth8-strided-0": Balance based on final recall: [1, 59, 20, 17, 1]
         assert "class_weights" in config["variables"]["models"]
         cw_tmp = config["variables"]["models"]["class_weights"]
@@ -491,13 +491,21 @@ if __name__ == "__main__":
             start_from_epoch = epoch
             start_from_batch = batch + 1
     else:
+        net = None
         if NET_TYPE == "UNET":
             net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
-        else:
+        elif NET_TYPE == "UResIncNet":
             net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
+        elif NET_TYPE == "ConvNet":
+            net = ConvNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+                          kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
+        elif NET_TYPE == "ResIncNet":
+            net = ResIncNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+                            kernel_size=KERNEL_SIZE,
+                            sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
 
         initial_running_losses = None
         lr_scheduler = None
@@ -581,7 +589,7 @@ if __name__ == "__main__":
             if lr_scheduler is not None:
                 if epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == 0:
                     lr_scheduler.step()
-                tqdm_epochs.set_postfix(current_base_lr=f"{lr_scheduler.get_last_lr():.5f}")
+                tqdm_epochs.set_postfix(current_base_lr=f"{lr_scheduler.get_last_lr()[0]:.5f}")
 
             if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
                 # print(f"Testing epoch: {epoch}")

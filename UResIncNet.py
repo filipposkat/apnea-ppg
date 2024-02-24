@@ -319,11 +319,12 @@ class UResIncNet(nn.Module):
         return kwargs
 
 
-class ResIncClassifer(nn.Module):
-    def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
+class ResIncNet(nn.Module):
+    def __init__(self, nclass=1, in_size=512, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
                  sampling_method="conv_stride", skip_connection=True):
         super().__init__()
         self.nclass = nclass
+        self.in_size = in_size
         self.in_chans = in_chans
         self.max_channels = max_channels
         self.depth = depth
@@ -355,16 +356,19 @@ class ResIncClassifer(nn.Module):
             self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers,
                                              sampling_factor=sampling_factor, sampling_method=sampling_method))
 
+        out_size = self.in_size // (2 ** (self.depth - 1))
+        assert out_size > 0
+
         self.fc = nn.Sequential(
-            nn.Linear(in_features=out_chans, out_features=out_chans),
-            nn.BatchNorm1d(out_chans),
+            nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
+            nn.BatchNorm1d(out_chans * out_size),
             nn.LeakyReLU(0.2),
-            nn.Linear(in_features=out_chans, out_features=out_chans),
-            nn.BatchNorm1d(out_chans),
+            nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
+            nn.BatchNorm1d(out_chans * out_size),
             nn.LeakyReLU(0.2),
         )
 
-        self.logits = nn.Linear(out_chans, nclass)
+        self.logits = nn.Linear(out_chans * out_size, nclass)
 
     def forward(self, x):
         encoded = []
@@ -394,8 +398,8 @@ class ResIncClassifer(nn.Module):
         else:
             layers = 1
 
-        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
-                  "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
-                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
+        kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
+                  "max_channels": self.max_channels, "depth": self.depth, "kernel_size": self.kernel_size,
+                  "layers": layers, "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
                   "skip_connection": self.skip_connection}
         return kwargs

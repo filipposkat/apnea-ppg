@@ -188,8 +188,8 @@ class UNet(nn.Module):
         return kwargs
 
 
-class ConvClassifier(nn.Module):
-    def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_factor=2,
+class ConvNet(nn.Module):
+    def __init__(self, nclass=1, in_size=512, in_chans=1, max_channels=512, depth=5, layers=2, kernel_size=3, sampling_factor=2,
                  sampling_method="pooling", skip_connection=True):
         """
         :param nclass:
@@ -204,6 +204,7 @@ class ConvClassifier(nn.Module):
         """
         super().__init__()
         self.nclass = nclass
+        self.in_size = in_size
         self.in_chans = in_chans
         self.max_channels = max_channels
         self.depth = depth
@@ -233,15 +234,19 @@ class ConvClassifier(nn.Module):
             self.encoder.append(EncoderBlock(in_chans, out_chans, layers=layers, kernel_size=kernel_size,
                                              sampling_factor=sampling_factor, sampling_method=sampling_method))
 
+        out_size = self.in_size // (2 ** (self.depth - 1))
+        assert out_size > 0
+
         self.fc = nn.Sequential(
-            nn.Linear(in_features=out_chans, out_features=out_chans),
-            nn.BatchNorm1d(out_chans),
+            nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
+            nn.BatchNorm1d(out_chans * out_size),
             nn.LeakyReLU(0.2),
-            nn.Linear(in_features=out_chans, out_features=out_chans),
-            nn.BatchNorm1d(out_chans),
+            nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
+            nn.BatchNorm1d(out_chans * out_size),
             nn.LeakyReLU(0.2),
         )
-        self.logits = nn.Linear(out_chans, nclass)
+
+        self.logits = nn.Linear(out_chans * out_size, nclass)
 
     def forward(self, x):
         for enc in self.encoder:
@@ -257,9 +262,9 @@ class ConvClassifier(nn.Module):
                 f"Kernel {self.kernel_size} - Sampling {self.sampling_method}")
 
     def get_kwargs(self):
-        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
-                  "depth": self.depth, "layers": self.layers, "kernel_size": self.kernel_size,
-                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
-                  "skip_connection": self.skip_connection}
+        kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
+                  "max_channels": self.max_channels, "depth": self.depth, "layers": self.layers,
+                  "kernel_size": self.kernel_size, "sampling_factor": self.sampling_factor,
+                  "sampling_method": self.sampling_method, "skip_connection": self.skip_connection}
 
         return kwargs

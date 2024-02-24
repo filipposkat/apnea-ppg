@@ -27,7 +27,7 @@ system:
 
 variables:
   models:
-    net_type: # UNET or UResIncNet
+    net_type: # UNET or UResIncNet or ConvNet or ResIncNet
     net_identifier:
     kernel_size: 3
     depth: 8
