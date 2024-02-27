@@ -37,6 +37,15 @@ def subset_stats(ids: list | None, print_summary=True):
     overlapping_sets = []
     max_duration = 0
     min_duration = 9999999
+
+    max_ca_duration = 0
+    min_ca_duration = 999999
+    max_oa_duration = 0
+    min_oa_duration = 999999
+    max_h_duration = 0
+    min_h_duration = 999999
+    max_spo2_duration = 0
+    min_spo2_duration = 999999
     for id, sub in get_subjects_by_ids_generator(subject_ids=ids, progress_bar=True):
         events = sub.respiratory_events
         n_events += len(events)
@@ -51,12 +60,28 @@ def subset_stats(ids: list | None, print_summary=True):
 
             if concept == "central_apnea":
                 n_central_apnea_events += 1
+                if duration > max_ca_duration:
+                    max_ca_duration = duration
+                elif duration < min_ca_duration:
+                    min_ca_duration = duration
             elif concept == "obstructive_apnea":
                 n_obstructive_apnea_events += 1
+                if duration > max_oa_duration:
+                    max_oa_duration = duration
+                elif duration < min_oa_duration:
+                    min_oa_duration = duration
             elif concept == "hypopnea":
                 n_hypopnea_events += 1
+                if duration > max_h_duration:
+                    max_h_duration = duration
+                elif duration < min_h_duration:
+                    min_h_duration = duration
             elif concept == "spo2_desat":
                 n_spo2_events += 1
+                if duration > max_spo2_duration:
+                    max_spo2_duration = duration
+                elif duration < min_spo2_duration:
+                    min_spo2_duration = duration
 
             if duration > max_duration:
                 max_duration = duration
@@ -111,6 +136,14 @@ def subset_stats(ids: list | None, print_summary=True):
     subset_stats["n_events"] = n_events
     subset_stats["max_event_duration"] = max_duration
     subset_stats["min_event_duration"] = min_duration
+    subset_stats["max_central_apnea_duration"] = max_ca_duration
+    subset_stats["min_central_apnea_duration"] = min_ca_duration
+    subset_stats["max_obstructive_apnea_duration"] = max_oa_duration
+    subset_stats["min_obstructive_apnea_duration"] = min_oa_duration
+    subset_stats["max_hyponea_duration"] = max_h_duration
+    subset_stats["min_hyponea_duration"] = min_h_duration
+    subset_stats["max_spo2_desat_duration"] = max_spo2_duration
+    subset_stats["min_spo2_desat_duration"] = min_spo2_duration
     subset_stats["n_overlapping_events"] = n_overlapping_events
     subset_stats["n_central_apnea_events"] = n_central_apnea_events
     subset_stats["n_obstructive_apnea_events"] = n_obstructive_apnea_events
