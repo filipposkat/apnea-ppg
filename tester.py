@@ -749,7 +749,7 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
         for b in batches:
             metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
             if metrics is None:
-                net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e,
+                net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e,
                                                               batch=b,
                                                               device=device)
                 metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
@@ -786,7 +786,7 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
         metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
         if metrics is None or OVERWRITE_METRICS:
 
-            net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+            net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                           device=device)
             if tmp:
                 plot_sample_prediction_sequence(model=net,test_dataloader=test_dataloader, device=device, n_batches=10)
@@ -813,7 +813,7 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
     b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
     metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
     if metrics is None:
-        net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+        net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                       device=device)
         metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                           first_batch=first_batch, max_batches=max_batches,
@@ -853,7 +853,7 @@ if __name__ == "__main__":
 
     e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)
-    net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
+    net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
                                                   device=test_device)
     plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
 

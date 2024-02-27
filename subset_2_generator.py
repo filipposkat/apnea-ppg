@@ -207,7 +207,7 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
 
 def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
         -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
-    sub_df = subject.export_to_dataframe(signal_labels=["Flow", "Pleth"], print_downsampling_details=False)
+    sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
     # 1. Do train test split preserving a whole sequence for test:

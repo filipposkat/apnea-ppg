@@ -12,7 +12,6 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
 GENERATE_TRAIN_TEST_SPLIT = False
-WINDOW_SAMPLES_SIZE = 512
 N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
@@ -108,7 +107,7 @@ class MappedDataset(Dataset):
         n_signals = X.shape[1]
 
         assert n_signals == 1  # Flow has been deleted already
-        assert X.shape[2] == WINDOW_SAMPLES_SIZE
+        # assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
         # Inputs are indexed with two numbers (id, window_index),
         self.id_size_dict = {}
@@ -129,11 +128,12 @@ class MappedDataset(Dataset):
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
+            assert X.shape[1] == 2
             y = X[:, 0, :]
         else:
             y = np.load(str(y_path)).astype("uint8")
             if y.ndim != 1:
-                y = y.reshape(X.shape[0], WINDOW_SAMPLES_SIZE)
+                y = y.reshape(X.shape[0], X.shape[2])
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)
@@ -147,11 +147,12 @@ class MappedDataset(Dataset):
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
+            assert X.shape[1] == 2
             y = X[:, 0, :]
         else:
             y = np.load(str(y_path)).astype("uint8")
             if y.ndim != 1:
-                y = y.reshape(X.shape[0], WINDOW_SAMPLES_SIZE)
+                y = y.reshape(X.shape[0], X.shape[2])
 
         # Drop the flow signal since only Pleth will be used as input:
         X = np.delete(X, 0, axis=1)

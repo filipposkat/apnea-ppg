@@ -94,7 +94,7 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 # --- END OF CONSTANTS --- #
 
 
-def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module,
+def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module, net_kwargs: dict,
                     optimizer, optimizer_kwargs: dict | None, criterion, criterion_kwargs: dict | None,
                     lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None, lr_scheduler_kwargs: dict | None,
                     dataloader_rng_state: torch.ByteTensor | tuple, running_losses: list[float] = None,
@@ -132,7 +132,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
 
     txt_path = model_path.joinpath("details.txt")
     with open(txt_path, 'w') as file:
-        details = [f'NET args: {net.get_args_summary()}\n',
+        details = [f'NET kwargs: {net_kwargs}\n',
                    f'Model: {type(net).__name__}\n',
                    f'Criterion: {type(criterion).__name__}\n',
                    f'Criterion kwargs: {criterion_kwargs}\n',
@@ -149,7 +149,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
         'batch_size': batch_size,
         'net_class': net.__class__,
         'net_state_dict': net.state_dict(),
-        'net_kwargs': net.get_kwargs(),
+        'net_kwargs': net_kwargs,
         'optimizer_class': optimizer.__class__,
         'optimizer_state_dict': optimizer.state_dict(),
         'optimizer_kwargs': optimizer_kwargs,
@@ -178,7 +178,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
 
 def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
         -> tuple[
-            nn.Module, torch.optim.Optimizer, dict, nn.Module, dict, torch.optim.lr_scheduler.LRScheduler, dict,
+            nn.Module, dict, torch.optim.Optimizer, dict, nn.Module, dict, torch.optim.lr_scheduler.LRScheduler, dict,
             torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
     state = torch.load(model_path)
@@ -189,13 +189,13 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
 
     net_class = state["net_class"]
     net_state = state["net_state_dict"]
-    net_kwargs = state["net_kwargs"]
+    model_kwargs = state["net_kwargs"]
     optimizer_class = state["optimizer_class"]
     optimizer_state_dict = state["optimizer_state_dict"]
     criterion_class = state["criterion_class"]
     criterion_state_dict = state["criterion_state_dict"]
 
-    model = net_class(**net_kwargs)
+    model = net_class(**model_kwargs)
     model.load_state_dict(net_state)
     model = model.to(device)
 
@@ -246,8 +246,8 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     else:
         run_losses = None
 
-    return model, optimizer, optimizer_kwargs, criterion, criterion_kwargs, lr_scheduler, lr_scheduler_kwargs, \
-        random_number_generator, run_losses
+    return (model, model_kwargs, optimizer, optimizer_kwargs, criterion, criterion_kwargs,
+            lr_scheduler, lr_scheduler_kwargs, random_number_generator, run_losses)
 
 
 def get_saved_epochs(net_type: str, identifier: str) -> list[int]:
@@ -462,7 +462,7 @@ if __name__ == "__main__":
             epoch = LOAD_FROM_EPOCH
             batch = LOAD_FROM_BATCH
 
-        net, optimizer, optim_kwargs, loss, loss_kwargs, \
+        net, net_kwargs, optimizer, optim_kwargs, loss, loss_kwargs, \
             lr_scheduler, lr_scheduler_kwargs, rng, initial_running_losses = load_checkpoint(
             net_type=NET_TYPE,
             identifier=IDENTIFIER,
@@ -492,20 +492,25 @@ if __name__ == "__main__":
             start_from_batch = batch + 1
     else:
         net = None
+        net_kwargs = {}
         if NET_TYPE == "UNET":
             net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
+            net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet":
             net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
+            net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
             net = ConvNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                           kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
+            net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ResIncNet":
             net = ResIncNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
+            net_kwargs = net.get_kwargs()
 
         initial_running_losses = None
         lr_scheduler = None
@@ -553,6 +558,7 @@ if __name__ == "__main__":
     print(datetime.datetime.now())
     unix_time_start = time.time()
     checkpoint_kwargs = {"net": net,
+                         "net_kwargs": net_kwargs,
                          "optimizer": optimizer,
                          "optimizer_kwargs": optim_kwargs,
                          "criterion": loss,
