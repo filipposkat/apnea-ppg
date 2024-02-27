@@ -36,7 +36,7 @@ NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
 TEST_MODEL = True
-OVERWRITE_METRICS = True
+OVERWRITE_METRICS = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -719,8 +719,10 @@ def plot_sample_prediction_sequence(model: nn.Module, test_dataloader: DataLoade
             saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
         plt.figure()
-        plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
-        plt.scatter(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels",s=0.1)
+        # plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
+        # plt.scatter(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels", s=0.1)
+        plt.plot(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions")
+        plt.plot(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels")
         plt.legend(loc='upper right')
         plt.ylabel("Class label")
         plt.xlabel("Sample i")
@@ -836,12 +838,11 @@ if __name__ == "__main__":
     else:
         test_device = torch.device("cpu")
 
+    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+                                              pre_fetch=PRE_FETCH,
+                                              shuffle=False)
     if TEST_MODEL:
         print(f"Device: {test_device}")
-
-        test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
-                                                  pre_fetch=PRE_FETCH,
-                                                  shuffle=False)
         # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2,
         # pre_fetch=1, shuffle=False, use_existing_batch_indices=True)
         test_loader.sampler.first_batch_index = LOAD_FROM_BATCH
@@ -849,6 +850,12 @@ if __name__ == "__main__":
         # device=test_device, max_batches=MAX_BATCHES, progress_bar=True)
         test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
                         max_batches=MAX_BATCHES, progress_bar=True)
+
+    e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
+    b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)
+    net, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
+                                                  device=test_device)
+    plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
 
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
