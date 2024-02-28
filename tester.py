@@ -45,8 +45,8 @@ if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
-    if "subset_1_saved_models_directory" in config["paths"]["local"]:
-        MODELS_PATH = Path(config["paths"]["local"]["subset_1_saved_models_directory"])
+    if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
+        MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
     else:
         MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]

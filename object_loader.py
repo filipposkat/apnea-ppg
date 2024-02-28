@@ -193,6 +193,7 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 if __name__ == "__main__":
     (id, sub) = get_subject_by_id(1017)
+    print(sub.signal_headers)
     df = sub.export_to_dataframe()
     # df.to_csv("107.csv")
     print(df)

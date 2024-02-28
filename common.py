@@ -169,10 +169,12 @@ class Subject:
             annotations[(s <= time_seq) & (time_seq <= f)] = 1
         return annotations
 
-    def export_to_dataframe(self, signal_labels: list[str] = None, print_downsampling_details=True) -> pd.DataFrame:
+    def export_to_dataframe(self, signal_labels: list[str] = None, max_frequency: float = None,
+                            print_downsampling_details=True) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
+        :param max_frequency: Maximum allowed frequency. If any signal exceeds this then it will be down-sampled.
         :param print_downsampling_details: Whether to print details about the down-sampling performed to match signal
         lengths
         :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
@@ -194,9 +196,15 @@ class Subject:
         min_freq_signal_index = retained_signal_headers.index(min_freq_signal_header)
         min_freq = min_freq_signal_header["sample_frequency"]
         length = len(retained_signals[min_freq_signal_index])
+
         if print_downsampling_details:
-            print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
-                  f"Down-sampling rest signals (if any), to match signal length: {length}")
+            if max_frequency is not None and min_freq > max_frequency:
+                min_freq = max_frequency
+                print(f"All signals exceed the maximum frequency ({max_frequency}Hz)/ "
+                      f"Down-sampling all signals.")
+            else:
+                print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
+                      f"Down-sampling rest signals (if any), to match signal length: {length}")
 
         # Then the time column can be created
         time_seq = [i / min_freq for i in range(length)]

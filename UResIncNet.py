@@ -356,7 +356,7 @@ class ResIncNet(nn.Module):
             self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers,
                                              sampling_factor=sampling_factor, sampling_method=sampling_method))
 
-        out_size = self.in_size // (2 ** (self.depth - 1))
+        out_size = self.in_size // (sampling_factor ** (self.depth - 1))
         assert out_size > 0
 
         self.fc = nn.Sequential(
@@ -376,7 +376,8 @@ class ResIncNet(nn.Module):
             x = enc(x)
             encoded.append(x)
 
-        x = torch.flatten(x)
+        m = nn.Flatten(start_dim=1)
+        x = m(x)
         x = self.fc(x)
         # Return the logits
         return self.logits(x)

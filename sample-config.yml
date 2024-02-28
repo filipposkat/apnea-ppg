@@ -20,12 +20,14 @@ paths:
     dependency_dlls:
 
 system:
-  dataset:
-    subset:  # int
+
   specs:
     compute_platform:
 
 variables:
+  dataset:
+    subset:  # int
+
   models:
     net_type: # UNET or UResIncNet or ConvNet or ResIncNet
     net_identifier:

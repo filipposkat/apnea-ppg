@@ -17,7 +17,7 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -624,7 +624,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         ax[1].set_ylabel("Count")
         ax[1].legend()
 
-        fig.savefig(Path(PATH_TO_SUBSET3).joinpath("stats", "histogram_window_label.png"))
+        fig.savefig(Path(PATH_TO_SUBSET3).joinpath("histogram_window_label.png"))
     plt.show()
 
 
