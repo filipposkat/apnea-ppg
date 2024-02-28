@@ -51,6 +51,7 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -436,6 +437,11 @@ if __name__ == "__main__":
     test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS_TEST,
                                               pre_fetch=PRE_FETCH_TEST, shuffle=False)
 
+    # Find out window size:
+    sample_batch = next(iter(train_loader))
+    window_size = sample_batch.shape[2]
+    print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
+
     # Create Network:
     last_epoch = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     last_batch = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=last_epoch)
@@ -503,11 +509,11 @@ if __name__ == "__main__":
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
-            net = ConvNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = ConvNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                           kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ResIncNet":
-            net = ResIncNet(nclass=5, in_size=512, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = ResIncNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
@@ -540,6 +546,9 @@ if __name__ == "__main__":
             optim_kwargs = {"lr": lr, "momentum": 0.7}
             optimizer = optim.SGD(net.parameters(), **optim_kwargs)
 
+    # torchinfo summary
+    print(NET_TYPE)
+    print(IDENTIFIER)
     summary(net, input_size=(BATCH_SIZE, 1, 512),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 
