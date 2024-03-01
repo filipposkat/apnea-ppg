@@ -28,7 +28,7 @@ from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
 LOAD_CHECKPOINT: bool = True  # True or False
 LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
-EPOCHS = 100
+EPOCHS = 50
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024
 NUM_WORKERS = 2
@@ -36,7 +36,7 @@ NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
 PRE_FETCH_TEST = 1
 CLASSIFY_PER_SAMPLE = True
-LR_TO_BATCH_RATIO = 1 / 25600
+LR_TO_BATCH_RATIO = 1 / 25600  # If lr is defined in config then it will be omitted
 LR_WARMUP = True
 LR_WARMUP_DURATION = 5
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
@@ -46,6 +46,7 @@ SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
 
+LR = LR_TO_BATCH_RATIO * BATCH_SIZE
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
@@ -61,6 +62,8 @@ if config is not None:
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
+    if "lr" in config["variables"]["optimizer"]:
+        LR = float(config["variables"]["optimizer"]["lr"])
     KERNEL_SIZE = int(config["variables"]["models"]["kernel_size"])
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
@@ -438,8 +441,8 @@ if __name__ == "__main__":
                                               pre_fetch=PRE_FETCH_TEST, shuffle=False)
 
     # Find out window size:
-    sample_batch = next(iter(train_loader))
-    window_size = sample_batch.shape[2]
+    sample_batch_input, sample_batch_labels = next(iter(train_loader))
+    window_size = sample_batch_input.shape[2]
     print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
 
     # Create Network:
@@ -533,7 +536,7 @@ if __name__ == "__main__":
             loss = nn.CrossEntropyLoss()
 
         # Set LR:
-        lr = LR_TO_BATCH_RATIO * BATCH_SIZE
+        lr = LR
 
         # Model should go to device first before initializing optimizer:
         net = net.to(device)

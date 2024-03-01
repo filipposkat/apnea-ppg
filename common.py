@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 from itertools import islice
-from bs4 import BeautifulSoup
-from pyedflib import highlevel
 
 
 def downsample_to_proportion(sequence, proportion: int) -> list:
@@ -32,6 +30,7 @@ class Subject:
         self.id = id
 
     def import_signals_from_edf(self, edf_file):
+        from pyedflib import highlevel
         # ch_names=["Flow", "Snore", "Thor", "Pleth"]
         signals, signal_headers, header = highlevel.read_edf(edf_file, ch_names=["Flow", "Pleth"])
         self.signals = signals
@@ -43,6 +42,7 @@ class Subject:
         :param xml_file: Path to xml annotations file
         :return:
         """
+        from bs4 import BeautifulSoup
         with open(xml_file, 'r') as f:
             data = f.read()
             bs_data = BeautifulSoup(data, "xml")

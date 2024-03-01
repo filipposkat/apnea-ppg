@@ -35,7 +35,7 @@ LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
-TEST_MODEL = True
+TEST_MODEL = False
 OVERWRITE_METRICS = False
 
 with open("config.yml", 'r') as f:
@@ -80,7 +80,6 @@ def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
 
         plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
         for c, class_name in enumerate(roc_info_by_class.keys()):
-
             average_fpr = roc_info_by_class[class_name]["average_fpr"]
             average_tpr = roc_info_by_class[class_name]["average_tpr"]
             average_auc = roc_info_by_class[class_name]["average_auc"]
@@ -536,7 +535,6 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     else:
         pbar_test_loop = None
 
-
     with torch.no_grad():
         for (batch_i, data) in enumerate(loader, start=first_batch):
             # get the inputs; data is a list of [inputs, labels]
@@ -750,8 +748,8 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
             metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
             if metrics is None:
                 net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e,
-                                                              batch=b,
-                                                              device=device)
+                                                                 batch=b,
+                                                                 device=device)
                 metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                                   max_batches=max_batches,
                                                   progress_bar=progress_bar, verbose=False)
@@ -787,9 +785,9 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
         if metrics is None or OVERWRITE_METRICS:
 
             net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                          device=device)
+                                                             device=device)
             if tmp:
-                plot_sample_prediction_sequence(model=net,test_dataloader=test_dataloader, device=device, n_batches=10)
+                plot_sample_prediction_sequence(model=net, test_dataloader=test_dataloader, device=device, n_batches=10)
                 tmp = False
             metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                               max_batches=max_batches,
@@ -814,7 +812,7 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
     metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
     if metrics is None:
         net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
-                                                      device=device)
+                                                         device=device)
         metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                           first_batch=first_batch, max_batches=max_batches,
                                           progress_bar=progress_bar, verbose=False)
@@ -843,6 +841,8 @@ if __name__ == "__main__":
                                               shuffle=False)
     if TEST_MODEL:
         print(f"Device: {test_device}")
+        print(NET_TYPE)
+        print(IDENTIFIER)
         # test_loader = data_loaders_mapped.get_saved_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=2,
         # pre_fetch=1, shuffle=False, use_existing_batch_indices=True)
         test_loader.sampler.first_batch_index = LOAD_FROM_BATCH
@@ -854,7 +854,7 @@ if __name__ == "__main__":
     e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)
     net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
-                                                  device=test_device)
+                                                     device=test_device)
     plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
 
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)

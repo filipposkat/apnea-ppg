@@ -263,7 +263,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if train_df.loc[i, "event_index"] != 0:
                 # Check the next 10s for no event samples:
                 blacklist_tmp = []
-                for j in range(i + 1, i + 321):
+                for j in range(i + 1, i + 10*SIGNALS_FREQUENCY+1):
                     # Check if continuity breaks at j (due to train test split):
                     if j not in train_df.index:
                         # if j is not in index it means that train is not continuous everywhere because of the train
@@ -632,13 +632,13 @@ def create_arrays(ids: list[int]):
     if ids is None:
         ids = get_best_ids()
 
-    random.seed(SEED)  # Set the seed
-
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     test_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
+        random.seed(SEED)  # Set the seed
+
         subject_arrs_path = PATH_TO_SUBSET3.joinpath("arrays", str(id).zfill(4))
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
