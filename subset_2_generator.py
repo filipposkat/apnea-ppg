@@ -21,7 +21,7 @@ CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 256  # The frequency used in the exported signals
-STEP = 16  # The step between each window
+STEP = 128  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512
@@ -207,7 +207,8 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
 
 def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
         -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
-    sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False)
+    sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
+                                         max_frequency=SIGNALS_FREQUENCY)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
     # 1. Do train test split preserving a whole sequence for test:
@@ -265,7 +266,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if train_df.loc[i, "event_index"] != 0:
                 # Check the next 10s for no event samples:
                 blacklist_tmp = []
-                for j in range(i + 1, i + 321):
+                for j in range(i + 1, i + 10*SIGNALS_FREQUENCY+1):
                     # Check if continuity breaks at j (due to train test split):
                     if j not in train_df.index:
                         # if j is not in index it means that train is not continuous everywhere because of the train
@@ -631,13 +632,13 @@ def create_arrays(ids: list[int]):
     if ids is None:
         ids = get_best_ids()
 
-    random.seed(SEED)  # Set the seed
-
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     test_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for (id, sub) in get_subjects_by_ids_generator(ids, progress_bar=True):
+        random.seed(SEED)  # Set the seed
+
         subject_arrs_path = PATH_TO_SUBSET2.joinpath("arrays", str(id).zfill(4))
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:

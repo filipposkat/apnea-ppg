@@ -37,5 +37,8 @@ variables:
     sampling_method: conv_stride
     use_weighted_loss: False
     class_weights:  # List of class weights
+
+  optimizer:
+    lr:
 other:
   ssh_pass:
