@@ -80,6 +80,7 @@ if config is not None:
     else:
         CLASS_WEIGHTS = None
 else:
+    subset_id = 1
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
@@ -550,8 +551,10 @@ if __name__ == "__main__":
             optimizer = optim.SGD(net.parameters(), **optim_kwargs)
 
     # torchinfo summary
+    print(f"Subset: {subset_id}")
     print(NET_TYPE)
     print(IDENTIFIER)
+
     summary(net, input_size=(BATCH_SIZE, 1, 512),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 

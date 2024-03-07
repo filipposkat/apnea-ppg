@@ -194,10 +194,11 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 if __name__ == "__main__":
     (id, sub) = get_subject_by_id(1212)
     print(sub.signal_headers)
-    df = sub.export_to_dataframe()
+
+    df = sub.export_to_dataframe(signal_labels=["Pleth"], max_frequency=32)
     # df.to_csv("107.csv")
-    print(df)
-    print(sum(df["event_index"]==2))
+    print(df.shape[0])
+    print(sum(df["event_index"]==1))
     # print(df.to_numpy())
     # print(sub.get_event_at_time(19290))
 

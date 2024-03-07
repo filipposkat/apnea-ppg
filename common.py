@@ -197,19 +197,15 @@ class Subject:
         min_freq = min_freq_signal_header["sample_frequency"]
         length = len(retained_signals[min_freq_signal_index])
 
-        if print_downsampling_details:
-            if max_frequency is not None and min_freq > max_frequency:
-                min_freq = max_frequency
+        if max_frequency is not None and min_freq > max_frequency:
+            min_freq = max_frequency
+            if print_downsampling_details:
                 print(f"All signals exceed the maximum frequency ({max_frequency}Hz)/ "
                       f"Down-sampling all signals.")
-            else:
-                print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
-                      f"Down-sampling rest signals (if any), to match signal length: {length}")
+        elif print_downsampling_details:
+            print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
+                  f"Down-sampling rest signals (if any), to match signal length: {length}")
 
-        # Then the time column can be created
-        time_seq = [i / min_freq for i in range(length)]
-        df["time_secs"] = time_seq
-        df["time_secs"] = df["time_secs"].astype("float32")  # Save memory
         for i in range(len(retained_signals)):
             header = retained_signal_headers[i]
             freq = header["sample_frequency"]
@@ -223,6 +219,12 @@ class Subject:
 
             df[label] = signal
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
+
+        # Then the time column can be created
+        time_seq = [i / min_freq for i in range(df.shape[0])]
+        df["time_secs"] = time_seq
+        df["time_secs"] = df["time_secs"].astype("float32")  # Save memory
+
         # df["event_index"] = df["time_secs"].map(lambda t: self.get_event_at_time(t)).astype("uint8")
         df["event_index"] = self.assign_annotations_to_time_series(df["time_secs"])
 

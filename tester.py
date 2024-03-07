@@ -851,11 +851,11 @@ if __name__ == "__main__":
         test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
                         max_batches=MAX_BATCHES, progress_bar=True)
 
-    e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
-    b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)
-    net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
-                                                     device=test_device)
-    plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
+    # e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
+    # b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)
+    # net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e, batch=b,
+    #                                                  device=test_device)
+    # plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
 
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     accuracies = [m["aggregate_accuracy"] for m in metrics]

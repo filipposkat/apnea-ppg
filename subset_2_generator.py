@@ -19,12 +19,12 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False
-WINDOW_SEC_SIZE = 16
+WINDOW_SEC_SIZE = 16  # -> 16 * 256 = 4096
 SIGNALS_FREQUENCY = 256  # The frequency used in the exported signals
-STEP = 128  # The step between each window
+STEP = 16*8*8  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
-TEST_SEARCH_SAMPLE_STEP = 512
+TEST_SEARCH_SAMPLE_STEP = 4096
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 NO_APNEA_TO_APNEA_EVENTS_RATIO = 5  # Central, Obstructive and Hypopnea are taken into account

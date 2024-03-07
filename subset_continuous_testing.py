@@ -18,7 +18,7 @@ from subset_1_generator import get_best_ids
 from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
-SUBJECT_ID = 1212
+SUBJECT_ID = 5232  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
 CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
@@ -124,8 +124,11 @@ def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergen
             best_split = (train_df, test_df)
             if divergence < sufficiently_low_divergence:
                 break
-
+    train_df = best_split[0]
     test_df = best_split[1]
+
+    # print(sum(train_df["event_index"] == 1))
+    # print(sum(test_df["event_index"] == 1))
 
     # Take equal-sized windows with a specified step:
     # 3. Calculate the number of windows:
@@ -252,8 +255,9 @@ if __name__ == "__main__":
                 saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
                 saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
-        matlab_file = MODELS_PATH.joinpath(f"{NET_TYPE}", str(IDENTIFIER), f"epoch-{EPOCH}",
-                                           f"cont_test_signal_{SUBJECT_ID}.mat")
+        results_path = PATH_TO_SUBSET.joinpath("cont_test_results", str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
+        results_path.mkdir(parents=True, exist_ok=True)
+        matlab_file = results_path.joinpath(f"cont_test_signal_{SUBJECT_ID}.mat")
         matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
                        "predictions": np.array(saved_preds_for_stats),
                        "labels": np.array(saved_labels_for_stats)}
