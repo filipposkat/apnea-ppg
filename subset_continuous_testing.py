@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 import numpy as np
+import scipy
 
 import yaml
 import pandas as pd
@@ -8,6 +9,7 @@ import matplotlib.pyplot as plt
 import random
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
 
 # Local imports:
 from common import Subject
@@ -17,9 +19,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
 SUBJECT_ID = 1212
-NET_TYPE = "UResIncNet"
-IDENTIFIER = "ks3-depth8-strided-0"
-EPOCH = 35
+EPOCH = 32
 CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
@@ -42,9 +42,17 @@ if config is not None:
     if CREATE_ARRAYS:
         PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
+    MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
+    NET_TYPE = config["variables"]["models"]["net_type"]
+    IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
+    MODELS_PATH = Path(config["paths"]["local"][f"subset_1_saved_models_directory"])
+    NET_TYPE = "UResIncNet"
+    IDENTIFIER = "ks3-depth8-strided-0"
 
 
 # --- END OF CONSTANTS --- #
@@ -166,7 +174,7 @@ if __name__ == "__main__":
     if CREATE_ARRAYS:
         random.seed(SEED)  # Set the seed
         PATH_TO_SUBSET.mkdir(exist_ok=True)
-        Path(PATH_TO_SUBSET).joinpath("cont-test-arrays").mkdir(exist_ok=True)
+        PATH_TO_SUBSET.joinpath("cont-test-arrays").mkdir(exist_ok=True)
         best_ids = get_best_ids()
         print(best_ids)
 
@@ -221,6 +229,7 @@ if __name__ == "__main__":
         # Switch to eval mode:
         net.eval()
         net = net.to(test_device)
+        saved_probs_for_stats = []
         saved_preds_for_stats = []
         saved_labels_for_stats = []
         with torch.no_grad():
@@ -236,11 +245,19 @@ if __name__ == "__main__":
 
                 # Predictions:
                 batch_outputs = net(batch_inputs)
-                # batch_output_probs = F.softmax(batch_outputs, dim=1)
+                batch_output_probs = F.softmax(batch_outputs, dim=1)
                 _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
                 saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
+                saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
                 saved_labels_for_stats.extend(batch_labels.ravel().tolist())
+
+        matlab_file = MODELS_PATH.joinpath(f"{NET_TYPE}", str(IDENTIFIER), f"epoch-{EPOCH}",
+                                           f"cont_test_signal_{SUBJECT_ID}.mat")
+        matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
+                       "predictions": np.array(saved_preds_for_stats),
+                       "labels": np.array(saved_labels_for_stats)}
+        scipy.io.savemat(matlab_file, matlab_dict)
 
         plt.figure()
         plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
