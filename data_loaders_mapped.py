@@ -136,7 +136,8 @@ class MappedDataset(Dataset):
                 y = y.reshape(X.shape[0], X.shape[2])
 
         # Drop the flow signal since only Pleth will be used as input:
-        X = np.delete(X, 0, axis=1)
+        if X.shape[1] == 2:
+            X = np.delete(X, 0, axis=1)
         return X, y
 
     def test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:
@@ -155,7 +156,8 @@ class MappedDataset(Dataset):
                 y = y.reshape(X.shape[0], X.shape[2])
 
         # Drop the flow signal since only Pleth will be used as input:
-        X = np.delete(X, 0, axis=1)
+        if X.shape[1] == 2:
+            X = np.delete(X, 0, axis=1)
         return X, y
 
     def cross_test_array_loader(self, sub_id: int) -> tuple[np.array, np.array]:

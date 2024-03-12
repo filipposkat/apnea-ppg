@@ -17,11 +17,11 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16  # -> 16 * 256 = 4096
 SIGNALS_FREQUENCY = 256  # The frequency used in the exported signals
-STEP = 16*8*8  # The step between each window
+STEP = 16 * 8 * 8  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 4096
@@ -266,7 +266,7 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if train_df.loc[i, "event_index"] != 0:
                 # Check the next 10s for no event samples:
                 blacklist_tmp = []
-                for j in range(i + 1, i + 10*SIGNALS_FREQUENCY+1):
+                for j in range(i + 1, i + 10 * SIGNALS_FREQUENCY + 1):
                     # Check if continuity breaks at j (due to train test split):
                     if j not in train_df.index:
                         # if j is not in index it means that train is not continuous everywhere because of the train
@@ -338,12 +338,14 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                 num_of_no_apnea_windows = len(y) - num_of_apnea_windows
                 target_num_no_apnea_windows = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_windows
                 diff = num_of_no_apnea_windows - target_num_no_apnea_windows
+                num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
             else:
                 total_samples = sum([len(window) for window in y])
                 num_of_apnea_samples = sum([sum((window >= 1) & (window <= 3)) for window in y])
                 num_of_no_apnea_samples = total_samples - num_of_apnea_samples
                 target_num_no_apnea_samples = NO_APNEA_TO_APNEA_EVENTS_RATIO * num_of_apnea_samples
                 diff = num_of_no_apnea_samples - target_num_no_apnea_samples
+                num_to_drop = min(abs(diff), total_samples - MIN_WINDOWS * WINDOW_SAMPLES_SIZE)
 
             # Shuffle X, y without losing order:
             combined_xy = list(zip(X, y))  # Combine X,y and y_continuous into one list
@@ -351,27 +353,24 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
 
             if diff > 0:
                 if not EVENT_RATIO_BY_SAMPLES:
-                    num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                     # Reduce no event windows by num_to_drop:
                     combined_xy = list(
                         filterfalse(lambda Xy, c=count(): all((Xy[1] == 0) | (Xy[1] == 4))
                                                           and next(c) < num_to_drop, combined_xy))
                 else:
-                    num_to_drop = abs(diff)
                     samples_dropped = 0
-                    windows_to_keep = []
+                    windows_to_drop = []
                     for window_i in range(len(combined_xy)):
                         if samples_dropped > num_to_drop:
                             break
                         else:
                             xy = combined_xy[window_i]
-                            # Check if it contains apnea
-                            if any((xy[1] >= 1) & (xy[1] <= 3)):
-                                windows_to_keep.append(window_i)
-                            else:
+                            # Check if it contains only normal and spo2 desat
+                            if all((xy[1] == 0) | (xy[1] == 4)):
                                 # To be dropped
+                                windows_to_drop.append(window_i)
                                 samples_dropped += len(xy[1])
-                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i not in windows_to_drop]
 
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
@@ -382,19 +381,18 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                                     combined_xy))
                 else:
                     samples_dropped = 0
-                    windows_to_keep = []
+                    windows_to_drop = []
                     for window_i in range(len(combined_xy)):
                         if samples_dropped > num_to_drop:
                             break
                         else:
                             xy = combined_xy[window_i]
                             # Check if it contains apnea
-                            if any((xy[1] == 0) | (xy[1] == 4)):
-                                windows_to_keep.append(window_i)
-                            else:
+                            if all((xy[1] >= 1) | (xy[1] <= 3)):
                                 # To be dropped
+                                windows_to_drop.append(window_i)
                                 samples_dropped += len(xy[1])
-                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i in windows_to_keep]
+                    combined_xy = [combined_xy[i] for i in range(len(combined_xy)) if i not in windows_to_drop]
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
@@ -576,9 +574,11 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
     print({k: f"{100 * v / sum(test_label_counts.values()):.2f}%" for (k, v) in test_label_counts.items()})
     if CONTINUOUS_LABEL:
         print(f"Train-Cont: {train_label_counts_cont} total={sum(train_label_counts_cont.values())}")
-        print({k: f"{100*v / sum(train_label_counts_cont.values()):.2f}%" for (k, v) in train_label_counts_cont.items()})
+        print({k: f"{100 * v / sum(train_label_counts_cont.values()):.2f}%" for (k, v) in
+               train_label_counts_cont.items()})
         print(f"Test-Cont: {test_label_counts_cont} total={sum(test_label_counts_cont.values())}")
-        print({k: f"{100*v / sum(test_label_counts_cont.values()):.2f}%" for (k,v) in test_label_counts_cont.items()})
+        print(
+            {k: f"{100 * v / sum(test_label_counts_cont.values()):.2f}%" for (k, v) in test_label_counts_cont.items()})
 
     labels = list(train_label_counts.keys())
     train_counts = list(train_label_counts.values())
@@ -681,7 +681,6 @@ def create_arrays(ids: list[int]):
 if __name__ == "__main__":
     PATH_TO_SUBSET2.mkdir(exist_ok=True)
     best_ids = get_best_ids()
-    print(best_ids)
 
     if CREATE_ARRAYS:
         create_arrays(best_ids)
@@ -691,7 +690,7 @@ if __name__ == "__main__":
         train_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
         test_label_counts_cont: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
         for id in tqdm(best_ids):
-            subject_arrs_path = Path(PATH_TO_SUBSET2).joinpath("arrays", str(id).zfill(4))
+            subject_arrs_path = PATH_TO_SUBSET2.joinpath("arrays", str(id).zfill(4))
             y_train_path = subject_arrs_path.joinpath("y_train.npy")
             y_test_path = subject_arrs_path.joinpath("y_test.npy")
 
