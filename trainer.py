@@ -186,7 +186,9 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
             nn.Module, dict, torch.optim.Optimizer, dict, nn.Module, dict, torch.optim.lr_scheduler.LRScheduler, dict,
             torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
-    state = torch.load(model_path)
+
+    state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": device})
+
     if "batch_size" in state.keys():
         batch_size = int(state["batch_size"])
         if batch_size != BATCH_SIZE:
