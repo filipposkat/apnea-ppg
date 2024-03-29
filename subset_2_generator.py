@@ -19,9 +19,9 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
-WINDOW_SEC_SIZE = 16  # -> 16 * 256 = 4096
-SIGNALS_FREQUENCY = 256  # The frequency used in the exported signals
-STEP = 16 * 8 * 8  # The step between each window
+WINDOW_SEC_SIZE = 60  # -> 60 * 32 = 4096
+SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+STEP = 64  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 4096

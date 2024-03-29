@@ -15,7 +15,6 @@ import torch.nn.functional as F
 # Local imports:
 from common import Subject
 from object_loader import get_subject_by_id, get_subjects_by_ids_generator
-from subset_1_generator import get_best_ids
 from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
@@ -52,6 +51,7 @@ if config is not None:
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
+    subset_id = 1
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
@@ -92,49 +92,49 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergence=None) \
+def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergence=None, split=True) \
         -> tuple[list, list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
                                          max_frequency=SIGNALS_FREQUENCY)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
-    # 1. Do train test split preserving a whole sequence for test:
-    # Find all possible sequences for test set:
-    test_size = int(TEST_SIZE * sub_df.shape[0])  # number of rows/samples
-    # Number of rolling test set sequences:
-    num_of_candidates = (sub_df.shape[0] - test_size) // TEST_SEARCH_SAMPLE_STEP + 1  # a//b = math.floor(a/b)
-    candidates = list(range(num_of_candidates))
-    min_split_divergence = 99
-    best_split = None
+    if split:
+        # 1. Do train test split preserving a whole sequence for test:
+        # Find all possible sequences for test set:
+        test_size = int(TEST_SIZE * sub_df.shape[0])  # number of rows/samples
+        # Number of rolling test set sequences:
+        num_of_candidates = (sub_df.shape[0] - test_size) // TEST_SEARCH_SAMPLE_STEP + 1  # a//b = math.floor(a/b)
+        candidates = list(range(num_of_candidates))
+        min_split_divergence = 99
+        best_split = None
 
-    candidates_subsample_size = int(EXAMINED_TEST_SETS_SUBSAMPLE * num_of_candidates)
-    candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
+        candidates_subsample_size = int(EXAMINED_TEST_SETS_SUBSAMPLE * num_of_candidates)
+        candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
 
-    sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
-    for i in candidates_subsample:
-        # Split into train and test:
-        # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
-        # in order to know later the point where continuity breaks. So ignore_index=False
-        train_df = pd.concat(
-            [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
-            axis=0, ignore_index=False)
-        test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
-            drop=True)
+        sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
+        for i in candidates_subsample:
+            # Split into train and test:
+            # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
+            # in order to know later the point where continuity breaks. So ignore_index=False
+            train_df = pd.concat(
+                [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+                axis=0, ignore_index=False)
+            test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+                drop=True)
 
-        # Find the JSD similarity of the train and test distributions:
-        divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
+            # Find the JSD similarity of the train and test distributions:
+            divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
 
-        # We want to minimize the divergence because we want to maximize similarity
-        if divergence < min_split_divergence:
-            min_split_divergence = divergence
-            best_split = (train_df, test_df)
-            if divergence < sufficiently_low_divergence:
-                break
-    train_df = best_split[0]
-    test_df = best_split[1]
-
-    # print(sum(train_df["event_index"] == 1))
-    # print(sum(test_df["event_index"] == 1))
+            # We want to minimize the divergence because we want to maximize similarity
+            if divergence < min_split_divergence:
+                min_split_divergence = divergence
+                best_split = (train_df, test_df)
+                if divergence < sufficiently_low_divergence:
+                    break
+        train_df = best_split[0]
+        test_df = best_split[1]
+    else:
+        test_df = sub_df
 
     # Take equal-sized windows with a specified step:
     # 3. Calculate the number of windows:
@@ -180,14 +180,15 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
 
 
 if __name__ == "__main__":
-    best_ids = get_best_ids()
-    cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
-                          6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847, 3671,
-                          2408, 2771, 4671, 5907, 2147, 979, 620, 6215, 2434, 1863, 651, 3043, 1016, 5608, 6538, 2126,
-                          4270, 2374, 6075, 107, 3013, 4341, 5695, 2651, 6193, 3332, 3314, 1589, 935, 386, 3042, 5393,
-                          4794, 6037, 648, 1271, 811, 1010, 2750, 33, 626, 3469, 6756, 2961, 1756, 1650, 3294, 3913,
-                          5182, 4014, 3025, 5148, 4508, 3876, 2685, 4088, 675, 125, 6485, 3239, 5231, 3037, 5714, 5986,
-                          155, 4515, 6424, 2747, 1356]
+
+    path = PATH_TO_SUBSET.joinpath("ids.npy")
+    if path.is_file():
+        best_ids_arr = np.load(str(path))  # array to save the best subject ids
+        best_ids = best_ids_arr.tolist()  # equivalent list
+    else:
+        print(f"Subset-{subset_id} has no ids generated yet")
+        exit(1)
+
     train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
                  589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
                  931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
@@ -218,7 +219,11 @@ if __name__ == "__main__":
             if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
                 continue
 
-            X_test, y_test = get_subject_continuous_test_data(sub)
+            if id in train_ids:
+                split = True
+            else:
+                split = False
+            X_test, y_test = get_subject_continuous_test_data(sub, split=split)
             save_arrays_combined(subject_arrs_path, X_test, y_test)
 
     else:

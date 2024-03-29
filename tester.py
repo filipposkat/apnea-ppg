@@ -513,7 +513,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
+    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=1000), device=device)
     tprs_by_class = {c: [] for c in classes}
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
@@ -685,47 +685,6 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     return metrics, cm.tolist(), roc_info_by_class
 
-
-def plot_sample_prediction_sequence(model: nn.Module, test_dataloader: DataLoader, device="cpu", n_batches=1):
-    loader = test_dataloader
-
-    # Switch to eval mode:
-    model.eval()
-    model = model.to(device)
-
-    saved_preds_for_stats = []
-    saved_labels_for_stats = []
-    with torch.no_grad():
-        for (batch_i, data) in enumerate(loader):
-            if batch_i == n_batches:
-                break
-
-            # get the inputs; data is a list of [inputs, labels]
-            batch_inputs, batch_labels = data
-
-            # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
-            batch_labels = batch_labels.type(torch.int64)
-
-            batch_inputs = batch_inputs.to(device)
-            batch_labels = batch_labels.to(device)
-
-            # Predictions:
-            batch_outputs = model(batch_inputs)
-            _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
-
-            saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
-            saved_labels_for_stats.extend(batch_labels.ravel().tolist())
-
-        plt.figure()
-        # plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
-        # plt.scatter(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels", s=0.1)
-        plt.plot(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions")
-        plt.plot(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels")
-        plt.legend(loc='upper right')
-        plt.ylabel("Class label")
-        plt.xlabel("Sample i")
-        plt.show()
-        plt.close()
 
 
 def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,

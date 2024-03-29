@@ -276,7 +276,7 @@ def get_saved_batches(net_type: str, identifier: str, epoch: int | str) -> list[
     if epoch is None or epoch == "final" or epoch == "last":
         epoch = get_last_epoch(net_type=net_type, identifier=identifier)
 
-    model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}")
+    model_path = MODELS_PATH.joinpath(net_type, identifier, f"epoch-{epoch}")
     if epoch != -1 and model_path.exists():
         batches = []
         for file in model_path.iterdir():
