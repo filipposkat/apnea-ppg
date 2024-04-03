@@ -17,7 +17,7 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 60  # -> 60 * 32 = 4096
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -643,6 +643,11 @@ def create_arrays(ids: list[int]):
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
             continue
+
+        # Save metadata
+        metadata = sub.metadata
+        metadata_df = pd.Series(metadata)
+        metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 

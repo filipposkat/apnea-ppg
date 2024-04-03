@@ -9,6 +9,7 @@ import yaml
 import pandas as pd
 import matplotlib.pyplot as plt
 import random
+
 from sklearn.model_selection import train_test_split
 
 # Local imports:
@@ -41,8 +42,8 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_OBJECTS = config["paths"]["local"]["subject_objects_directory"]
-    PATH_TO_SUBSET1 = config["paths"]["local"]["subset_1_directory"]
+    PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
+    PATH_TO_SUBSET1 = Path(config["paths"]["local"]["subset_1_directory"])
 else:
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET1 = Path(__file__).parent.joinpath("data", "subset-1")
@@ -595,6 +596,11 @@ def create_arrays(ids: list[int]):
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
             continue
+
+        # Save metadata
+        metadata = sub.metadata
+        metadata_df = pd.Series(metadata)
+        metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 

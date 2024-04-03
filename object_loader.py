@@ -3,24 +3,29 @@ from tqdm import tqdm
 import pickle
 import yaml
 from collections.abc import Generator
-import matplotlib.pyplot as plt
+from pathlib import Path
+import pandas as pd
+
 # Local imports:
 from common import Subject
 
 # --- START OF CONSTANTS --- #
 RELOAD_ANNOTATIONS = False
+RELOAD_METADATA = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_OBJECTS = config["paths"]["local"]["subject_objects_directory"]
-    PATH_TO_ANNOTATIONS = config["paths"]["local"]["xml_annotations_directory"]
-    PATH_TO_OUTPUT = config["paths"]["local"]["csv_directory"]
+    PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
+    PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
+    PATH_TO_ANNOTATIONS = Path(config["paths"]["local"]["xml_annotations_directory"])
+    PATH_TO_OUTPUT = Path(config["paths"]["local"]["csv_directory"])
 else:
-    PATH_TO_OBJECTS = os.path.join(os.curdir, "data", "serialized-objects")
-    PATH_TO_ANNOTATIONS = "G:\\filip\Documents\Data Science Projects\Thesis\mesa\polysomnography\\annotations-events-nsrr"
-    PATH_TO_OUTPUT = os.path.join(os.curdir, "data", "csvs")
+    PATH_TO_OBJECTS = Path.cwd().joinpath("data", "serialized-objects")
+    PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.6.0.csv")
+    PATH_TO_ANNOTATIONS = Path.cwd().joinpath("data", "mesa", "polysomnography", "annotations-events-nsrr")
+    PATH_TO_OUTPUT = Path.cwd().joinpath("data", "csvs")
 
 # --- END OF CONSTANTS --- #
 
@@ -191,14 +196,15 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
             binary_file.close()
             yield id, sub
 
+
 if __name__ == "__main__":
     (id, sub) = get_subject_by_id(1212)
     print(sub.signal_headers)
-
-    df = sub.export_to_dataframe(signal_labels=["Pleth"], max_frequency=32)
+    print(sub.metadata)
+    # df = sub.export_to_dataframe(signal_labels=["Pleth"], max_frequency=32)
     # df.to_csv("107.csv")
-    print(df.shape[0])
-    print(sum(df["event_index"]==1))
+    # print(df.shape[0])
+    # print(sum(df["event_index"] == 1))
     # print(df.to_numpy())
     # print(sub.get_event_at_time(19290))
 
@@ -208,19 +214,31 @@ if __name__ == "__main__":
     # subs[133].export_to_dataframe()["Pleth"][646284:646909].plot()
     # plt.show()
 
+    if RELOAD_METADATA:
+        df = pd.read_csv(PATH_TO_METADATA, sep=',')
+        df.set_index(keys="mesaid", drop=False, inplace=True)
+        df.index.names = [None]
+        for subject_id, sub in all_subjects_generator(progress_bar=True):
+            sub_dict = df.loc[subject_id, :].to_dict()
+            sub.import_metadata(sub_dict)
+
+            path_obj = PATH_TO_OBJECTS.joinpath(str(subject_id).zfill(4) + ".bin")
+            binary_file = open(path_obj, mode='wb')
+            pickle.dump(sub, binary_file)
+            binary_file.close()
+
     if RELOAD_ANNOTATIONS:
         annots_dict = {}  # key: subject id. value: path to the annotation xml file of the corresponding subject
         # Find all annotation xml files and store their ids and paths:
-        for filename in os.listdir(PATH_TO_ANNOTATIONS):
-            if filename.endswith(".xml"):
-                subject_id = int(filename[-13:-9])
-                path_to_file = os.path.join(PATH_TO_ANNOTATIONS, filename)
-                annots_dict[subject_id] = path_to_file
+        for file in PATH_TO_ANNOTATIONS.iterdir():
+            if file.name.endswith(".xml"):
+                subject_id = int(file.name[-13:-9])
+                annots_dict[subject_id] = file
 
         for subject_id, sub in all_subjects_generator():
             sub.import_annotations_from_xml(annots_dict[subject_id])
             # print(sub.export_to_dataframe())
-            path_obj = os.path.join(PATH_TO_OBJECTS, str(subject_id).zfill(4) + ".bin")
+            path_obj = PATH_TO_OBJECTS.joinpath(str(subject_id).zfill(4) + ".bin")
             binary_file = open(path_obj, mode='wb')
             pickle.dump(sub, binary_file)
             binary_file.close()

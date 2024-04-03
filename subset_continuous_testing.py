@@ -18,9 +18,10 @@ from object_loader import get_subject_by_id, get_subjects_by_ids_generator
 from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
+TESTING_SUBSET = 4
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -41,10 +42,10 @@ if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
     if CREATE_ARRAYS:
         PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
-    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
+    PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
-    if "subset_1_continuous_testing_directory" in config["paths"]["local"]:
-        PATH_TO_SUBSET_CONT_TESTING = Path(config["paths"]["local"]["subset_1_continuous_testing_directory"])
+    if f"subset_{TESTING_SUBSET}_continuous_testing_directory" in config["paths"]["local"]:
+        PATH_TO_SUBSET_CONT_TESTING = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_continuous_testing_directory"])
     else:
         PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
@@ -215,6 +216,12 @@ if __name__ == "__main__":
 
         for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
+
+            # Save metadata
+            metadata = sub.metadata
+            metadata_df = pd.Series(metadata)
+            metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
+            continue
 
             if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
                 continue

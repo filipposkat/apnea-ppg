@@ -133,7 +133,9 @@ def get_best_ids():
     return best_ids.copy()
 
 
-best_ids = get_best_ids()
-print(f"Final subset size: {len(best_ids)}\n")
-print(best_ids)
+if __name__ == "__main__":
+    PATH_TO_SUBSET.mkdir(exist_ok=True)
+    best_ids = get_best_ids()
+    print(f"Final subset size: {len(best_ids)}\n")
+    print(best_ids)
 

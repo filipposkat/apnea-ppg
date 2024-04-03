@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from itertools import islice
+from pathlib import Path
 
 
 def downsample_to_proportion(sequence, proportion: int) -> list:
@@ -25,9 +26,13 @@ class Subject:
     start: int
     duration: float
     respiratory_events: list[dict]
+    metadata: dict
 
     def __init__(self, id):
         self.id = id
+
+    def import_metadata(self, metadata_dict: dict):
+        self.metadata = metadata_dict
 
     def import_signals_from_edf(self, edf_file):
         from pyedflib import highlevel

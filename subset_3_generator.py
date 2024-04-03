@@ -426,53 +426,6 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
 
         X_train, y_train = window_dropping(X_train, y_train)
         # X_test, y_test = window_dropping(X_test, y_test)
-
-    # # 5. Split into train and test:
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
-    #                                                     random_state=SEED)
-    # # print(f"Events train%: {np.count_nonzero(y_train) / len(y_train)}")
-    # # print(f"Events test%: {np.count_nonzero(y_test) / len(y_test)}")
-
-    # # 6. Drop no-event windows within 10s (= 320 samples) after event window:
-    # if DROP_10s_AFTER_EVENT:
-    #     windows_to_drop = []
-    #     # for every window:
-    #     for i in range(len(y_train)):
-    #         if CONTINUOUS_LABEL:
-    #             # if it has event at the last 10s of the window
-    #             if sum(y_train[i][191:512]) != 0:
-    #                 # Check every possible event sample between 192 end 512 (last 10s of the window):
-    #                 for j in range(191, 512):
-    #                     # Examine event samples one by one:
-    #                     if y_train[i][j] != 0:
-    #                         samples_til_window_end = 511 - j
-    #                         # Check the next 10s for windows starting with no event:
-    #                         # [(10s of samples (320) - (samples remaining until end of window)] // step + 1 :
-    #                         drop_zone = (10 * 32 - samples_til_window_end) // STEP + 1
-    #                         for k in range(i + 1, i + drop_zone):
-    #                             samples_in_drop_zone = (1 + drop_zone - (k - i)) * STEP
-    #                             if sum(y_train[k][0:samples_in_drop_zone]) == 0:
-    #                                 # Add no event window to drop list:
-    #                                 windows_to_drop.append(j)
-    #                             else:
-    #                                 # Event window found within 10s of the event window we examine,
-    #                                 # thus there is no need to drop more no event windows since i will reach this event
-    #                                 break
-    #         else:
-    #             drop_zone = (10 * 32) // STEP + 1
-    #             if y_train[i] != 0:
-    #                 # Check the next 10s for no event windows:
-    #                 for j in range(i + 1, i + drop_zone):
-    #                     if y_train[j] == 0:
-    #                         # Add no event window to drop list:
-    #                         windows_to_drop.append(j)
-    #                     else:
-    #                         # Event window found within 10s of the event window we examine,
-    #                         # thus there is no need to drop more no event windows since i will reach this event
-    #                         break
-    #     X_train = [X_train[j] for j in range(len(X_train)) if j not in windows_to_drop]
-    #     y_train = [X_train[j] for j in range(len(y_train)) if j not in windows_to_drop]
-
     return X_train, X_test, y_train, y_test
 
 
@@ -641,6 +594,11 @@ def create_arrays(ids: list[int]):
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
             continue
+
+        # Save metadata
+        metadata = sub.metadata
+        metadata_df = pd.Series(metadata)
+        metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 

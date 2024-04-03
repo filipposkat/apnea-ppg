@@ -3,6 +3,8 @@ import yaml
 from tqdm import tqdm
 from pyedflib import highlevel
 import pickle
+from pathlib import Path
+import pandas as pd
 
 # Local imports:
 from common import Subject
@@ -13,10 +15,12 @@ with open("config.yml", 'r') as f:
 if config is not None:
     PATH_TO_EDFS = config["paths"]["local"]["edf_directory"]
     PATH_TO_ANNOTATIONS = config["paths"]["local"]["xml_annotations_directory"]
+    PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
     PATH_TO_OUTPUT = config["paths"]["local"]["subject_objects_directory"]
 else:
     PATH_TO_EDFS = "D:\mesa\mesa\polysomnography\edfs"
     PATH_TO_ANNOTATIONS = "G:\\filip\Documents\Data Science Projects\Thesis\mesa\polysomnography\\annotations-events-nsrr"
+    PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.6.0.csv")
     PATH_TO_OUTPUT = os.path.join(os.curdir, "data", "serialized-objects")
 
 edf_dict = {}  # key: subject id. value: path to the edf of the corresponding subject
@@ -49,11 +53,18 @@ for filename in os.listdir(PATH_TO_ANNOTATIONS):
 # df = sub.export_to_dataframe()
 # print(df)
 
+# Load metadata file:
+df = pd.read_csv(PATH_TO_METADATA, sep=',')
+df.set_index(keys="mesaid", drop=False, inplace=True)
+df.index.names = [None]
+
 print("Creating objects from edf files and serializing them as binary files:")
 for subject_id, edf in tqdm(edf_dict.items()):
     sub = Subject(subject_id)
     sub.import_signals_from_edf(edf)
     sub.import_annotations_from_xml(annots_dict[subject_id])
+    sub_dict = df.loc[subject_id, :].to_dict()
+    sub.import_metadata(sub_dict)
 
     path_obj = os.path.join(PATH_TO_OUTPUT, str(subject_id).zfill(4) + ".bin")
     binary_file = open(path_obj, mode='wb')

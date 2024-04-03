@@ -15,14 +15,19 @@ from sklearn.model_selection import train_test_split
 from common import Subject
 from object_loader import all_subjects_generator, get_subject_by_id, get_subjects_by_ids_generator, get_all_ids
 
+SUBSET_ID = 0  # Either int or "config"
+FREQUENCY = 256
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 if config is not None:
-    subset_id = int(config["variables"]["dataset"]["subset"])
+    if SUBSET_ID == "config":
+        subset_id = int(config["variables"]["dataset"]["subset"])
+    else:
+        subset_id = SUBSET_ID
     PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
 else:
-    subset_id = 1
+    subset_id = SUBSET_ID
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
 
 
@@ -39,7 +44,10 @@ def subset_stats(ids: list | None, print_summary=True):
     overlapping_sets = []
     max_duration = 0
     min_duration = 9999999
-
+    ca_durations = []
+    oa_durations = []
+    h_durations = []
+    spo2_durations = []
     max_ca_duration = 0
     min_ca_duration = 999999
     max_oa_duration = 0
@@ -48,6 +56,7 @@ def subset_stats(ids: list | None, print_summary=True):
     min_h_duration = 999999
     max_spo2_duration = 0
     min_spo2_duration = 999999
+    total_normal_duration_estimate = 0
     for id, sub in get_subjects_by_ids_generator(subject_ids=ids, progress_bar=True):
         events = sub.respiratory_events
         n_events += len(events)
@@ -62,24 +71,28 @@ def subset_stats(ids: list | None, print_summary=True):
 
             if concept == "central_apnea":
                 n_central_apnea_events += 1
+                ca_durations.append(duration)
                 if duration > max_ca_duration:
                     max_ca_duration = duration
                 elif duration < min_ca_duration:
                     min_ca_duration = duration
             elif concept == "obstructive_apnea":
                 n_obstructive_apnea_events += 1
+                oa_durations.append(duration)
                 if duration > max_oa_duration:
                     max_oa_duration = duration
                 elif duration < min_oa_duration:
                     min_oa_duration = duration
             elif concept == "hypopnea":
                 n_hypopnea_events += 1
+                h_durations.append(duration)
                 if duration > max_h_duration:
                     max_h_duration = duration
                 elif duration < min_h_duration:
                     min_h_duration = duration
             elif concept == "spo2_desat":
                 n_spo2_events += 1
+                spo2_durations.append(duration)
                 if duration > max_spo2_duration:
                     max_spo2_duration = duration
                 elif duration < min_spo2_duration:
@@ -115,6 +128,9 @@ def subset_stats(ids: list | None, print_summary=True):
             if len(overlaps) > 1:
                 overlapping_sets.append(overlaps)
 
+        df = sub.export_to_dataframe(print_downsampling_details=False)
+        total_normal_duration_estimate += sum(df["event_index"] == 0) * FREQUENCY
+
     set_occurances = {}
     for i in range(len(overlapping_sets)):
         set = sorted(overlapping_sets[i])
@@ -136,16 +152,32 @@ def subset_stats(ids: list | None, print_summary=True):
 
     subset_stats = dict()
     subset_stats["n_events"] = n_events
-    subset_stats["max_event_duration"] = max_duration
+
     subset_stats["min_event_duration"] = min_duration
-    subset_stats["max_central_apnea_duration"] = max_ca_duration
+    subset_stats["max_event_duration"] = max_duration
+
+    subset_stats["total_normal_sleep_duration_estimate"] = total_normal_duration_estimate
+
     subset_stats["min_central_apnea_duration"] = min_ca_duration
-    subset_stats["max_obstructive_apnea_duration"] = max_oa_duration
+    subset_stats["avg_central_apnea_duration"] = sum(ca_durations) / len(ca_durations)
+    subset_stats["max_central_apnea_duration"] = max_ca_duration
+    subset_stats["total_central_apnea_duration"] = sum(ca_durations)
+
     subset_stats["min_obstructive_apnea_duration"] = min_oa_duration
-    subset_stats["max_hyponea_duration"] = max_h_duration
+    subset_stats["avg_obstructive_apnea_duration"] = sum(oa_durations) / len(oa_durations)
+    subset_stats["max_obstructive_apnea_duration"] = max_oa_duration
+    subset_stats["total_obstructive_apnea_duration"] = max_oa_duration
+
     subset_stats["min_hyponea_duration"] = min_h_duration
-    subset_stats["max_spo2_desat_duration"] = max_spo2_duration
+    subset_stats["avg_hyponea_duration"] = sum(h_durations) / len(h_durations)
+    subset_stats["max_hyponea_duration"] = max_h_duration
+    subset_stats["total_hyponea_duration"] = sum(h_durations)
+
     subset_stats["min_spo2_desat_duration"] = min_spo2_duration
+    subset_stats["avg_spo2_desat_duration"] = sum(spo2_durations) / len(spo2_durations)
+    subset_stats["max_spo2_desat_duration"] = max_spo2_duration
+    subset_stats["total_spo2_desat_duration"] = sum(spo2_durations)
+
     subset_stats["n_overlapping_events"] = n_overlapping_events
     subset_stats["n_central_apnea_events"] = n_central_apnea_events
     subset_stats["n_obstructive_apnea_events"] = n_obstructive_apnea_events
@@ -174,39 +206,47 @@ else:
     print(f"Subset-{subset_id} has no ids generated yet")
     exit(1)
 
-stats_dict, set_occurances_dict = subset_stats(ids=best_ids, print_summary=True)
+# stats_dict, set_occurances_dict = subset_stats(ids=best_ids, print_summary=True)
 
-PATH_TO_SUBSET.joinpath("stats").mkdir(exist_ok=True)
+# PATH_TO_SUBSET.joinpath("stats").mkdir(exist_ok=True)
+# with open(PATH_TO_SUBSET.joinpath("stats", 'overlapping_sets_occurances_dict.plk'), 'wb') as fp:
+#     pickle.dump(set_occurances_dict, fp)
+#
+# dataset_stats_df = pd.DataFrame({k: [stats_dict[k]] for k in stats_dict.keys()})
+# set_occurances_df = pd.DataFrame({k: [set_occurances_dict[k]] for k in set_occurances_dict.keys()})
+# dataset_stats_df.to_csv(PATH_TO_SUBSET.joinpath("stats", "subset1_stats.csv"))
+# set_occurances_df.to_csv(PATH_TO_SUBSET.joinpath("stats", "overlapping_sets_occurances.csv"))
 
-with open(PATH_TO_SUBSET.joinpath("stats", 'overlapping_sets_occurances_dict.plk'), 'wb') as fp:
-    pickle.dump(set_occurances_dict, fp)
 
-dataset_stats_df = pd.DataFrame({k: [stats_dict[k]] for k in stats_dict.keys()})
-set_occurances_df = pd.DataFrame({k: [set_occurances_dict[k]] for k in set_occurances_dict.keys()})
-dataset_stats_df.to_csv(PATH_TO_SUBSET.joinpath("stats", "subset1_stats.csv"))
-set_occurances_df.to_csv(PATH_TO_SUBSET.joinpath("stats", "overlapping_sets_occurances.csv"))
-
-event_indices = []
-event_indices_df = []
+normal_events = 0
+ca_events = 0
+oa_events = 0
+h_events = 0
+spo2_events = 0
 for id, sub in get_subjects_by_ids_generator(subject_ids=best_ids, progress_bar=True):
     df = sub.export_to_dataframe(print_downsampling_details=False)
-    events = sub.respiratory_events
 
-    event_indices_df.extend(df["event_index"].tolist())
+    normal_events += sum(df["event_index"] == 0)
+    ca_events += sum(df["event_index"] == 1)
+    oa_events += sum(df["event_index"] == 2)
+    h_events += sum(df["event_index"] == 3)
+    spo2_events += sum(df["event_index"] == 4)
 
-    for event in events:
-        concept = event["concept"]
-        if event["concept"] == "central_apnea":
-            event_indices.append(1)
-        elif event["concept"] == "obstructive_apnea":
-            event_indices.append(2)
-        elif event["concept"] == "hypopnea":
-            event_indices.append(3)
-        elif event["concept"] == "spo2_desat":
-            event_indices.append(4)
+total_events = normal_events + ca_events + oa_events + h_events + spo2_events
 
-subset_1_stats_df = pd.DataFrame()
-subset_1_stats_df["Events"] = pd.Series(event_indices)
-subset_1_stats_df["Events_after_downsampling"] = pd.Series(event_indices_df)
-subset_1_stats_df.to_csv(PATH_TO_SUBSET.joinpath("stats", "subset_1_event_stats.csv"))
-print(subset_1_stats_df.describe())
+subset_series_stats = pd.Series()
+subset_series_stats["normal_events"] = normal_events
+subset_series_stats["central_apnea_events"] = ca_events
+subset_series_stats["obstructive_apnea_events"] = oa_events
+subset_series_stats["hypopnea_events"] = h_events
+subset_series_stats["spo2_events"] = spo2_events
+
+subset_series_stats["total_events"] = total_events
+subset_series_stats["normal_events_ratio"] = normal_events / total_events
+subset_series_stats["central_apnea_events_ratio"] = ca_events / total_events
+subset_series_stats["obstructive_apnea_events_ratio"] = oa_events / total_events
+subset_series_stats["hypopnea_events_ratio"] = h_events / total_events
+subset_series_stats["spo2_events_ratio"] = spo2_events / total_events
+
+subset_series_stats.to_csv(PATH_TO_SUBSET.joinpath("stats", "subset_1_event_series_stats.csv"))
+
