@@ -513,7 +513,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=1000), device=device)
+    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=500), device=device)
     tprs_by_class = {c: [] for c in classes}
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
@@ -737,7 +737,7 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
     epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=True)
     if progress_bar:
         pbar1 = tqdm(total=len(epochs), desc="Epoch checkpoint", leave=True)
-    tmp = False
+
     for e in epochs:
         b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
         metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
@@ -745,9 +745,7 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
 
             net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                              device=device)
-            if tmp:
-                plot_sample_prediction_sequence(model=net, test_dataloader=test_dataloader, device=device, n_batches=10)
-                tmp = False
+
             metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
                                               max_batches=max_batches,
                                               progress_bar=progress_bar, verbose=False)

@@ -18,7 +18,7 @@ from common import Subject
 from object_loader import all_subjects_generator, get_subjects_by_ids_generator, get_subject_by_id
 
 # --- START OF CONSTANTS --- #
-SUBSET_SIZE = 514  # The number of subjects that will remain after screening down the whole dataset
+SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 60  # -> 60 * 32 = 4096
@@ -67,21 +67,21 @@ def get_best_ids():
             # n_central_apnea_events = len(sub.get_events_by_concept("central_apnea"))
             n_central_apnea_events = df["event_index"].apply(lambda e: 1 if e == 1 else 0).sum()
 
-            if n_central_apnea_events == 0:
-                # Exclude subjects who do not have any of the desired events
-                continue
+            # if n_central_apnea_events == 0:
+            #     # Exclude subjects who do not have any of the desired events
+            #     continue
 
             # n_obstructive_apnea_events = len(sub.get_events_by_concept("obstructive_apnea"))
             n_obstructive_apnea_events = df["event_index"].apply(lambda e: 1 if e == 2 else 0).sum()
-            if n_obstructive_apnea_events == 0:
-                # Exclude subjects who do not have any of the desired events
-                continue
+            # if n_obstructive_apnea_events == 0:
+            #     # Exclude subjects who do not have any of the desired events
+            #     continue
 
             # n_hypopnea_events = len(sub.get_events_by_concept("hypopnea"))
             n_hypopnea_events = df["event_index"].apply(lambda e: 1 if e == 3 else 0).sum()
-            if n_hypopnea_events == 0:
-                # Exclude subjects who do not have any of the desired events
-                continue
+            # if n_hypopnea_events == 0:
+            #     # Exclude subjects who do not have any of the desired events
+            #     continue
 
             # Calculate aggregate score based on most important events
             aggregate_score = n_central_apnea_events + n_obstructive_apnea_events + n_hypopnea_events
@@ -121,7 +121,7 @@ def get_best_ids():
             best_ids.extend(top_screened_ids)  # Add the extra ranked subjects
         else:
             print(f"Screened dataset size: {len(id_score_dict.keys())}")
-            # List with top 400 ids:
+            # List with top ids:
             top_screened_ids = sorted(id_score_dict.keys(), key=lambda id: id_score_dict[id], reverse=False)[
                                0:SUBSET_SIZE]
             best_ids = top_screened_ids  # List with top 400 ids
@@ -137,5 +137,5 @@ if __name__ == "__main__":
     PATH_TO_SUBSET.mkdir(exist_ok=True)
     best_ids = get_best_ids()
     print(f"Final subset size: {len(best_ids)}\n")
-    print(best_ids)
+    print(sorted(best_ids))
 

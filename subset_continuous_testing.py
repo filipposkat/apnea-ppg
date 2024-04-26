@@ -45,7 +45,8 @@ if config is not None:
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{TESTING_SUBSET}_continuous_testing_directory" in config["paths"]["local"]:
-        PATH_TO_SUBSET_CONT_TESTING = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_continuous_testing_directory"])
+        PATH_TO_SUBSET_CONT_TESTING = Path(
+            config["paths"]["local"][f"subset_{TESTING_SUBSET}_continuous_testing_directory"])
     else:
         PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
@@ -216,12 +217,11 @@ if __name__ == "__main__":
 
         for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
-
+            subject_arrs_path.mkdir(exist_ok=True)
             # Save metadata
             metadata = sub.metadata
             metadata_df = pd.Series(metadata)
             metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
-            continue
 
             if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
                 continue
@@ -303,7 +303,8 @@ if __name__ == "__main__":
                     saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
                     saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
-            results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
+            results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
+                                                                f"epoch-{EPOCH}")
             if sub_id in train_ids:
                 results_path = results_path.joinpath("validation-subjects")
             else:
@@ -313,7 +314,8 @@ if __name__ == "__main__":
             matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
             matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
                            "predictions": np.array(saved_preds_for_stats),
-                           "labels": np.array(saved_labels_for_stats)}
+                           "labels": np.array(saved_labels_for_stats, dtype="uint8"),
+                           "trained_subject": sub_id in train_ids}
             scipy.io.savemat(matlab_file, matlab_dict)
 
             # plt.figure()
