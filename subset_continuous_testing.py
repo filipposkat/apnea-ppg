@@ -21,7 +21,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 TESTING_SUBSET = 4
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -247,6 +247,18 @@ if __name__ == "__main__":
             exit(1)
 
         for sub_id in tqdm(sub_ids):
+            results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
+                                                                f"epoch-{EPOCH}")
+            if sub_id in train_ids:
+                results_path = results_path.joinpath("validation-subjects")
+            else:
+                results_path = results_path.joinpath("cross-test-subjects")
+
+            results_path.mkdir(parents=True, exist_ok=True)
+            matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
+            if SKIP_EXISTING_IDS and matlab_file.exists():
+                continue
+
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
             X_path = subject_arrs_path.joinpath("X_test.npy")
             y_path = subject_arrs_path.joinpath("y_test.npy")
@@ -303,15 +315,6 @@ if __name__ == "__main__":
                     saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
                     saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
-            results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
-                                                                f"epoch-{EPOCH}")
-            if sub_id in train_ids:
-                results_path = results_path.joinpath("validation-subjects")
-            else:
-                results_path = results_path.joinpath("cross-test-subjects")
-
-            results_path.mkdir(parents=True, exist_ok=True)
-            matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
             matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
                            "predictions": np.array(saved_preds_for_stats),
                            "labels": np.array(saved_labels_for_stats, dtype="uint8"),
