@@ -133,6 +133,8 @@ def get_best_ids():
         best_ids_arr = np.array(best_ids)  # Equivalent array
         path = PATH_TO_SUBSET2.joinpath("ids")
         np.save(str(path), best_ids_arr)
+        path = PATH_TO_SUBSET2.joinpath("ids.csv")
+        best_ids_arr.tofile(str(path), sep=',')
 
     return best_ids.copy()
 

@@ -62,6 +62,8 @@ def get_ids():
         ids_arr = np.array(ids)  # Equivalent array
         path = PATH_TO_SUBSET.joinpath("ids")
         np.save(str(path), ids_arr)
+        path = PATH_TO_SUBSET.joinpath("ids.csv")
+        ids_arr.tofile(str(path), sep=',')
 
     return ids.copy()
 
