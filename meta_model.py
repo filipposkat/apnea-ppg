@@ -57,7 +57,7 @@ else:
 def get_metadata(sub_id: int):
     subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
     metadata_path = subject_arrs_path.joinpath("sub_metadata.csv")
-    metadata_df = pd.read_csv(metadata_path)
+    metadata_df = pd.read_csv(metadata_path, header=None, index_col=0).squeeze()
     return metadata_df
 
 
@@ -146,17 +146,18 @@ if __name__ == "__main__":
         cv_vector = np.divide(std_vector, mean_vector+0.000001)
 
         metadata_df = get_metadata(sub_id)
-        mesaid = metadata_df["mesaid"]
-        gender = metadata_df["gender1"]
-        age = metadata_df["sleepage5c"]
-        race = metadata_df["race1c"]
+
+        mesaid = int(metadata_df["mesaid"])
+        gender = int(metadata_df["gender1"])
+        age = int(metadata_df["sleepage5c"])
+        race = int(metadata_df["race1c"])
 
         # Output stats:
         N = labels.size
         normalized_duration_vector = np.zeros(5)
         for lbl in range(5):
             normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
-        ahi_a0h3a = metadata_df["ahi_a0h3a"]
+        ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
         if ahi_a0h3a < 5:
             # No
             cat = 0

@@ -18,7 +18,7 @@ from object_loader import get_subject_by_id, get_subjects_by_ids_generator
 from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
-TESTING_SUBSET = 4
+TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
 CREATE_ARRAYS = False
