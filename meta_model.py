@@ -8,9 +8,6 @@ import yaml
 import pandas as pd
 import matplotlib.pyplot as plt
 import random
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-import torch.nn.functional as F
 from xgboost import XGBRegressor
 
 # Local imports:
@@ -41,6 +38,7 @@ if config is not None:
             config["paths"]["local"][f"subset_{SUBSET}_continuous_testing_directory"])
     else:
         PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
+    PATH_TO_META_MODEL = Path(config["paths"]["local"][f"meta_model_directory"])
     MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
@@ -50,6 +48,7 @@ else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
+    PATH_TO_META_MODEL = PATH_TO_SUBSET.joinpath("meta-model")
     MODELS_PATH = Path(config["paths"]["local"][f"subset_1_saved_models_directory"])
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
@@ -63,19 +62,22 @@ def get_metadata(sub_id: int):
     metadata_df = pd.read_csv(metadata_path)
     return metadata_df
 
-def get_probabilities(sub_id: int):
+
+def get_predictions(sub_id: int) -> dict:
     results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                         f"epoch-{EPOCH}")
     if sub_id in train_ids:
         results_path = results_path.joinpath("validation-subjects")
     else:
         results_path = results_path.joinpath("cross-test-subjects")
+    matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
 
-    metadata_path = subject_arrs_path.joinpath("sub_metadata.csv")
-    metadata_df = pd.read_csv(metadata_path)
-    return metadata_df
+    matlab_dict = scipy.io.loadmat(str(matlab_file))
+    return matlab_dict
+
 
 if __name__ == "__main__":
+    PATH_TO_META_MODEL.mkdir(exist_ok=True)
     path = PATH_TO_SUBSET.joinpath("ids.npy")
     rng = random.Random(SEED)
     if path.is_file():
@@ -109,94 +111,83 @@ if __name__ == "__main__":
     meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
     meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
 
-    for sub_id in meta_ids:
+    train_data_list = []
+    test_data_list = []
+    columns = ["gender", "age", "race"]
+    for l in range(5):
+        columns.append(f"mean_proba_l{l}")
+        columns.append(f"std_proba_l{l}")
+        columns.append(f"skewness_proba_l{l}")
+        columns.append(f"kurtosis_proba_l{l}")
+        columns.append(f"q1_proba_l{l}")
+        columns.append(f"median_proba_l{l}")
+        columns.append(f"q3_proba_l{l}")
+        columns.append(f"cv_proba_l{l}")
 
-    for sub_id in tqdm(sub_ids):
-        subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
-        X_path = subject_arrs_path.joinpath("X_test.npy")
-        y_path = subject_arrs_path.joinpath("y_test.npy")
+    columns.extend(["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
+                    "ahi_a0h3a", "ahi_category"])
+    for sub_id in tqdm(meta_ids):
+        test = sub_id in meta_test_ids
 
-        X_test_arr = np.load(str(X_path)).astype("float32")
-        y_test_arr = np.load(str(y_path)).astype("uint8")
+        matlab_dict = get_predictions(sub_id)
+        preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
+        preds: np.ndarray = matlab_dict["predictions"]
+        labels: np.ndarray = matlab_dict["labels"]
 
-        X_test_arr = np.swapaxes(X_test_arr, axis1=1, axis2=2)
+        # Input stats:
+        mean_vector = preds_proba.mean(axis=0, keepdims=False)
+        std_vector = preds_proba.std(axis=0, keepdims=False)
+        skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
+        kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
+        first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
+        median_vector = np.percentile(preds_proba, q=50, axis=0, keepdims=False)
+        third_quartile_vector = np.percentile(preds_proba, q=75, axis=0, keepdims=False)
+        cv_vector = np.divide(std_vector, mean_vector+0.000001)
 
-        # Convert to tensors:
-        X_test = torch.tensor(X_test_arr)
-        y_test = torch.tensor(y_test_arr)
+        metadata_df = get_metadata(sub_id)
+        gender = metadata_df["gender1"]
+        age = metadata_df["sleepage5c"]
+        race = metadata_df["race1c"]
 
-        # Testing
-        dataset = TensorDataset(X_test, y_test)
-        loader = DataLoader(dataset=dataset, batch_size=8192, shuffle=False)
-
-        if torch.cuda.is_available():
-            test_device = torch.device("cuda:0")
-        elif torch.backends.mps.is_available():
-            test_device = torch.device("mps")
+        # Output stats:
+        N = labels.size
+        normalized_duration_vector = np.zeros(5)
+        for lbl in range(5):
+            normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
+        ahi_a0h3a = metadata_df["ahi_a0h3a"]
+        if ahi_a0h3a < 5:
+            # No
+            cat = 0
+        elif ahi_a0h3a < 15:
+            # Mild
+            cat = 1
+        elif ahi_a0h3a < 30:
+            # Moderate
+            cat = 2
         else:
-            test_device = torch.device("cpu")
+            # Severe
+            cat = 3
 
-        if EPOCH is None or EPOCH == "last":
-            EPOCH = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
-        batch = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=EPOCH)
-        net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=EPOCH,
-                                                         batch=batch,
-                                                         device=str(test_device))
-        # Switch to eval mode:
-        net.eval()
-        net = net.to(test_device)
-        saved_probs_for_stats = []
-        saved_preds_for_stats = []
-        saved_labels_for_stats = []
-        with torch.no_grad():
-            for (batch_i, data) in enumerate(loader):
-                # get the inputs; data is a list of [inputs, labels]
-                batch_inputs, batch_labels = data
+        tmp_list = [gender, age, race]
+        for l in range(5):
+            tmp_list.append(mean_vector[l])
+            tmp_list.append(std_vector[l])
+            tmp_list.append(skewness_vector[l])
+            tmp_list.append(kurtosis_vector[l])
+            tmp_list.append(first_quartile_vector[l])
+            tmp_list.append(median_vector[l])
+            tmp_list.append(third_quartile_vector[l])
+            tmp_list.append(cv_vector[l])
 
-                # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
-                batch_labels = batch_labels.type(torch.int64)
-
-                batch_inputs = batch_inputs.to(test_device)
-                batch_labels = batch_labels.to(test_device)
-
-                # Predictions:
-                batch_outputs = net(batch_inputs)
-                batch_output_probs = F.softmax(batch_outputs, dim=1)
-                _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
-
-                saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
-                saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
-                saved_labels_for_stats.extend(batch_labels.ravel().tolist())
-
-        results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
-                                                            f"epoch-{EPOCH}")
-        if sub_id in train_ids:
-            results_path = results_path.joinpath("validation-subjects")
+        tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
+        tmp_list.append(ahi_a0h3a)
+        tmp_list.append(cat)
+        if test:
+            test_data_list.append(tmp_list)
         else:
-            results_path = results_path.joinpath("cross-test-subjects")
+            train_data_list.append(tmp_list)
 
-        results_path.mkdir(parents=True, exist_ok=True)
-        matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
-        matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
-                       "predictions": np.array(saved_preds_for_stats),
-                       "labels": np.array(saved_labels_for_stats, dtype="uint8"),
-                       "trained_subject": sub_id in train_ids}
-        scipy.io.savemat(matlab_file, matlab_dict)
-
-        # plt.figure()
-        # plt.scatter(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions", s=0.1)
-        # plt.scatter(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels", s=0.1)
-        # plt.title(f"Continuous Prediction for f{sub_id}")
-        # plt.legend(loc='upper right')
-        # plt.ylabel("Class label")
-        # plt.xlabel("Sample i")
-        # plt.show()
-        # plt.figure()
-        # plt.plot(list(range(len(saved_preds_for_stats))), saved_preds_for_stats, label="Predictions")
-        # plt.plot(list(range(len(saved_labels_for_stats))), saved_labels_for_stats, label="True labels")
-        # plt.title(f"Continuous Prediction for f{sub_id}")
-        # plt.legend(loc='upper right')
-        # plt.ylabel("Class label")
-        # plt.xlabel("Sample i")
-        # plt.show()
-        # plt.close()
+    meta_train_df = pd.DataFrame(data=train_data_list, columns=columns)
+    meta_train_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_train_df.csv"))
+    meta_test_df = pd.DataFrame(data=test_data_list, columns=columns)
+    meta_test_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"))
