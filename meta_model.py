@@ -31,6 +31,10 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+    if "subset_0_directory" in config["paths"]["local"]:
+        PATH_TO_SUBSET0 = Path(config["paths"]["local"]["subset_0_directory"])
+    else:
+        PATH_TO_SUBSET0 = None
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{SUBSET}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{SUBSET}_continuous_testing_directory" in config["paths"]["local"]:
@@ -44,6 +48,7 @@ if config is not None:
 else:
     subset_id = 1
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
+    PATH_TO_SUBSET0 = None
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
@@ -55,6 +60,15 @@ else:
 # --- END OF CONSTANTS --- #
 
 def get_metadata(sub_id: int):
+    # Check if it exists in dataset-all
+    if PATH_TO_SUBSET0 is not None:
+        subject_arrs_path = PATH_TO_SUBSET0.joinpath("cont-test-arrays", str(sub_id).zfill(4))
+        metadata_path = subject_arrs_path.joinpath("sub_metadata.csv")
+        if metadata_path.exists():
+            metadata_df = pd.read_csv(metadata_path, header=None, index_col=0).squeeze()
+            return metadata_df
+
+    # Search in subset
     subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
     metadata_path = subject_arrs_path.joinpath("sub_metadata.csv")
     metadata_df = pd.read_csv(metadata_path, header=None, index_col=0).squeeze()
@@ -62,6 +76,20 @@ def get_metadata(sub_id: int):
 
 
 def get_predictions(sub_id: int) -> dict:
+    # Check if it exists in dataset-all
+    if PATH_TO_SUBSET0 is not None:
+        results_path = PATH_TO_SUBSET0.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
+                                                            f"epoch-{EPOCH}")
+        if sub_id in train_ids:
+            results_path = results_path.joinpath("validation-subjects")
+        else:
+            results_path = results_path.joinpath("cross-test-subjects")
+        matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
+        if matlab_file.exists():
+            matlab_dict = scipy.io.loadmat(str(matlab_file))
+            return matlab_dict
+
+    # Search in subset
     results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                         f"epoch-{EPOCH}")
     if sub_id in train_ids:
