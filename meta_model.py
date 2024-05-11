@@ -103,7 +103,7 @@ def get_predictions(sub_id: int) -> dict:
 
 
 if __name__ == "__main__":
-    PATH_TO_META_MODEL = PATH_TO_SUBSET.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
+    PATH_TO_META_MODEL = PATH_TO_SUBSET_CONT_TESTING.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
                                                  str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
     PATH_TO_META_MODEL.mkdir(exist_ok=True, parents=True)
 
@@ -156,6 +156,7 @@ if __name__ == "__main__":
     columns.extend(["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
                     "ahi_a0h3a", "ahi_category"])
     for sub_id in tqdm(meta_ids):
+        # print(sub_id)
         test = sub_id in meta_test_ids
 
         matlab_dict = get_predictions(sub_id)
