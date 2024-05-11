@@ -8,16 +8,16 @@ import yaml
 import pandas as pd
 import matplotlib.pyplot as plt
 import random
-from xgboost import XGBRegressor
+# from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
 
 # Local imports:
 from common import Subject
-from object_loader import get_subject_by_id, get_subjects_by_ids_generator
-from trainer import load_checkpoint, get_last_batch, get_last_epoch
 
 # --- START OF CONSTANTS --- #
 SUBSET = 0
 EPOCH = 32
+CREATE_DATA = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -42,7 +42,6 @@ if config is not None:
             config["paths"]["local"][f"subset_{SUBSET}_continuous_testing_directory"])
     else:
         PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
-    MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
@@ -52,7 +51,6 @@ else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
-    MODELS_PATH = Path(config["paths"]["local"][f"subset_1_saved_models_directory"])
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
 
@@ -79,7 +77,7 @@ def get_predictions(sub_id: int) -> dict:
     # Check if it exists in dataset-all
     if PATH_TO_SUBSET0 is not None:
         results_path = PATH_TO_SUBSET0.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
-                                                            f"epoch-{EPOCH}")
+                                                f"epoch-{EPOCH}")
         if sub_id in train_ids:
             results_path = results_path.joinpath("validation-subjects")
         else:
@@ -104,7 +102,7 @@ def get_predictions(sub_id: int) -> dict:
 
 if __name__ == "__main__":
     PATH_TO_META_MODEL = PATH_TO_SUBSET_CONT_TESTING.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
-                                                 str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
+                                                              str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
     PATH_TO_META_MODEL.mkdir(exist_ok=True, parents=True)
 
     path = PATH_TO_SUBSET.joinpath("ids.npy")
@@ -137,89 +135,99 @@ if __name__ == "__main__":
 
     ids_ex_train = [id for id in ids if id not in train_ids]
     meta_ids = ids_ex_train
-    meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
-    meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
+    # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
+    # meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
 
-    train_data_list = []
-    test_data_list = []
-    columns = ["mesaid", "gender", "age", "race"]
-    for l in range(5):
-        columns.append(f"mean_proba_l{l}")
-        columns.append(f"std_proba_l{l}")
-        columns.append(f"skewness_proba_l{l}")
-        columns.append(f"kurtosis_proba_l{l}")
-        columns.append(f"q1_proba_l{l}")
-        columns.append(f"median_proba_l{l}")
-        columns.append(f"q3_proba_l{l}")
-        columns.append(f"cv_proba_l{l}")
-
-    columns.extend(["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
-                    "ahi_a0h3a", "ahi_category"])
-    for sub_id in tqdm(meta_ids):
-        # print(sub_id)
-        test = sub_id in meta_test_ids
-
-        matlab_dict = get_predictions(sub_id)
-        preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
-        preds: np.ndarray = matlab_dict["predictions"]
-        labels: np.ndarray = matlab_dict["labels"]
-
-        # Input stats:
-        mean_vector = preds_proba.mean(axis=0, keepdims=False)
-        std_vector = preds_proba.std(axis=0, keepdims=False)
-        skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
-        kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
-        first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
-        median_vector = np.percentile(preds_proba, q=50, axis=0, keepdims=False)
-        third_quartile_vector = np.percentile(preds_proba, q=75, axis=0, keepdims=False)
-        cv_vector = np.divide(std_vector, mean_vector+0.000001)
-
-        metadata_df = get_metadata(sub_id)
-
-        mesaid = int(metadata_df["mesaid"])
-        gender = int(metadata_df["gender1"])
-        age = int(metadata_df["sleepage5c"])
-        race = int(metadata_df["race1c"])
-
-        # Output stats:
-        N = labels.size
-        normalized_duration_vector = np.zeros(5)
-        for lbl in range(5):
-            normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
-        ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
-        if ahi_a0h3a < 5:
-            # No
-            cat = 0
-        elif ahi_a0h3a < 15:
-            # Mild
-            cat = 1
-        elif ahi_a0h3a < 30:
-            # Moderate
-            cat = 2
-        else:
-            # Severe
-            cat = 3
-
-        tmp_list = [mesaid, gender, age, race]
+    if CREATE_DATA:
+        mesaids = []
+        data_list = []
+        columns = ["gender", "age", "race"]
         for l in range(5):
-            tmp_list.append(mean_vector[l])
-            tmp_list.append(std_vector[l])
-            tmp_list.append(skewness_vector[l])
-            tmp_list.append(kurtosis_vector[l])
-            tmp_list.append(first_quartile_vector[l])
-            tmp_list.append(median_vector[l])
-            tmp_list.append(third_quartile_vector[l])
-            tmp_list.append(cv_vector[l])
+            columns.append(f"mean_proba_l{l}")
+            columns.append(f"std_proba_l{l}")
+            columns.append(f"skewness_proba_l{l}")
+            columns.append(f"kurtosis_proba_l{l}")
+            columns.append(f"q1_proba_l{l}")
+            columns.append(f"median_proba_l{l}")
+            columns.append(f"q3_proba_l{l}")
+            columns.append(f"cv_proba_l{l}")
 
-        tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
-        tmp_list.append(ahi_a0h3a)
-        tmp_list.append(cat)
-        if test:
-            test_data_list.append(tmp_list)
-        else:
-            train_data_list.append(tmp_list)
+        columns.extend(
+            ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
+             "ahi_a0h3a", "ahi_category"])
+        for sub_id in tqdm(meta_ids):
+            # print(sub_id)
 
-    meta_train_df = pd.DataFrame(data=train_data_list, columns=columns)
-    meta_train_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_train_df.csv"))
-    meta_test_df = pd.DataFrame(data=test_data_list, columns=columns)
-    meta_test_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"))
+            matlab_dict = get_predictions(sub_id)
+            preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
+            preds: np.ndarray = matlab_dict["predictions"]
+            labels: np.ndarray = matlab_dict["labels"]
+
+            # Input stats:
+            mean_vector = preds_proba.mean(axis=0, keepdims=False)
+            std_vector = preds_proba.std(axis=0, keepdims=False)
+            skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
+            kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
+            first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
+            median_vector = np.percentile(preds_proba, q=50, axis=0, keepdims=False)
+            third_quartile_vector = np.percentile(preds_proba, q=75, axis=0, keepdims=False)
+            cv_vector = np.divide(std_vector, mean_vector + 0.000001)
+
+            metadata_df = get_metadata(sub_id)
+
+            mesaid = int(metadata_df["mesaid"])
+            gender = int(metadata_df["gender1"])
+            age = int(metadata_df["sleepage5c"])
+            race = int(metadata_df["race1c"])
+
+            # Output stats:
+            N = labels.size
+            normalized_duration_vector = np.zeros(5)
+            for lbl in range(5):
+                normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
+            ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
+            if ahi_a0h3a < 5:
+                # No
+                cat = 0
+            elif ahi_a0h3a < 15:
+                # Mild
+                cat = 1
+            elif ahi_a0h3a < 30:
+                # Moderate
+                cat = 2
+            else:
+                # Severe
+                cat = 3
+
+            tmp_list = [gender, age, race]
+            for l in range(5):
+                tmp_list.append(mean_vector[l])
+                tmp_list.append(std_vector[l])
+                tmp_list.append(skewness_vector[l])
+                tmp_list.append(kurtosis_vector[l])
+                tmp_list.append(first_quartile_vector[l])
+                tmp_list.append(median_vector[l])
+                tmp_list.append(third_quartile_vector[l])
+                tmp_list.append(cv_vector[l])
+
+            tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
+            tmp_list.append(ahi_a0h3a)
+            tmp_list.append(cat)
+
+            mesaids.append(mesaid)
+            data_list.append(tmp_list)
+
+        meta_df = pd.DataFrame(data=data_list, columns=columns, index=mesaids)
+        meta_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_df.csv"))
+        # meta_train_df = pd.DataFrame(data=train_data_list, columns=columns)
+        # meta_train_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_train_df.csv"))
+        # meta_test_df = pd.DataFrame(data=test_data_list, columns=columns)
+        # meta_test_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"))
+    else:
+        meta_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_df.csv"), index_col=0)
+        # meta_train_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_train_df.csv"), index_col=0)
+        # meta_test_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"), index_col=0)
+        meta_train_df, meta_test_df = train_test_split(meta_df, test_size=TEST_SIZE, random_state=33,
+                                                       shuffle=True, stratify=meta_df["ahi_category"])
+        print(meta_train_df.describe())
+        print(meta_test_df.describe())

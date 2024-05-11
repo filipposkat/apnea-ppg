@@ -18,7 +18,8 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
-    PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
+    if "subject_metadata_file" in config["paths"]["local"]:
+        PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
     PATH_TO_ANNOTATIONS = Path(config["paths"]["local"]["xml_annotations_directory"])
     PATH_TO_OUTPUT = Path(config["paths"]["local"]["csv_directory"])
 else:
