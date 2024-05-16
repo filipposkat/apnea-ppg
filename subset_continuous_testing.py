@@ -21,7 +21,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = True
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals

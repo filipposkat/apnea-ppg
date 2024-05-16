@@ -40,7 +40,7 @@ if length(a) < length(ids)
     disp("Warning: cont-test-results in the testing subset directory is incomplete ");
 end   
 WINDOWS_SIZE_MIN=60;
-LABEL = 0;
+LABEL = 2;
 FREQ = 32;
 
 filt_sz=WINDOWS_SIZE_MIN*FREQ*60;

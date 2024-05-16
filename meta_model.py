@@ -10,20 +10,20 @@ import matplotlib.pyplot as plt
 import random
 # from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
-
+from scipy.fft import rfft, rfftfreq
 # Local imports:
 from common import Subject
 
 # --- START OF CONSTANTS --- #
 SUBSET = 0
 EPOCH = 32
-CREATE_DATA = False
+CREATE_DATA = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 TEST_SIZE = 0.25
 SEED = 33
-
+FOURIER_COMPONENTS = 100
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
 
 with open("config.yml", 'r') as f:
@@ -37,6 +37,11 @@ if config is not None:
         PATH_TO_SUBSET0 = None
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{SUBSET}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
+    if f"subset_0_continuous_testing_directory" in config["paths"]["local"]:
+        PATH_TO_SUBSET0_CONT_TESTING = Path(
+            config["paths"]["local"][f"subset_0_continuous_testing_directory"])
+    else:
+        PATH_TO_SUBSET0_CONT_TESTING = PATH_TO_SUBSET0
     if f"subset_{SUBSET}_continuous_testing_directory" in config["paths"]["local"]:
         PATH_TO_SUBSET_CONT_TESTING = Path(
             config["paths"]["local"][f"subset_{SUBSET}_continuous_testing_directory"])
@@ -49,6 +54,7 @@ else:
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET0 = None
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET0_CONT_TESTING = PATH_TO_SUBSET0
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
     NET_TYPE = "UResIncNet"
@@ -59,8 +65,8 @@ else:
 
 def get_metadata(sub_id: int):
     # Check if it exists in dataset-all
-    if PATH_TO_SUBSET0 is not None:
-        subject_arrs_path = PATH_TO_SUBSET0.joinpath("cont-test-arrays", str(sub_id).zfill(4))
+    if PATH_TO_SUBSET0_CONT_TESTING is not None:
+        subject_arrs_path = PATH_TO_SUBSET0_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
         metadata_path = subject_arrs_path.joinpath("sub_metadata.csv")
         if metadata_path.exists():
             metadata_df = pd.read_csv(metadata_path, header=None, index_col=0).squeeze()
@@ -75,8 +81,8 @@ def get_metadata(sub_id: int):
 
 def get_predictions(sub_id: int) -> dict:
     # Check if it exists in dataset-all
-    if PATH_TO_SUBSET0 is not None:
-        results_path = PATH_TO_SUBSET0.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
+    if PATH_TO_SUBSET0_CONT_TESTING is not None:
+        results_path = PATH_TO_SUBSET0_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                 f"epoch-{EPOCH}")
         if sub_id in train_ids:
             results_path = results_path.joinpath("validation-subjects")
@@ -137,7 +143,7 @@ if __name__ == "__main__":
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
     # meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
-
+    print()
     if CREATE_DATA:
         mesaids = []
         data_list = []
@@ -151,19 +157,31 @@ if __name__ == "__main__":
             columns.append(f"median_proba_l{l}")
             columns.append(f"q3_proba_l{l}")
             columns.append(f"cv_proba_l{l}")
+            for f in range(FOURIER_COMPONENTS):
+                columns.append(f"l{l}_f{f}")
 
         columns.extend(
             ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
              "ahi_a0h3a", "ahi_category"])
         for sub_id in tqdm(meta_ids):
-            # print(sub_id)
 
             matlab_dict = get_predictions(sub_id)
             preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
             preds: np.ndarray = matlab_dict["predictions"]
             labels: np.ndarray = matlab_dict["labels"]
 
+            # plt.figure()
+            # plt.plot(np.arange(0, preds_proba.shape[0]), preds_proba[:, 2].ravel())
+            # plt.show()
+            # exit()
+
             # Input stats:
+            preds_proba_f_dict = {f"probas_l{i}_f": np.abs(rfft(preds_proba[:, i].ravel())) for i in range(5)}
+            xf = rfftfreq(preds_proba.shape[0], 1 / SIGNALS_FREQUENCY)
+            # plt.figure()
+            # plt.plot(xf, np.abs(preds_proba_f_dict["probas_l2_f"]))
+            # plt.show()
+
             mean_vector = preds_proba.mean(axis=0, keepdims=False)
             std_vector = preds_proba.std(axis=0, keepdims=False)
             skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
@@ -209,6 +227,8 @@ if __name__ == "__main__":
                 tmp_list.append(median_vector[l])
                 tmp_list.append(third_quartile_vector[l])
                 tmp_list.append(cv_vector[l])
+                for f in range(FOURIER_COMPONENTS):
+                    tmp_list.append(preds_proba_f_dict[f"probas_l{l}_f"][f])
 
             tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
             tmp_list.append(ahi_a0h3a)
