@@ -35,7 +35,8 @@ LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
-TEST_MODEL = False
+CROSS_SUBJECT_TESTING = True
+TEST_MODEL = True
 OVERWRITE_METRICS = False
 
 with open("config.yml", 'r') as f:
@@ -78,7 +79,11 @@ def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
         fig, axs = plt.subplots(3, 2, figsize=(15, 15))
         axs = axs.ravel()
 
-        plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
+        if cross_subject:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                             f"batch-{batch}-cross_test_roc.png")
+        else:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_roc.png")
         for c, class_name in enumerate(roc_info_by_class.keys()):
             average_fpr = roc_info_by_class[class_name]["average_fpr"]
             average_tpr = roc_info_by_class[class_name]["average_tpr"]
@@ -513,7 +518,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
 
     # prepare to count predictions for each class
     classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=500), device=device)
+    thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
     tprs_by_class = {c: [] for c in classes}
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
@@ -686,7 +691,6 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     return metrics, cm.tolist(), roc_info_by_class
 
 
-
 def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,
                          max_batches=MAX_BATCHES, progress_bar=True):
     if LOAD_FROM_BATCH > 0:
@@ -727,7 +731,7 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
 
 
 def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,
-                    max_batches=MAX_BATCHES, progress_bar=True):
+                    cross_subject=False, max_batches=MAX_BATCHES, progress_bar=True):
     if LOAD_FROM_BATCH > 0:
         print("WARNING: Loading from test batch other than the first (0) is not supported by test_all_epochs! "
               "Setting it to 0")
@@ -740,9 +744,8 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
 
     for e in epochs:
         b = get_last_batch(net_type=net_type, identifier=identifier, epoch=e)
-        metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+        metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b, cross_subject=cross_subject)
         if metrics is None or OVERWRITE_METRICS:
-
             net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                              device=device)
 
@@ -751,10 +754,11 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
                                               progress_bar=progress_bar, verbose=False)
 
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
-                         batch=b)
+                         batch=b, cross_subject=cross_subject)
             save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
-                                  batch=b)
-            save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
+                                  batch=b, cross_subject=cross_subject)
+            save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True,
+                      cross_subject=cross_subject)
         if progress_bar:
             pbar1.update(1)
     if progress_bar:
@@ -792,10 +796,14 @@ if __name__ == "__main__":
         test_device = torch.device("mps")
     else:
         test_device = torch.device("cpu")
-
-    test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
-                                              pre_fetch=PRE_FETCH,
-                                              shuffle=False)
+    if CROSS_SUBJECT_TESTING:
+        test_loader = get_pre_batched_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+                                                            pre_fetch=PRE_FETCH,
+                                                            shuffle=False)
+    else:
+        test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+                                                  pre_fetch=PRE_FETCH,
+                                                  shuffle=False)
     if TEST_MODEL:
         print(f"Device: {test_device}")
         print(NET_TYPE)
@@ -806,7 +814,7 @@ if __name__ == "__main__":
         # test_all_checkpoints(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader,
         # device=test_device, max_batches=MAX_BATCHES, progress_bar=True)
         test_all_epochs(net_type=NET_TYPE, identifier=IDENTIFIER, test_dataloader=test_loader, device=test_device,
-                        max_batches=MAX_BATCHES, progress_bar=True)
+                        max_batches=MAX_BATCHES, progress_bar=True, cross_subject=CROSS_SUBJECT_TESTING)
 
     # e = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     # b = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=e)

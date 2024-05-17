@@ -23,6 +23,7 @@ WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 TEST_SIZE = 0.25
 SEED = 33
+COMPUTE_FOURIER_TRANSFORM = False
 FOURIER_COMPONENTS = 100
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
 
@@ -157,8 +158,9 @@ if __name__ == "__main__":
             columns.append(f"median_proba_l{l}")
             columns.append(f"q3_proba_l{l}")
             columns.append(f"cv_proba_l{l}")
-            for f in range(FOURIER_COMPONENTS):
-                columns.append(f"l{l}_f{f}")
+            if COMPUTE_FOURIER_TRANSFORM:
+                for f in range(FOURIER_COMPONENTS):
+                    columns.append(f"l{l}_f{f}")
 
         columns.extend(
             ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
@@ -170,17 +172,31 @@ if __name__ == "__main__":
             preds: np.ndarray = matlab_dict["predictions"]
             labels: np.ndarray = matlab_dict["labels"]
 
+
+            # def moving_average(a, n=SIGNALS_FREQUENCY*60):
+            #     ret = np.cumsum(a, dtype=float)
+            #     ret[n:] = ret[n:] - ret[:-n]
+            #     return ret[n - 1:] / n
+            #
+            # preds_proba_ma = moving_average(preds_proba[:, 2].ravel())
+            # label = labels == 2
+            # labels_ma = moving_average(label)
             # plt.figure()
-            # plt.plot(np.arange(0, preds_proba.shape[0]), preds_proba[:, 2].ravel())
+            # plt.plot(np.arange(0, preds_proba_ma.shape[0]), preds_proba_ma, label="Predicted probability MA")
+            # plt.plot(np.arange(0, labels_ma.shape[0]), labels_ma, label="Ground truth label MA")
+            # plt.legend()
             # plt.show()
             # exit()
 
             # Input stats:
-            preds_proba_f_dict = {f"probas_l{i}_f": np.abs(rfft(preds_proba[:, i].ravel())) for i in range(5)}
-            xf = rfftfreq(preds_proba.shape[0], 1 / SIGNALS_FREQUENCY)
-            # plt.figure()
-            # plt.plot(xf, np.abs(preds_proba_f_dict["probas_l2_f"]))
-            # plt.show()
+            if COMPUTE_FOURIER_TRANSFORM:
+                preds_proba_f_dict = {f"probas_l{i}_f": np.abs(rfft(preds_proba[:, i].ravel())) for i in range(5)}
+                xf = rfftfreq(preds_proba.shape[0], 1 / SIGNALS_FREQUENCY)
+                # plt.figure()
+                # plt.plot(xf, np.abs(preds_proba_f_dict["probas_l2_f"]))
+                # plt.show()
+            else:
+                preds_proba_f_dict = None
 
             mean_vector = preds_proba.mean(axis=0, keepdims=False)
             std_vector = preds_proba.std(axis=0, keepdims=False)
@@ -227,8 +243,9 @@ if __name__ == "__main__":
                 tmp_list.append(median_vector[l])
                 tmp_list.append(third_quartile_vector[l])
                 tmp_list.append(cv_vector[l])
-                for f in range(FOURIER_COMPONENTS):
-                    tmp_list.append(preds_proba_f_dict[f"probas_l{l}_f"][f])
+                if COMPUTE_FOURIER_TRANSFORM:
+                    for f in range(FOURIER_COMPONENTS):
+                        tmp_list.append(preds_proba_f_dict[f"probas_l{l}_f"][f])
 
             tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
             tmp_list.append(ahi_a0h3a)
