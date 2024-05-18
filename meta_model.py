@@ -148,7 +148,7 @@ if __name__ == "__main__":
     if CREATE_DATA:
         mesaids = []
         data_list = []
-        columns = ["gender", "age", "race"]
+        columns = ["gender", "age", "race", "height", "weight", "bmi", "current_smoker", "ever_smoker"]
         for l in range(5):
             columns.append(f"mean_proba_l{l}")
             columns.append(f"std_proba_l{l}")
@@ -213,6 +213,17 @@ if __name__ == "__main__":
             gender = int(metadata_df["gender1"])
             age = int(metadata_df["sleepage5c"])
             race = int(metadata_df["race1c"])
+            # "current_smoker", "ever_smoker"
+            height = float(metadata_df["htcm5"])
+            weight = float(metadata_df["wtlb5"]) * 0.45359237  # lb to kg
+            bmi = float(metadata_df["nssr_bmi"])
+            current_smoker = int(metadata_df["cursmk5"])  # Smoked cigarettes last 30 days ?
+            ever_smoker = int(metadata_df["smkstat5"])
+            # 0: Never smoked
+            # 1: Former smoker quit more than 1 year ago
+            # 2: Former smoker quit less than 1 year ago
+            # 3: Current smoker
+            # 4: Do not know
 
             # Output stats:
             N = labels.size
@@ -233,7 +244,7 @@ if __name__ == "__main__":
                 # Severe
                 cat = 3
 
-            tmp_list = [gender, age, race]
+            tmp_list = [gender, age, race, height, weight, bmi, current_smoker, ever_smoker]
             for l in range(5):
                 tmp_list.append(mean_vector[l])
                 tmp_list.append(std_vector[l])

@@ -11,7 +11,7 @@ from common import Subject
 
 # --- START OF CONSTANTS --- #
 RELOAD_ANNOTATIONS = False
-RELOAD_METADATA = False
+RELOAD_METADATA = True
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -20,11 +20,13 @@ if config is not None:
     PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     if "subject_metadata_file" in config["paths"]["local"]:
         PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
+        PATH_TO_METADATA_NSSR = Path(config["paths"]["local"]["subject_metadata_nssr_file"])
     PATH_TO_ANNOTATIONS = Path(config["paths"]["local"]["xml_annotations_directory"])
     PATH_TO_OUTPUT = Path(config["paths"]["local"]["csv_directory"])
 else:
     PATH_TO_OBJECTS = Path.cwd().joinpath("data", "serialized-objects")
-    PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.6.0.csv")
+    PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.7.0.csv")
+    PATH_TO_METADATA_NSSR = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-harmonized-dataset-0.7.0.csv")
     PATH_TO_ANNOTATIONS = Path.cwd().joinpath("data", "mesa", "polysomnography", "annotations-events-nsrr")
     PATH_TO_OUTPUT = Path.cwd().joinpath("data", "csvs")
 
@@ -219,6 +221,14 @@ if __name__ == "__main__":
         df = pd.read_csv(PATH_TO_METADATA, sep=',')
         df.set_index(keys="mesaid", drop=False, inplace=True)
         df.index.names = [None]
+
+        if PATH_TO_METADATA_NSSR is not None:
+            df_nssr = pd.read_csv(PATH_TO_METADATA_NSSR, sep=',')
+            df_nssr.set_index(keys="mesaid", drop=False, inplace=True)
+            df_nssr.index.names = [None]
+            df_nssr.drop(["mesaid", "examnumber"], axis=1, inplace=True)
+            df = pd.concat([df, df_nssr], axis=1, verify_integrity=True)
+
         for subject_id, sub in all_subjects_generator(progress_bar=True):
             sub_dict = df.loc[subject_id, :].to_dict()
             sub.import_metadata(sub_dict)
