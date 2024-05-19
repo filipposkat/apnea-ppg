@@ -21,7 +21,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 32
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = True
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -185,8 +185,8 @@ if __name__ == "__main__":
 
     path = PATH_TO_SUBSET.joinpath("ids.npy")
     if path.is_file():
-        best_ids_arr = np.load(str(path))  # array to save the best subject ids
-        best_ids = best_ids_arr.tolist()  # equivalent list
+        subset_ids_arr = np.load(str(path))  # array to save the best subject ids
+        subset_ids = subset_ids_arr.tolist()  # equivalent list
     else:
         print(f"Subset-{subset_id} has no ids generated yet")
         exit(1)
@@ -213,11 +213,12 @@ if __name__ == "__main__":
         random.seed(SEED)  # Set the seed
         PATH_TO_SUBSET_CONT_TESTING.mkdir(exist_ok=True)
         PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays").mkdir(exist_ok=True)
-        print(best_ids)
+        print(subset_ids)
 
-        for (id, sub) in get_subjects_by_ids_generator(best_ids, progress_bar=True):
+        for (id, sub) in get_subjects_by_ids_generator(subset_ids, progress_bar=True):
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
             subject_arrs_path.mkdir(exist_ok=True)
+
             # Save metadata
             metadata = sub.metadata
             metadata_df = pd.Series(metadata)
@@ -238,7 +239,7 @@ if __name__ == "__main__":
         # X_test, y_test = get_subject_continuous_test_data(sub)
 
         if SUBJECT_ID == "all":
-            sub_ids = best_ids
+            sub_ids = subset_ids
         elif isinstance(SUBJECT_ID, int):
             sub_ids = [SUBJECT_ID]
         elif isinstance(SUBJECT_ID, list):

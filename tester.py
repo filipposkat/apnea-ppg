@@ -663,6 +663,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     macro_rec = macro_average_recall(tp, fn, print_recall=verbose)
     macro_spec = macro_average_specificity(tn, fp, print_specificity=verbose)
     macro_f1 = macro_average_f1(tp, fp, fn, print_f1=verbose)
+    macro_auc = np.mean(average_auc_by_class.values())
 
     # Note: In multiclass classification with symmetric costs, the micro average precision, recall,
     # and aggregate accuracy scores are mathematically equivalent because the sum of fp and sum of fn are equal.
@@ -672,6 +673,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
                "macro_recall": macro_rec,
                "macro_spec": macro_spec,
                "macro_f1": macro_f1,
+               "macro_auc": macro_auc,
                "micro_accuracy": micro_acc,
                "micro_precision": micro_prec,
                "micro_recall": micro_rec,
@@ -829,7 +831,10 @@ if __name__ == "__main__":
     macro_precisions = [m["macro_precision"] for m in metrics]
     macro_recalls = [m["macro_recall"] for m in metrics]
     macro_f1s = [m["macro_f1"] for m in metrics]
-
+    if "macro_auc" in metrics[0].keys():
+        macro_auc = [m["macro_auc"] for m in metrics]
+    else:
+        macro_auc = None
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")
@@ -839,6 +844,8 @@ if __name__ == "__main__":
     plt.plot(epoch_frac, macro_precisions, label="macro_precision")
     plt.plot(epoch_frac, macro_recalls, label="macro_recall")
     plt.plot(epoch_frac, macro_f1s, label="macro_f1")
+    if macro_auc is not None:
+        plt.plot(epoch_frac, macro_auc, label="macro_AUC")
     plt.legend()
     plt.xlabel("Epoch")
     plt.ylabel("Metric")

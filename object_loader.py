@@ -5,13 +5,14 @@ import yaml
 from collections.abc import Generator
 from pathlib import Path
 import pandas as pd
+import math
 
 # Local imports:
 from common import Subject
 
 # --- START OF CONSTANTS --- #
 RELOAD_ANNOTATIONS = False
-RELOAD_METADATA = True
+RELOAD_METADATA = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -20,13 +21,13 @@ if config is not None:
     PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     if "subject_metadata_file" in config["paths"]["local"]:
         PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
-        PATH_TO_METADATA_NSSR = Path(config["paths"]["local"]["subject_metadata_nssr_file"])
+        PATH_TO_METADATA_NSRR = Path(config["paths"]["local"]["subject_metadata_nssr_file"])
     PATH_TO_ANNOTATIONS = Path(config["paths"]["local"]["xml_annotations_directory"])
     PATH_TO_OUTPUT = Path(config["paths"]["local"]["csv_directory"])
 else:
     PATH_TO_OBJECTS = Path.cwd().joinpath("data", "serialized-objects")
     PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.7.0.csv")
-    PATH_TO_METADATA_NSSR = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-harmonized-dataset-0.7.0.csv")
+    PATH_TO_METADATA_NSRR = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-harmonized-dataset-0.7.0.csv")
     PATH_TO_ANNOTATIONS = Path.cwd().joinpath("data", "mesa", "polysomnography", "annotations-events-nsrr")
     PATH_TO_OUTPUT = Path.cwd().joinpath("data", "csvs")
 
@@ -201,9 +202,10 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(1212)
+    (id, sub) = get_subject_by_id(1)
     print(sub.signal_headers)
     print(sub.metadata)
+    print(math.isnan(sub.metadata["smkstat5"]))
     # df = sub.export_to_dataframe(signal_labels=["Pleth"], max_frequency=32)
     # df.to_csv("107.csv")
     # print(df.shape[0])
@@ -219,14 +221,16 @@ if __name__ == "__main__":
 
     if RELOAD_METADATA:
         df = pd.read_csv(PATH_TO_METADATA, sep=',')
+        df["mesaid"] = df["mesaid"].astype("int64")
         df.set_index(keys="mesaid", drop=False, inplace=True)
         df.index.names = [None]
 
-        if PATH_TO_METADATA_NSSR is not None:
-            df_nssr = pd.read_csv(PATH_TO_METADATA_NSSR, sep=',')
-            df_nssr.set_index(keys="mesaid", drop=False, inplace=True)
+        if PATH_TO_METADATA_NSRR is not None:
+            df_nssr = pd.read_csv(PATH_TO_METADATA_NSRR, sep=',')
+            df_nssr["mesaid"] = df_nssr["mesaid"].astype("int64")
+            df_nssr.set_index(keys="mesaid", drop=True, inplace=True)
             df_nssr.index.names = [None]
-            df_nssr.drop(["mesaid", "examnumber"], axis=1, inplace=True)
+            df_nssr.drop("examnumber", axis=1, inplace=True)
             df = pd.concat([df, df_nssr], axis=1, verify_integrity=True)
 
         for subject_id, sub in all_subjects_generator(progress_bar=True):

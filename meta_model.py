@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import scipy
 from tqdm import tqdm
+import math
 
 import yaml
 import pandas as pd
@@ -64,7 +65,7 @@ else:
 
 # --- END OF CONSTANTS --- #
 
-def get_metadata(sub_id: int):
+def get_metadata(sub_id: int) -> pd.Series:
     # Check if it exists in dataset-all
     if PATH_TO_SUBSET0_CONT_TESTING is not None:
         subject_arrs_path = PATH_TO_SUBSET0_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
@@ -148,7 +149,7 @@ if __name__ == "__main__":
     if CREATE_DATA:
         mesaids = []
         data_list = []
-        columns = ["gender", "age", "race", "height", "weight", "bmi", "current_smoker", "ever_smoker"]
+        columns = ["gender", "age", "race", "height", "weight", "bmi", "smoker_status"]
         for l in range(5):
             columns.append(f"mean_proba_l{l}")
             columns.append(f"std_proba_l{l}")
@@ -164,7 +165,8 @@ if __name__ == "__main__":
 
         columns.extend(
             ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
-             "ahi_a0h3a", "ahi_category"])
+             "ahi_a0h3a", "ahi_c0h3a", "ahi_o0h3a", "ahi_category"])
+
         for sub_id in tqdm(meta_ids):
 
             matlab_dict = get_predictions(sub_id)
@@ -213,12 +215,14 @@ if __name__ == "__main__":
             gender = int(metadata_df["gender1"])
             age = int(metadata_df["sleepage5c"])
             race = int(metadata_df["race1c"])
-            # "current_smoker", "ever_smoker"
             height = float(metadata_df["htcm5"])
             weight = float(metadata_df["wtlb5"]) * 0.45359237  # lb to kg
-            bmi = float(metadata_df["nssr_bmi"])
-            current_smoker = int(metadata_df["cursmk5"])  # Smoked cigarettes last 30 days ?
-            ever_smoker = int(metadata_df["smkstat5"])
+            bmi = float(metadata_df["nsrr_bmi"])
+            smoker_status = float(metadata_df["smkstat5"])
+            if not math.isnan(smoker_status):
+                smoker_status = int(smoker_status)
+            else:
+                smoker_status = 4
             # 0: Never smoked
             # 1: Former smoker quit more than 1 year ago
             # 2: Former smoker quit less than 1 year ago
@@ -231,6 +235,8 @@ if __name__ == "__main__":
             for lbl in range(5):
                 normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
             ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
+            ahi_c0h3a = float(metadata_df["ahi_c0h3a"])
+            ahi_o0h3a = float(metadata_df["ahi_o0h3a"])
             if ahi_a0h3a < 5:
                 # No
                 cat = 0
@@ -244,7 +250,7 @@ if __name__ == "__main__":
                 # Severe
                 cat = 3
 
-            tmp_list = [gender, age, race, height, weight, bmi, current_smoker, ever_smoker]
+            tmp_list = [gender, age, race, height, weight, bmi, smoker_status]
             for l in range(5):
                 tmp_list.append(mean_vector[l])
                 tmp_list.append(std_vector[l])
@@ -260,6 +266,8 @@ if __name__ == "__main__":
 
             tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
             tmp_list.append(ahi_a0h3a)
+            tmp_list.append(ahi_c0h3a)
+            tmp_list.append(ahi_o0h3a)
             tmp_list.append(cat)
 
             mesaids.append(mesaid)
