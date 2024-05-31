@@ -28,7 +28,7 @@ if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
 
 # --- START OF CONSTANTS --- #
-EPOCHS = 100
+EPOCHS = 50
 BATCH_SIZE_TEST = 1024
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them
 LOAD_FROM_BATCH = 0
@@ -36,7 +36,7 @@ NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
 CROSS_SUBJECT_TESTING = True
-TEST_MODEL = True
+TEST_MODEL = False
 OVERWRITE_METRICS = False
 
 with open("config.yml", 'r') as f:
@@ -663,7 +663,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     macro_rec = macro_average_recall(tp, fn, print_recall=verbose)
     macro_spec = macro_average_specificity(tn, fp, print_specificity=verbose)
     macro_f1 = macro_average_f1(tp, fp, fn, print_f1=verbose)
-    macro_auc = np.mean(average_auc_by_class.values())
+    macro_auc = np.mean(list(average_auc_by_class.values()))
 
     # Note: In multiclass classification with symmetric costs, the micro average precision, recall,
     # and aggregate accuracy scores are mathematically equivalent because the sum of fp and sum of fn are equal.
@@ -834,7 +834,7 @@ if __name__ == "__main__":
     if "macro_auc" in metrics[0].keys():
         macro_auc = [m["macro_auc"] for m in metrics]
     else:
-        macro_auc = None
+        macro_auc = [np.mean(list(m["average_auc_by_class"].values())) for m in metrics]
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")

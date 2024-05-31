@@ -37,7 +37,7 @@ variables:
     sampling_method: conv_stride
     use_weighted_loss: False
     class_weights:  # List of class weights
-
+    custom_net_weight_init: False
   optimizer:
     lr:
 other:

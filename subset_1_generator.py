@@ -18,7 +18,7 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SUBSET_SIZE = 400  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals

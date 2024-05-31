@@ -17,7 +17,7 @@ from common import Subject
 
 # --- START OF CONSTANTS --- #
 SUBSET = 0
-EPOCH = 32
+EPOCH = 5
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
@@ -91,6 +91,7 @@ def get_predictions(sub_id: int) -> dict:
         else:
             results_path = results_path.joinpath("cross-test-subjects")
         matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
+
         if matlab_file.exists():
             matlab_dict = scipy.io.loadmat(str(matlab_file))
             return matlab_dict
@@ -145,7 +146,7 @@ if __name__ == "__main__":
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
     # meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
-    print()
+
     if CREATE_DATA:
         mesaids = []
         data_list = []

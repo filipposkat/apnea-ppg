@@ -64,6 +64,8 @@ if config is not None:
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
     if "lr" in config["variables"]["optimizer"]:
         LR = float(config["variables"]["optimizer"]["lr"])
+        if "type" in config["variables"]["optimizer"]:
+            OPTIMIZER = str(config["variables"]["optimizer"]["type"])
     KERNEL_SIZE = int(config["variables"]["models"]["kernel_size"])
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
@@ -79,6 +81,12 @@ if config is not None:
         CLASS_WEIGHTS = cw_tmp
     else:
         CLASS_WEIGHTS = None
+
+    CUSTOM_WEIGHT_INIT = False
+    if "custom_net_weight_init" in config["variables"]["models"]:
+        if config["variables"]["models"]["custom_net_weight_init"]:
+            CUSTOM_WEIGHT_INIT = True
+
 else:
     subset_id = 1
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
@@ -93,6 +101,7 @@ else:
     SAMPLING_METHOD = "conv_stride"
     use_weighted_loss = False
     CLASS_WEIGHTS = None
+    CUSTOM_WEIGHT_INIT = False
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
@@ -512,7 +521,8 @@ if __name__ == "__main__":
         elif NET_TYPE == "UResIncNet":
             net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
-                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
+                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True,
+                             custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
             net = ConvNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,

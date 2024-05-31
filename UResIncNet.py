@@ -3,6 +3,15 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def init_weights(module):
+    if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
+        torch.nn.init.kaiming_normal_(module.weight)
+        torch.nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Linear):
+        torch.nn.init.kaiming_normal_(module.weight)
+        torch.nn.init.zeros_(module.bias)
+
+
 class DilatedResidualInceptionBlock(nn.Module):
     # DilatedResidualBlock from RespNet:
     # Original ResNet backbone for UNET: https://github.com/rishikksh20/ResUnet/blob/master/core/modules.py
@@ -233,7 +242,7 @@ class DecoderBlock(nn.Module):
 
 class UResIncNet(nn.Module):
     def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
-                 sampling_method="conv_stride", skip_connection=True):
+                 sampling_method="conv_stride", skip_connection=True, custom_weight_init=False):
         super().__init__()
         self.nclass = nclass
         self.in_chans = in_chans
@@ -279,6 +288,9 @@ class UResIncNet(nn.Module):
         # Add a 1x1 convolution to produce final classes
         self.logits = nn.Conv1d(out_chans, nclass, kernel_size=1, stride=1)
 
+        if custom_weight_init:
+            self.apply(init_weights)
+
     def forward(self, x):
         encoded = []
         for enc in self.encoder:
@@ -320,8 +332,10 @@ class UResIncNet(nn.Module):
 
 
 class ResIncNet(nn.Module):
-    def __init__(self, nclass=1, in_size=512, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
-                 sampling_method="conv_stride", skip_connection=True):
+
+    def __init__(self, nclass=1, in_size=512, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1,
+                 sampling_factor=2,
+                 sampling_method="conv_stride", skip_connection=True, custom_weight_init=False):
         super().__init__()
         self.nclass = nclass
         self.in_size = in_size
@@ -370,6 +384,8 @@ class ResIncNet(nn.Module):
 
         self.logits = nn.Linear(out_chans * out_size, nclass)
 
+        if custom_weight_init:
+            self.apply(init_weights)
     def forward(self, x):
         encoded = []
         for enc in self.encoder:
