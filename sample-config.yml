@@ -39,6 +39,7 @@ variables:
     class_weights:  # List of class weights
     custom_net_weight_init: False
   optimizer:
+    type: "adam"
     lr:
     warmup: True
 other:
