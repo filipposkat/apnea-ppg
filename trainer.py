@@ -66,6 +66,8 @@ if config is not None:
         LR = float(config["variables"]["optimizer"]["lr"])
         if "type" in config["variables"]["optimizer"]:
             OPTIMIZER = str(config["variables"]["optimizer"]["type"])
+        if "warmup" in config["variables"]["optimizer"]:
+            LR_WARMUP = config["variables"]["optimizer"]["warmup"]
     KERNEL_SIZE = int(config["variables"]["models"]["kernel_size"])
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
