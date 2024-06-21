@@ -38,6 +38,7 @@ PRE_FETCH = 2
 CROSS_SUBJECT_TESTING = True
 TEST_MODEL = False
 OVERWRITE_METRICS = False
+START_FROM_LAST_EPOCH = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -702,7 +703,7 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
 
     pbar1 = None
     pbar2 = None
-    epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=True)
+    epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=START_FROM_LAST_EPOCH)
     if progress_bar:
         pbar1 = tqdm(total=len(epochs), desc="Epoch checkpoint", leave=True)
     for e in epochs:
@@ -740,7 +741,7 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
         test_dataloader.sampler.first_batch_index = 0
 
     pbar1 = None
-    epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=True)
+    epochs = sorted(get_saved_epochs(net_type=net_type, identifier=identifier), reverse=START_FROM_LAST_EPOCH)
     if progress_bar:
         pbar1 = tqdm(total=len(epochs), desc="Epoch checkpoint", leave=True)
 

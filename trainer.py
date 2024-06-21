@@ -21,6 +21,7 @@ from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched
 
 from UNet import UNet, ConvNet
 from UResIncNet import UResIncNet, ResIncNet
+from CombinedNet import CombinedNet
 from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
 
 # --- START OF CONSTANTS --- #
@@ -72,6 +73,10 @@ if config is not None:
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
     SAMPLING_METHOD = config["variables"]["models"]["sampling_method"]
+    if "lstm_max_features" in config["variables"]["models"]:
+        LSTM_MAX_FEATURES = int(config["variables"]["models"]["lstm_max_features"])
+        LSTM_LAYERS = int(config["variables"]["models"]["lstm_layers"])
+        LSTM_DROPOUT = float(config["variables"]["models"]["lstm_dropout"])
     use_weighted_loss = config["variables"]["models"]["use_weighted_loss"]
     if use_weighted_loss:
         # Class weights:
@@ -101,6 +106,9 @@ else:
     DEPTH = 8
     LAYERS = 1
     SAMPLING_METHOD = "conv_stride"
+    LSTM_MAX_FEATURES = 128
+    LSTM_LAYERS = 2
+    LSTM_DROPOUT = 0.1
     use_weighted_loss = False
     CLASS_WEIGHTS = None
     CUSTOM_WEIGHT_INIT = False
@@ -110,7 +118,8 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 # --- END OF CONSTANTS --- #
 
 
-def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module, net_kwargs: dict,
+def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module,
+                    net_kwargs: dict,
                     optimizer, optimizer_kwargs: dict | None, criterion, criterion_kwargs: dict | None,
                     lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None, lr_scheduler_kwargs: dict | None,
                     dataloader_rng_state: torch.ByteTensor | tuple, running_losses: list[float] = None,
@@ -535,7 +544,13 @@ if __name__ == "__main__":
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
-
+        elif NET_TYPE == "CombinedNet":
+            net = CombinedNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=8, kernel_size=4,
+                              layers=LAYERS, sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True,
+                              lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
+                              lstm_dropout=LSTM_DROPOUT, lstm_bidirectional=True,
+                              lstm_depth=1, custom_weight_init=CUSTOM_WEIGHT_INIT)
+            net_kwargs = net.get_kwargs()
         initial_running_losses = None
         lr_scheduler = None
         lr_scheduler_kwargs = None

@@ -241,7 +241,7 @@ class DecoderBlock(nn.Module):
 
 
 class UResIncNet(nn.Module):
-    def __init__(self, nclass=1, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
+    def __init__(self, nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
                  sampling_method="conv_stride", skip_connection=True, custom_weight_init=False):
         super().__init__()
         self.nclass = nclass
@@ -386,6 +386,7 @@ class ResIncNet(nn.Module):
 
         if custom_weight_init:
             self.apply(init_weights)
+
     def forward(self, x):
         encoded = []
         for enc in self.encoder:

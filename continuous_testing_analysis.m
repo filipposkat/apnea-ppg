@@ -2,7 +2,7 @@ clear;
 clc;
 
 config = ReadYaml("config.yml");
-TESTING_SUBSET = "mild";
+TESTING_SUBSET = "severe";
 EPOCH = 10;
 PATH_TO_SUBSET = config.("subset_" + string(TESTING_SUBSET) + "_directory");
 PATH_TO_SUBSET0_CONT_TESTING = config.("subset_0_continuous_testing_directory");
