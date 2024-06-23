@@ -157,9 +157,22 @@ def load_metrics(net_type: str, identifier: str, epoch: int, batch: int, cross_s
     else:
         metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
                                             f"batch-{batch}-test_metrics.json")
+
+    loss_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                     f"batch-{batch}-train_running_loss.json")
+
     if metrics_path.exists():
         with open(metrics_path, 'r') as file:
-            return json.load(file)
+            metrics_d = json.load(file)
+
+        # Check if running loss can be added to metrics
+        if loss_path.exists():
+            with open(loss_path, 'r') as file:
+                loss_d = json.load(file)
+                running_loss = loss_d["train_running_loss"]
+            metrics_d["train_running_loss"] = running_loss
+
+        return metrics_d
     else:
         return None
 
@@ -827,6 +840,7 @@ if __name__ == "__main__":
 
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
+    train_running_losses = [m["train_running_loss"] for m in metrics if "train_running_loss" in m.keys()]
     micro_accuracies = [m["micro_accuracy"] for m in metrics if "micro_accuracy" in m.keys()]
     macro_accuracies = [m["macro_accuracy"] for m in metrics if "macro_accuracy" in m.keys()]
     macro_precisions = [m["macro_precision"] for m in metrics]
@@ -839,14 +853,25 @@ if __name__ == "__main__":
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")
-    if len(micro_accuracies) == len(macro_accuracies) == len(epoch_frac):
-        plt.plot(epoch_frac, micro_accuracies, label="micro_accuracies")
-        plt.plot(epoch_frac, macro_accuracies, label="macro_accuracies")
+
     plt.plot(epoch_frac, macro_precisions, label="macro_precision")
     plt.plot(epoch_frac, macro_recalls, label="macro_recall")
     plt.plot(epoch_frac, macro_f1s, label="macro_f1")
+
+    if len(micro_accuracies) == len(macro_accuracies) == len(epoch_frac):
+        # plt.plot(epoch_frac, micro_accuracies, label="micro_accuracies")
+        plt.plot(epoch_frac, macro_accuracies, label="macro_accuracies")
+
     if macro_auc is not None:
         plt.plot(epoch_frac, macro_auc, label="macro_AUC")
+
+    if len(train_running_losses) == len(epoch_frac):
+        plt.plot(epoch_frac, train_running_losses, label="train_running_losses")
+    elif len(train_running_losses) > 0:
+        train_running_losses = [m["train_running_loss"] if "train_running_loss" in m.keys() else 0.0 for m in
+                                metrics]
+        plt.scatter(epoch_frac, train_running_losses, label="train_running_losses")
+
     plt.legend()
     plt.xlabel("Epoch")
     plt.ylabel("Metric")

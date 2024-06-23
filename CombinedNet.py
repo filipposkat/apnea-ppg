@@ -18,6 +18,16 @@ class RNN(nn.Module):
     def __init__(self, nclass=5, in_chans=1, lstm_max_features=512, lstm_layers=2,
                  lstm_dropout: float = 0.1,
                  lstm_bidirectional=True, lstm_depth=1, custom_weight_init=False):
+        """
+        :param nclass: output channels
+        :param in_chans: input channels
+        :param lstm_max_features: hidden lstm units
+        :param lstm_layers: number of stacked lstm layers
+        :param lstm_dropout:
+        :param lstm_bidirectional: boolean
+        :param lstm_depth: Depreciated
+        :param custom_weight_init:
+        """
         super().__init__()
         self.nclass = nclass
         self.in_chans = in_chans
@@ -65,8 +75,7 @@ class RNN(nn.Module):
     def get_kwargs(self):
         kwargs = {"nclass": self.nclass, "in_chans": self.in_chans,
                   "lstm_max_channels": self.max_channels, "lstm_layers": self.lstm_layers,
-                  "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional,
-                  "lstm_depth": self.lstm_depth}
+                  "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional}
         return kwargs
 
 
@@ -103,7 +112,12 @@ class CombinedNet(nn.Module):
                               lstm_dropout=lstm_dropout,
                               lstm_bidirectional=lstm_bidirectional, lstm_depth=lstm_depth)
 
-        self.logits = nn.Conv1d(nclass*2, nclass, kernel_size=1, stride=1)
+        self.logits = nn.Sequential(
+            nn.BatchNorm1d(2 * nclass),
+            nn.LeakyReLU(0.2),
+            nn.Conv1d(2 * nclass, nclass, kernel_size=1, stride=1)
+        )
+
         if custom_weight_init:
             self.apply(init_weights)
 
@@ -124,7 +138,7 @@ class CombinedNet(nn.Module):
 
         return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
                 f"- Layers {layers} - Sampling {self.sampling_method} "
-                f"- lstm_MaxCH {self.max_channels} - lstm_Depth {self.lstm_depth} - "
+                f"- lstm_MaxCH {self.max_channels} - "
                 f"lstm_Bidirectional {self.lstm_bidirectional} "
                 f"- lstm_Layers {self.lstm_layers} - lstm_Dropout {self.lstm_dropout}")
 
@@ -142,6 +156,5 @@ class CombinedNet(nn.Module):
                   "skip_connection": self.skip_connection,
                   "lstm_max_channels": self.max_channels, "lstm_layers": self.lstm_layers,
                   "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional,
-                  "lstm_depth": self.lstm_depth
                   }
         return kwargs
