@@ -612,7 +612,7 @@ if __name__ == "__main__":
             warmup_iters = LR_WARMUP_DURATION - last_completed_epoch
             starting_factor = 0.25 + last_completed_epoch * (1 - 0.25) / LR_WARMUP_DURATION
             lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 1, "total_iters": warmup_iters}
-            lr_scheduler = optim.lr_scheduler.LinearLR(**lr_scheduler_kwargs)
+            lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
 
     # Train:
     print(datetime.datetime.now())

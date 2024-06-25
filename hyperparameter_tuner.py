@@ -128,7 +128,7 @@ def full_train_loop(train_config: dict):
         warmup_iters = config["lr_warmup_duration"]
         starting_factor = config["lr_warmup_starting_factor"]
         lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 1, "total_iters": warmup_iters}
-        lr_scheduler = optim.lr_scheduler.LinearLR(**lr_scheduler_kwargs)
+        lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
     else:
         warmup_iters = 0
 
