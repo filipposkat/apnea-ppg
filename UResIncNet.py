@@ -242,7 +242,7 @@ class DecoderBlock(nn.Module):
 
 class UResIncNet(nn.Module):
     def __init__(self, nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
-                 sampling_method="conv_stride", skip_connection=True, custom_weight_init=False):
+                 sampling_method="conv_stride", dropout=0.0, skip_connection=True, custom_weight_init=False):
         super().__init__()
         self.nclass = nclass
         self.in_chans = in_chans
@@ -252,21 +252,26 @@ class UResIncNet(nn.Module):
         self.layers = layers
         self.sampling_factor = sampling_factor
         self.sampling_method = sampling_method
+        self.dropout = dropout
         self.skip_connection = skip_connection
-
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
 
-        first_out_chans = max_channels // (2 ** (depth - 1))
-        if first_out_chans % 4 == 0:
-            out_chans = first_out_chans
-        else:
-            out_chans = 4
+        # first_out_chans = max_channels // (2 ** (depth - 1))
+        # if first_out_chans % 4 == 0:
+        #     out_chans = first_out_chans
+        # else:
+        #     out_chans = 4
+
+        out_chans = 4
 
         # First block is special, input channel dimensionality has to be adjusted otherwise residual block will fail.
         # Also, the first block should not do any downsampling (stride = 1):
-        self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers, sampling_factor=1,
-                                         sampling_method=sampling_method))
+        self.encoder.append(EncoderBlock(in_chans, out_chans,
+                                         kernel_size=self.kernel_size,
+                                         layers=self.layers,
+                                         sampling_factor=1,
+                                         sampling_method=self.sampling_method))
 
         for _ in range(depth - 1):
             if out_chans * 2 <= max_channels:
@@ -274,16 +279,24 @@ class UResIncNet(nn.Module):
             else:
                 in_chans, out_chans = out_chans, out_chans
 
-            self.encoder.append(EncoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers,
-                                             sampling_factor=sampling_factor, sampling_method=sampling_method))
+            self.encoder.append(EncoderBlock(in_chans, out_chans,
+                                             kernel_size=self.kernel_size,
+                                             layers=self.layers,
+                                             sampling_factor=self.sampling_factor,
+                                             sampling_method=self.sampling_method,
+                                             dropout=self.dropout))
 
         for _ in range(depth - 1):
             if out_chans // 2 >= 4:
                 in_chans, out_chans = out_chans, out_chans // 2
             else:
                 in_chans, out_chans = out_chans, out_chans
-            self.decoder.append(DecoderBlock(in_chans, out_chans, kernel_size=kernel_size, layers=layers,
-                                             skip_connection=skip_connection, sampling_factor=sampling_factor))
+            self.decoder.append(DecoderBlock(in_chans, out_chans,
+                                             kernel_size=self.kernel_size,
+                                             layers=self.layers,
+                                             skip_connection=self.skip_connection,
+                                             sampling_factor=self.sampling_factor,
+                                             dropout=self.dropout))
 
         # Add a 1x1 convolution to produce final classes
         self.logits = nn.Conv1d(out_chans, nclass, kernel_size=1, stride=1)
@@ -314,8 +327,13 @@ class UResIncNet(nn.Module):
         else:
             layers = 1
 
+        if hasattr(self, "dropout"):
+            dropout = self.dropout
+        else:
+            dropout = 0.0
+
         return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-                f"- Layers {layers} - Sampling {self.sampling_method}")
+                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout}")
 
     def get_kwargs(self):
         # For backwards compatibility with older class which did not have layers attribute:
@@ -324,10 +342,15 @@ class UResIncNet(nn.Module):
         else:
             layers = 1
 
+        if hasattr(self, "dropout"):
+            dropout = self.dropout
+        else:
+            dropout = 0.0
+
         kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
-                  "skip_connection": self.skip_connection}
+                  "skip_connection": self.skip_connection, "dropout": dropout}
         return kwargs
 
 
@@ -350,11 +373,13 @@ class ResIncNet(nn.Module):
 
         self.encoder = nn.ModuleList()
 
-        first_out_chans = max_channels // (2 ** (depth - 1))
-        if first_out_chans % 4 == 0:
-            out_chans = first_out_chans
-        else:
-            out_chans = 4
+        # first_out_chans = max_channels // (2 ** (depth - 1))
+        # if first_out_chans % 4 == 0:
+        #     out_chans = first_out_chans
+        # else:
+        #     out_chans = 4
+
+        out_chans = 4
 
         # First block is special, input channel dimensionality has to be adjusted otherwise residual block will fail.
         # Also, the first block should not do any downsampling (stride = 1):

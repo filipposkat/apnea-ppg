@@ -82,7 +82,7 @@ class RNN(nn.Module):
 class CombinedNet(nn.Module):
     def __init__(self, nclass=5, in_size=512, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1,
                  sampling_factor=2,
-                 sampling_method="conv_stride", skip_connection=True,
+                 sampling_method="conv_stride", dropout=0.0, skip_connection=True,
                  lstm_max_features=512, lstm_layers=2, lstm_dropout: float = 0.1, lstm_bidirectional=True,
                  lstm_depth=1, custom_weight_init=False):
         super().__init__()
@@ -95,6 +95,7 @@ class CombinedNet(nn.Module):
         self.layers = layers
         self.sampling_factor = sampling_factor
         self.sampling_method = sampling_method
+        self.dropout = dropout
         self.skip_connection = skip_connection
 
         self.lstm_max_features = lstm_max_features
@@ -106,7 +107,7 @@ class CombinedNet(nn.Module):
         self.UResIncNetBranch = UResIncNet(nclass=nclass, in_chans=in_chans, max_channels=max_channels, depth=depth,
                                            kernel_size=kernel_size, layers=layers,
                                            sampling_factor=sampling_factor, sampling_method=sampling_method,
-                                           skip_connection=skip_connection)
+                                           dropout=dropout, skip_connection=skip_connection)
         self.LSTMBranch = RNN(nclass=nclass, in_chans=in_chans, lstm_max_features=lstm_max_features,
                               lstm_layers=lstm_layers,
                               lstm_dropout=lstm_dropout,
@@ -136,8 +137,13 @@ class CombinedNet(nn.Module):
         else:
             layers = 1
 
+        if hasattr(self, "dropout"):
+            dropout = self.dropout
+        else:
+            dropout = 0.0
+
         return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-                f"- Layers {layers} - Sampling {self.sampling_method} "
+                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout}"
                 f"- lstm_MaxCH {self.max_channels} - "
                 f"lstm_Bidirectional {self.lstm_bidirectional} "
                 f"- lstm_Layers {self.lstm_layers} - lstm_Dropout {self.lstm_dropout}")
@@ -149,11 +155,16 @@ class CombinedNet(nn.Module):
         else:
             layers = 1
 
+        if hasattr(self, "dropout"):
+            dropout = self.dropout
+        else:
+            dropout = 0.0
+
         kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
                   "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
-                  "skip_connection": self.skip_connection,
+                  "dropout": dropout, "skip_connection": self.skip_connection,
                   "lstm_max_channels": self.max_channels, "lstm_layers": self.lstm_layers,
                   "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional,
                   }

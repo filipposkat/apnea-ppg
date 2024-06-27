@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 
 import yaml
@@ -23,7 +25,7 @@ from CombinedNet import CombinedNet
 from trainer import train_loop
 from tester import test_loop
 
-EPOCHS = 50
+EPOCHS = 10
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024
 NUM_WORKERS = 0
@@ -55,6 +57,13 @@ else:
 
 
 def full_train_loop(train_config: dict):
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
     # Prepare train dataloader:
     train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
     test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS_TEST,
@@ -66,7 +75,7 @@ def full_train_loop(train_config: dict):
     # Class weights:
     weights = None
     if CLASS_WEIGHTS is not None:
-        weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(DEVICE)
+        weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(device)
 
     net = None
     net_kwargs = {}
@@ -112,7 +121,7 @@ def full_train_loop(train_config: dict):
         loss = nn.CrossEntropyLoss()
 
     # Model should go to device first before initializing optimizer:
-    net = net.to(DEVICE)
+    net = net.to(device)
 
     # Define optimizer:
 
@@ -137,49 +146,39 @@ def full_train_loop(train_config: dict):
         if epoch > warmup_iters:
             lr_scheduler = None
 
-        last_running_loss = train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer,
-                                       criterion=loss, device=DEVICE,
-                                       first_batch=0, init_running_losses=None,
-                                       print_batch_interval=None,
-                                       checkpoint_batch_interval=None,
-                                       save_checkpoint_kwargs=None)
+        _, _ = train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer,
+                          criterion=loss, device=device,
+                          first_batch=0, init_running_losses=None,
+                          print_batch_interval=None,
+                          checkpoint_batch_interval=None,
+                          save_checkpoint_kwargs=None,
+                          progress_bar=False,
+                          running_acc=False)
 
         if lr_scheduler is not None:
             if epoch % LR_WARMUP_STEP_EPOCH_INTERVAL == 0:
                 lr_scheduler.step()
 
         if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
-            metrics, _, roc_info = test_loop(model=net, test_dataloader=test_loader, device=DEVICE,
+            metrics, _, roc_info = test_loop(model=net, test_dataloader=test_loader, device=device,
                                              verbose=False,
-                                             progress_bar=True)
+                                             progress_bar=False)
             test_acc = float(metrics['aggregate_accuracy'])
             test_macro_f1 = float(metrics['macro_f1'])
+            test_obs_apnea_f1 = float(metrics['f1_by_class']['obstructive_apnea'])
             test_macro_auc = float(metrics['macro_auc'])
-            combined_score = np.mean([test_acc, test_macro_f1, test_macro_auc])
+            if test_obs_apnea_f1 == float("nan"):
+                test_obs_apnea_f1 = 0.0
+            combined_score = np.mean([test_acc, test_macro_f1, test_obs_apnea_f1, test_macro_auc])
 
             train.report({"accuracy": test_acc,
                           "macro_f1": test_macro_f1,
+                          "obstructive_apnea_f1": test_obs_apnea_f1,
                           "macro_auc": test_macro_auc,
                           "combined_score": combined_score})
 
 
-
 if __name__ == "__main__":
-    if COMPUTE_PLATFORM == "opencl":
-        PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
-        PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
-        os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
-        torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
-        DEVICE = "privateuseone:0"
-    elif torch.cuda.is_available():
-        DEVICE = torch.device("cuda:0")
-    elif torch.backends.mps.is_available():
-        DEVICE = torch.device("mps")
-    else:
-        DEVICE = torch.device("cpu")
-
-    print(f"Device: {DEVICE}")
-
     search_space = None
     initial_params = None
     if NET_TYPE == "UResIncNet":
@@ -187,7 +186,7 @@ if __name__ == "__main__":
             search_space = {
                 "lr": tune.sample_from(lambda spec: 10 ** (-1 * np.random.randint(1, 4))),
                 "kernel_size": tune.choice([3, 5]),
-                "depth": tune.choice([5, 6, 7, 8]),
+                "depth": tune.choice([4, 6, 8]),
                 "layers": tune.choice([1, 2]),
                 "sampling_method": tune.choice(["conv_stride", "pooling"]),
             }
@@ -203,7 +202,7 @@ if __name__ == "__main__":
             search_space = {
                 "lr": tune.sample_from(lambda spec: 10 ** (-1 * np.random.randint(1, 4))),
                 "kernel_size": tune.choice([3, 5]),
-                "depth": tune.choice([5, 6, 7, 8]),
+                "depth": tune.choice([4, 6, 8]),
                 "layers": tune.choice([1, 2]),
                 "sampling_method": tune.choice(["conv_stride", "pooling"]),
                 "lstm_hidden_size": tune.sample_from(lambda spec: 2 ** (np.random.randint(4, 8))),  # 16, 32, 64, 128
@@ -217,12 +216,12 @@ if __name__ == "__main__":
                 "layers": 1,
                 "sampling_method": "conv_stride",
                 "lstm_hidden_size": 64,
-                "lstm_layers": 1,
+                "lstm_layers": 2,
                 "lstm_dropout": 0.1,
             }]
 
     algo = HyperOptSearch(points_to_evaluate=initial_params)
-    algo = ConcurrencyLimiter(algo, max_concurrent=4)
+    # algo = ConcurrencyLimiter(algo, max_concurrent=4)
 
     scheduler = ASHAScheduler(
         max_t=5,
@@ -230,9 +229,12 @@ if __name__ == "__main__":
         reduction_factor=4)
 
     tuner = tune.Tuner(
-        full_train_loop,
+        tune.with_resources(
+            full_train_loop,
+            {"cpu": 4, "gpu": 1}
+        ),
         tune_config=tune.TuneConfig(
-            metric="accuracy",
+            metric="combined_score",
             mode="max",
             num_samples=15,
             scheduler=scheduler,
@@ -254,6 +256,9 @@ if __name__ == "__main__":
 
     # Obtain a trial dataframe from all run trials of this `tune.run` call.
     dfs = {result.path: result.metrics_dataframe for result in results}
+
+    with open("tune-results.plk", mode="wb") as f:
+        pickle.dump(dfs, f)
 
     # Plot by epoch
     ax = None  # This plots everything on the same plot

@@ -10,19 +10,13 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 from torchmetrics import ROC, AUROC
-from sklearn.metrics import auc
-from torchmetrics.functional import confusion_matrix
-from torch.utils.data import DataLoader, Dataset
-from torch.multiprocessing import Pool, set_start_method
-
-import data_loaders_mapped
+from torchmetrics.functional import confusion_matrix, accuracy
+from torch.utils.data import DataLoader
+from torch.multiprocessing import Pool
 
 # Local imports:
-from data_loaders_mapped import MappedDataset, BatchSampler
 from pre_batched_dataloader import get_pre_batched_test_loader, get_pre_batched_test_cross_sub_loader
-from UNet import UNet
 
 if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
@@ -158,16 +152,23 @@ def load_metrics(net_type: str, identifier: str, epoch: int, batch: int, cross_s
         metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
                                             f"batch-{batch}-test_metrics.json")
 
-    loss_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
-                                     f"batch-{batch}-train_running_loss.json")
+    train_metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                              f"batch-{batch}-train_metrics.json")
+    old_train_metrics_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                                  f"batch-{batch}-train_running_loss.json")
 
     if metrics_path.exists():
         with open(metrics_path, 'r') as file:
-            metrics_d = json.load(file)
+            metrics_d: dict = json.load(file)
 
         # Check if running loss can be added to metrics
-        if loss_path.exists():
-            with open(loss_path, 'r') as file:
+        if train_metrics_path.exists():
+            with open(train_metrics_path, 'r') as file:
+                loss_d = json.load(file)
+            metrics_d.update(loss_d)
+
+        elif old_train_metrics_path.exists():
+            with open(old_train_metrics_path, 'r') as file:
                 loss_d = json.load(file)
                 running_loss = loss_d["train_running_loss"]
             metrics_d["train_running_loss"] = running_loss
@@ -841,6 +842,7 @@ if __name__ == "__main__":
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
     train_running_losses = [m["train_running_loss"] for m in metrics if "train_running_loss" in m.keys()]
+    train_running_accs = [m["train_running_accuracy"] for m in metrics if "train_running_accuracy" in m.keys()]
     micro_accuracies = [m["micro_accuracy"] for m in metrics if "micro_accuracy" in m.keys()]
     macro_accuracies = [m["macro_accuracy"] for m in metrics if "macro_accuracy" in m.keys()]
     macro_precisions = [m["macro_precision"] for m in metrics]
@@ -860,7 +862,7 @@ if __name__ == "__main__":
 
     if len(micro_accuracies) == len(macro_accuracies) == len(epoch_frac):
         # plt.plot(epoch_frac, micro_accuracies, label="micro_accuracies")
-        plt.plot(epoch_frac, macro_accuracies, label="macro_accuracies")
+        plt.plot(epoch_frac, macro_accuracies, label="macro_accuracy")
 
     if macro_auc is not None:
         plt.plot(epoch_frac, macro_auc, label="macro_AUC")
@@ -870,7 +872,14 @@ if __name__ == "__main__":
     elif len(train_running_losses) > 0:
         train_running_losses = [m["train_running_loss"] if "train_running_loss" in m.keys() else 0.0 for m in
                                 metrics]
-        plt.scatter(epoch_frac, train_running_losses, label="train_running_losses")
+        plt.scatter(epoch_frac, train_running_losses, label="train_running_loss")
+
+    if len(train_running_accs) == len(epoch_frac):
+        plt.plot(epoch_frac, train_running_accs, label="train_running_losses")
+    elif len(train_running_accs) > 0:
+        train_running_accs = [m["train_running_accuracy"] if "train_running_accuracy" in m.keys() else 0.0 for m in
+                              metrics]
+        plt.scatter(epoch_frac, train_running_accs, label="train_running_accuracy")
 
     plt.legend()
     plt.xlabel("Epoch")

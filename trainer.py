@@ -1,4 +1,5 @@
 import random
+from typing import Tuple, Any
 
 import yaml
 from pathlib import Path
@@ -9,8 +10,10 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchmetrics.functional import accuracy
 from torch.utils.data import DataLoader, IterableDataset
 from torchinfo import summary
+from ray import train
 
 from tqdm import tqdm
 
@@ -73,6 +76,7 @@ if config is not None:
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
     SAMPLING_METHOD = config["variables"]["models"]["sampling_method"]
+    DROPOUT = float(config["variables"]["models"]["dropout"])
     if "lstm_max_features" in config["variables"]["models"]:
         LSTM_MAX_FEATURES = int(config["variables"]["models"]["lstm_max_features"])
         LSTM_LAYERS = int(config["variables"]["models"]["lstm_layers"])
@@ -110,6 +114,7 @@ else:
     DEPTH = 8
     LAYERS = 1
     SAMPLING_METHOD = "conv_stride"
+    DROPOUT = 0.0
     LSTM_MAX_FEATURES = 128
     LSTM_LAYERS = 2
     LSTM_DROPOUT = 0.1
@@ -122,24 +127,25 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 # --- END OF CONSTANTS --- #
 
 
-def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int, net: nn.Module,
-                    net_kwargs: dict,
-                    optimizer, optimizer_kwargs: dict | None, criterion, criterion_kwargs: dict | None,
+def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int,
+                    net: nn.Module, net_kwargs: dict,
+                    optimizer, optimizer_kwargs: dict | None,
+                    criterion, criterion_kwargs: dict | None,
                     lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None, lr_scheduler_kwargs: dict | None,
                     dataloader_rng_state: torch.ByteTensor | tuple,
-                    running_losses: list[float] = None, running_loss: float = None,
+                    running_losses: list[float] = None, running_loss: float = None, running_accuracy: float = None,
                     test_metrics: dict = None, test_cm: list[list[float]] = None,
                     roc_info: dict[str: dict[str: list | float]] = None,
                     other_details: str = ""):
     """
-    :param roc_info:
-    :param lr_scheduler_kwargs:
-    :param lr_scheduler:
-    :param criterion_kwargs:
     :param net: Neural network model to save
+    :param net_kwargs: Parameters used in the initialization of net
     :param optimizer: Torch optimizer object
     :param optimizer_kwargs: Parameters used in the initialization of Optimizer
     :param criterion: The loss function object
+    :param criterion_kwargs: Parameters used in the initialization of criterion
+    :param lr_scheduler: Torch LR scheduler object
+    :param lr_scheduler_kwargs: Parameters used in the initialization of lr_scheduler
     :param net_type: The string descriptor of the network type: UNET or UResIncNet
     :param identifier: A unique string identifier for the specific configuration of the net_type neural network
     :param batch_size: Batch size used in training
@@ -150,8 +156,10 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
     or tuple if it was a generator of class: random.Random
     :param test_metrics: A dictionary containing all relevant test metrics
     :param test_cm: Confusion matrix
+    :param roc_info: dict with the test ROC curve data
     :param running_losses: The running period losses of the train loop
     :param running_loss: The last running loss in the epoch
+    :param running_accuracy: The last running accuracy in the epoch
     :param other_details: Any other details to be noted
     :return:
     """
@@ -169,6 +177,8 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                    f'Criterion kwargs: {criterion_kwargs}\n',
                    f'Optimizer: {type(optimizer).__name__}\n',
                    f'Optimizer kwargs: {optimizer_kwargs}\n',
+                   f'LR scheduler: {type(lr_scheduler).__name__}\n',
+                   f'LR scheduler kwargs: {lr_scheduler_kwargs}\n',
                    f'Batch size: {batch_size}\n',
                    f'Epoch: {epoch}\n',
                    f'{other_details}\n']
@@ -210,10 +220,13 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
         running_loss = sum(running_losses) / len(running_losses)
 
     if running_loss is not None:
-        epoch_last_running_loss_dict = {"train_running_loss": running_loss}
-        metrics_path = model_path.joinpath(f"batch-{batch}-train_running_loss.json")
+        train_metrics_dict = {"train_running_loss": running_loss}
+        if running_accuracy is not None:
+            train_metrics_dict["train_running_accuracy"] = running_accuracy
+
+        metrics_path = model_path.joinpath(f"batch-{batch}-train_mectrics.json")
         with open(metrics_path, 'w') as file:
-            json.dump(epoch_last_running_loss_dict, file)
+            json.dump(train_metrics_dict, file)
 
 
 def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, device: str) \
@@ -372,7 +385,8 @@ def get_window_label(window_labels: torch.tensor) -> tuple[torch.tensor, float]:
 def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
                device="cpu", first_batch: int = 0, init_running_losses: list[float] = None,
                print_batch_interval: int = None, checkpoint_batch_interval: int = None,
-               save_checkpoint_kwargs: dict = None) -> float:
+               save_checkpoint_kwargs: dict = None, running_acc=False, progress_bar=True) -> \
+        tuple[float | Any, float | None | Any]:
     # Resumes training from correct batch
     train_dataloader.sampler.first_batch_index = first_batch
 
@@ -390,18 +404,22 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
     else:
         period_losses = []
 
+    period_accs = []
+
     if save_checkpoint_kwargs is not None:
         epch = save_checkpoint_kwargs["epoch"]
     else:
         epch = None
 
     batches = len(train_dataloader)
+
     with tqdm(train_dataloader,
               initial=first_batch,
               total=batches,
               leave=False,
               desc="Train loop",
-              unit="batch") as tqdm_dataloader:
+              unit="batch",
+              disable=not progress_bar) as tqdm_dataloader:
         for (i, data) in enumerate(tqdm_dataloader, start=first_batch):
 
             # get the inputs; data is a list of [inputs, labels]
@@ -425,8 +443,14 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                 for batch_index in range(labels.shape[0]):
                     labels_by_window[batch_index] = get_window_label(labels[batch_index, :])[0].to(device)
                 batch_loss = criterion(outputs, labels_by_window)
+
+                if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
+                    batch_labels = torch.ravel(labels_by_window)
             else:
                 batch_loss = criterion(outputs, labels)
+                if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
+                    batch_labels = torch.ravel(labels)
+
             batch_loss.backward()
             optimizer.step()
 
@@ -437,8 +461,25 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                 period_losses = period_losses[-RUNNING_LOSS_PERIOD:]
 
             running_loss = sum(period_losses) / len(period_losses)
+
+            if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
+                _, batch_predictions = torch.max(outputs, dim=1, keepdim=False)
+                batch_predictions = torch.ravel(batch_predictions)
+                batch_train_acc = accuracy(batch_predictions, batch_labels, task="multiclass", num_classes=5).item()
+                period_accs.append(batch_train_acc)
+                if len(period_accs) > RUNNING_LOSS_PERIOD:
+                    period_accs = period_accs[-RUNNING_LOSS_PERIOD:]
+                running_acc = sum(period_accs) / len(period_accs)
+            else:
+                running_acc = None
+
             if epch is not None:
-                tqdm_dataloader.set_postfix(running_loss=f"{running_loss:.5f}", epoch=epch)
+                if running_acc is not None:
+                    tqdm_dataloader.set_postfix(running_loss=f"{running_loss:.5f}",
+                                                running_acc=f"{running_acc:.2f}",
+                                                epoch=epch)
+                else:
+                    tqdm_dataloader.set_postfix(running_loss=f"{running_loss:.5f}", epoch=epch)
             else:
                 tqdm_dataloader.set_postfix(running_loss=f"{running_loss:.5f}")
 
@@ -453,8 +494,9 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             # Save checkpoint:
             if checkpoint_batch_interval is not None and i % checkpoint_batch_interval == checkpoint_batch_interval - 1:
-                save_checkpoint(batch=i, running_losses=period_losses, **save_checkpoint_kwargs)
-    return running_loss
+                save_checkpoint(batch=i, running_losses=period_losses, running_accuracy=running_acc,
+                                **save_checkpoint_kwargs)
+    return running_loss, running_acc
 
 
 if __name__ == "__main__":
@@ -548,7 +590,8 @@ if __name__ == "__main__":
         elif NET_TYPE == "UResIncNet":
             net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
-                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True,
+                             sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
+                             skip_connection=True,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
@@ -563,7 +606,7 @@ if __name__ == "__main__":
         elif NET_TYPE == "CombinedNet":
             net = CombinedNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
-                              sampling_method=SAMPLING_METHOD,
+                              sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
                               lstm_dropout=LSTM_DROPOUT, lstm_bidirectional=True,
                               lstm_depth=1, custom_weight_init=CUSTOM_WEIGHT_INIT)
@@ -644,12 +687,17 @@ if __name__ == "__main__":
                 checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.getstate()
 
             # print(f"Batches in epoch: {batches}")
-            last_running_loss = train_loop(train_dataloader=train_loader, model=net, optimizer=optimizer,
-                                           criterion=loss, device=device,
-                                           first_batch=start_from_batch, init_running_losses=initial_running_losses,
-                                           print_batch_interval=None,
-                                           checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
-                                           save_checkpoint_kwargs=checkpoint_kwargs)
+            last_running_loss, last_running_acc = train_loop(train_dataloader=train_loader,
+                                                             model=net,
+                                                             optimizer=optimizer,
+                                                             criterion=loss,
+                                                             device=device,
+                                                             first_batch=start_from_batch,
+                                                             init_running_losses=initial_running_losses,
+                                                             print_batch_interval=None,
+                                                             checkpoint_batch_interval=SAVE_MODEL_BATCH_INTERVAL,
+                                                             save_checkpoint_kwargs=checkpoint_kwargs,
+                                                             running_acc=False)
 
             time_elapsed = time.time() - unix_time_start
             # print(f"Epoch: {epoch} finished. Hours/Epoch: {time_elapsed / epoch / 3600}")
@@ -667,10 +715,11 @@ if __name__ == "__main__":
                 tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm, roc_info=roc_info,
-                                running_loss=last_running_loss, **checkpoint_kwargs)
+                                running_loss=last_running_loss, running_accuracy=last_running_acc, **checkpoint_kwargs)
             elif SAVE_MODEL_EVERY_EPOCH:
                 # Save model:
-                save_checkpoint(batch=batches_in_epoch - 1, **checkpoint_kwargs)
+                save_checkpoint(batch=batches_in_epoch - 1,
+                                running_loss=last_running_loss, running_accuracy=last_running_acc, **checkpoint_kwargs)
 
             start_from_batch = 0
             initial_running_losses = None
