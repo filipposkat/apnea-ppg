@@ -41,8 +41,9 @@ PRE_FETCH = 2
 PRE_FETCH_TEST = 1
 CLASSIFY_PER_SAMPLE = True
 LR_TO_BATCH_RATIO = 1 / 25600  # If lr is defined in config then it will be omitted
-LR_WARMUP = True
-LR_WARMUP_DURATION = 5
+LR_WARMUP = False
+LR_WARMUP_ASCENDING = True
+LR_WARMUP_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 999999999
@@ -72,6 +73,8 @@ if config is not None:
             OPTIMIZER = str(config["variables"]["optimizer"]["type"])
         if "warmup" in config["variables"]["optimizer"]:
             LR_WARMUP = config["variables"]["optimizer"]["warmup"]
+        if "warmup_ascending" in config["variables"]["optimizer"]:
+            LR_WARMUP_ASCENDING = config["variables"]["optimizer"]["warmup_ascending"]
     KERNEL_SIZE = int(config["variables"]["models"]["kernel_size"])
     DEPTH = int(config["variables"]["models"]["depth"])
     LAYERS = int(config["variables"]["models"]["layers"])
@@ -653,10 +656,14 @@ if __name__ == "__main__":
         last_completed_epoch = start_from_epoch - 1
         if LR_WARMUP and last_completed_epoch < LR_WARMUP_DURATION:
             warmup_iters = LR_WARMUP_DURATION - last_completed_epoch
-            starting_factor = 0.25 + last_completed_epoch * (1 - 0.25) / LR_WARMUP_DURATION
-            lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 1, "total_iters": warmup_iters}
-            lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
-
+            if LR_WARMUP_ASCENDING:
+                starting_factor = 0.3 + last_completed_epoch * (1 - 0.3) / LR_WARMUP_DURATION
+                lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 1, "total_iters": warmup_iters}
+                lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
+            else:
+                starting_factor = 1 - last_completed_epoch * (1 - 0.3) / LR_WARMUP_DURATION
+                lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 0.3, "total_iters": warmup_iters}
+                lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
     # Train:
     print(datetime.datetime.now())
     unix_time_start = time.time()

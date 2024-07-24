@@ -34,7 +34,7 @@ NUM_WORKERS_TEST = 0
 PRE_FETCH = None
 PRE_FETCH_TEST = None
 CLASSIFY_PER_SAMPLE = True
-NET_TYPE = "UResIncNet"
+NET_TYPE = "CombinedNet"
 CLASS_WEIGHTS = None
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 SAVE_MODEL_EVERY_EPOCH = True
@@ -56,6 +56,8 @@ else:
 
 
 def full_train_loop(train_config: dict):
+    if "lr" not in train_config:
+        train_config["lr"] = 0.01
     if "optimizer" not in train_config:
         train_config["optimizer"] = "adam"
     if "lr_warmup" not in train_config:
@@ -66,6 +68,18 @@ def full_train_loop(train_config: dict):
         train_config["layers"] = 1
     if "dropout" not in train_config:
         train_config["dropout"] = 0.0
+    if "sampling_method" not in train_config:
+        train_config["sampling_method"] = "conv_stride"
+    if "depth" not in train_config:
+        train_config["depth"] = 8
+    if "lstm_dropout" in train_config and train_config["lstm_dropout"] > 0.0 \
+            and "lstm_layers" in train_config and train_config["lstm_layers"] == 1:
+        train_config["lstm_dropout"] = 0.0
+
+    if "lr_warmup" in train_config and "lr_warmup_duration" not in train_config:
+        train_config["lr_warmup_duration"] = 3
+    if "lr_warmup" not in train_config and "lr_warmup_duration" in train_config:
+        train_config["lr_warmup"] = True
 
     if torch.cuda.is_available():
         device = torch.device("cuda:0")
@@ -199,9 +213,7 @@ if __name__ == "__main__":
     initial_params = None
     if NET_TYPE == "UResIncNet":
         search_space = {
-            "lr": tune.sample_from(lambda spec: 10 ** (-1 * np.random.randint(2, 4))),
-            "kernel_size": tune.choice([3, 5]),
-            "depth": tune.choice([4, 8]),
+            "lr": tune.choice([0.01, 0.001]),
             "sampling_method": tune.choice(["conv_stride", "pooling"]),
             "dropout": tune.choice([0.0, 0.1])
         }
@@ -210,20 +222,16 @@ if __name__ == "__main__":
             "kernel_size": 3,
             "depth": 8,
             "layers": 1,
-            "sampling_method": "conv_stride",
+            "sampling_method": "pooling",
             "dropout": 0.0
         }]
     elif NET_TYPE == "CombinedNet":
+        # "lstm_dropout": tune.quniform(0.10, 0.2, 0.05),  # 0.10, 0.15, 0.20
         search_space = {
-            "lr": tune.sample_from(lambda spec: 10 ** (-1 * np.random.randint(1, 4))),
-            "kernel_size": tune.choice([3, 5]),
-            "depth": tune.choice([4, 6, 8]),
-            "layers": tune.choice([1, 2]),
-            "sampling_method": tune.choice(["conv_stride", "pooling"]),
-            "dropout": tune.choice([0.0, 0.1]),
-            "lstm_hidden_size": tune.sample_from(lambda spec: 2 ** (np.random.randint(4, 8))),  # 16, 32, 64, 128
+            "lstm_hidden_size": tune.sample_from(lambda spec: 2 ** (np.random.randint(5, 8))),  # 32, 64, 128
             "lstm_layers": tune.choice([1, 2]),
-            "lstm_dropout": tune.quniform(0.05, 0.21, 0.05),  # 0.05, 0.10, 0.15, 0.20
+            "lstm_dropout": tune.quniform(0.10, 0.2, 0.05),  # 0.10, 0.15, 0.20
+            "lr_warmup_duration": tune.choice([0, 3])
         }
         initial_params = [{
             "lr": 0.01,
@@ -237,12 +245,13 @@ if __name__ == "__main__":
             "lstm_dropout": 0.1,
         }]
 
-    algo = HyperOptSearch(points_to_evaluate=initial_params)
+    algo = HyperOptSearch()
+    # algo = HyperOptSearch(points_to_evaluate=initial_params)
     # algo = ConcurrencyLimiter(algo, max_concurrent=4)
 
     scheduler = ASHAScheduler(
         max_t=10,
-        grace_period=3,
+        grace_period=5,
         reduction_factor=4)
 
     tuner = tune.Tuner(
