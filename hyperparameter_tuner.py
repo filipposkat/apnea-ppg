@@ -26,6 +26,7 @@ from CombinedNet import CombinedNet
 from trainer import train_loop
 from tester import test_loop
 
+RESUME = False
 EPOCHS = 10
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024
@@ -209,6 +210,7 @@ def full_train_loop(train_config: dict):
 
 
 if __name__ == "__main__":
+
     search_space = None
     initial_params = None
     if NET_TYPE == "UResIncNet":
@@ -228,7 +230,7 @@ if __name__ == "__main__":
     elif NET_TYPE == "CombinedNet":
         # "lstm_dropout": tune.quniform(0.10, 0.2, 0.05),  # 0.10, 0.15, 0.20
         search_space = {
-            "lstm_hidden_size": tune.sample_from(lambda spec: 2 ** (np.random.randint(5, 8))),  # 32, 64, 128
+            "lstm_hidden_size": tune.choice([32, 64, 128]),  # 32, 64, 128
             "lstm_layers": tune.choice([1, 2]),
             "lstm_dropout": tune.quniform(0.10, 0.2, 0.05),  # 0.10, 0.15, 0.20
             "lr_warmup_duration": tune.choice([0, 3])
@@ -245,30 +247,38 @@ if __name__ == "__main__":
             "lstm_dropout": 0.1,
         }]
 
-    algo = HyperOptSearch()
-    # algo = HyperOptSearch(points_to_evaluate=initial_params)
-    # algo = ConcurrencyLimiter(algo, max_concurrent=4)
+    if RESUME:
+        ray_results = Path.home() / "ray_results"
+        list_of_experiments = ray_results.glob("*")
+        experiment_path = max(list_of_experiments, key=lambda p: p.stat().st_ctime)
 
-    scheduler = ASHAScheduler(
-        max_t=10,
-        grace_period=5,
-        reduction_factor=4)
+        tuner = tune.Tuner.restore(str(experiment_path), trainable=full_train_loop, param_space=search_space)
+        results = tuner.fit()
+    else:
+        algo = HyperOptSearch()
+        # algo = HyperOptSearch(points_to_evaluate=initial_params)
+        # algo = ConcurrencyLimiter(algo, max_concurrent=4)
 
-    tuner = tune.Tuner(
-        tune.with_resources(
-            full_train_loop,
-            {"cpu": 4, "gpu": 1}
-        ),
-        tune_config=tune.TuneConfig(
-            metric="best_combined_score",
-            mode="max",
-            num_samples=20,
-            scheduler=scheduler,
-            search_alg=algo
-        ),
-        param_space=search_space,
-    )
-    results = tuner.fit()
+        scheduler = ASHAScheduler(
+            max_t=10,
+            grace_period=5,
+            reduction_factor=4)
+
+        tuner = tune.Tuner(
+            tune.with_resources(
+                full_train_loop,
+                {"cpu": 4, "gpu": 1}
+            ),
+            tune_config=tune.TuneConfig(
+                metric="best_combined_score",
+                mode="max",
+                num_samples=20,
+                scheduler=scheduler,
+                search_alg=algo
+            ),
+            param_space=search_space,
+        )
+        results = tuner.fit()
 
     best_result = results.get_best_result("best_combined_score", "max")
     print("Best trial config: {}".format(best_result.config))

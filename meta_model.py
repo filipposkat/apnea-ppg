@@ -17,7 +17,7 @@ from common import Subject
 
 # --- START OF CONSTANTS --- #
 SUBSET = 0
-EPOCH = 5
+EPOCH = 10
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
 WINDOW_SEC_SIZE = 16
@@ -85,7 +85,7 @@ def get_predictions(sub_id: int) -> dict:
     # Check if it exists in dataset-all
     if PATH_TO_SUBSET0_CONT_TESTING is not None:
         results_path = PATH_TO_SUBSET0_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
-                                                f"epoch-{EPOCH}")
+                                                             f"epoch-{EPOCH}")
         if sub_id in train_ids:
             results_path = results_path.joinpath("validation-subjects")
         else:
@@ -166,15 +166,15 @@ if __name__ == "__main__":
 
         columns.extend(
             ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
-             "ahi_a0h3a", "ahi_c0h3a", "ahi_o0h3a", "ahi_category"])
+             "ahi_a0h3a", "ahi_c0h3a", "ahi_o0h3a", "ahi_category",
+             "mean_apnea_clinical_event_duration", "mean_hypopnea_clinical_event_duration",
+             "apnea_apneaHypopnea_ratio", "hypopnea_apneaHypopnea_ratio"])
 
         for sub_id in tqdm(meta_ids):
-
             matlab_dict = get_predictions(sub_id)
             preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
             preds: np.ndarray = matlab_dict["predictions"]
             labels: np.ndarray = matlab_dict["labels"]
-
 
             # def moving_average(a, n=SIGNALS_FREQUENCY*60):
             #     ret = np.cumsum(a, dtype=float)
@@ -231,10 +231,67 @@ if __name__ == "__main__":
             # 4: Do not know
 
             # Output stats:
+            labels = np.squeeze(labels)
+            n_apnea_clinical_events = 0
+            apnea_clinical_event_durations = []
+            tmp = (labels == 1) | (labels == 2)
+            i = 1
+            while i < len(tmp):
+                if tmp[i] and not tmp[i - 1]:
+                    d = 1
+
+                    while (i+d < len(tmp)) and tmp[i + d]:
+                        d += 1
+
+                    if d >= SIGNALS_FREQUENCY * 10:
+                        n_apnea_clinical_events += 1
+                        apnea_clinical_event_durations.append(d / SIGNALS_FREQUENCY)
+                    i += d
+                else:
+                    i += 1
+
+            if n_apnea_clinical_events == 0:
+                mean_apnea_clinical_event_duration = 0.0
+            else:
+                mean_apnea_clinical_event_duration = np.mean(apnea_clinical_event_durations)
+
+            n_hypopnea_clinical_events = 0
+            hypopnea_clinical_event_durations = []
+            tmp = labels == 3
+            i = 1
+            while i < len(tmp):
+                if tmp[i] and not tmp[i - 1]:
+                    d = 1
+                    while (i+d < len(tmp)) and tmp[i + d]:
+                        d += 1
+                    if d >= SIGNALS_FREQUENCY * 10:
+                        n_hypopnea_clinical_events += 1
+                        hypopnea_clinical_event_durations.append(d / SIGNALS_FREQUENCY)
+                    i += d
+                else:
+                    i += 1
+
+            if n_hypopnea_clinical_events == 0:
+                mean_hypopnea_clinical_event_duration = 0.0
+            else:
+                mean_hypopnea_clinical_event_duration = np.mean(hypopnea_clinical_event_durations)
+
+            ah = n_apnea_clinical_events + n_hypopnea_clinical_events
+            if n_apnea_clinical_events == 0:
+                apnea_apneaHypopnea_ratio = 0.0
+            else:
+                apnea_apneaHypopnea_ratio = n_apnea_clinical_events / ah
+            if n_hypopnea_clinical_events == 0:
+                hypopnea_apneaHypopnea_ratio = 0.0
+            else:
+                hypopnea_apneaHypopnea_ratio = n_hypopnea_clinical_events / ah
+
             N = labels.size
             normalized_duration_vector = np.zeros(5)
+            mean_event_duration_vector = np.zeros(5)
             for lbl in range(5):
                 normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
+
             ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
             ahi_c0h3a = float(metadata_df["ahi_c0h3a"])
             ahi_o0h3a = float(metadata_df["ahi_o0h3a"])
@@ -270,6 +327,10 @@ if __name__ == "__main__":
             tmp_list.append(ahi_c0h3a)
             tmp_list.append(ahi_o0h3a)
             tmp_list.append(cat)
+            tmp_list.append(mean_apnea_clinical_event_duration)
+            tmp_list.append(mean_hypopnea_clinical_event_duration)
+            tmp_list.append(apnea_apneaHypopnea_ratio)
+            tmp_list.append(hypopnea_apneaHypopnea_ratio)
 
             mesaids.append(mesaid)
             data_list.append(tmp_list)

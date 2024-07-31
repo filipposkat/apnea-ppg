@@ -57,7 +57,10 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
-
+    if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
+        CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
+    else:
+        CONVERT_SPO2DESAT_TO_NORMAL = False
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -107,6 +110,7 @@ if config is not None:
 
 else:
     subset_id = 1
+    CONVERT_SPO2DESAT_TO_NORMAL = False
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
@@ -252,6 +256,9 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     optimizer_state_dict = state["optimizer_state_dict"]
     criterion_class = state["criterion_class"]
     criterion_state_dict = state["criterion_state_dict"]
+
+    if "lstm_max_channels" in model_kwargs:
+        model_kwargs.pop("lstm_max_channels")
 
     model = net_class(**model_kwargs)
     model.load_state_dict(net_state)
@@ -434,13 +441,16 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             inputs = inputs.to(device)
             labels = labels.to(device)
 
+            if CONVERT_SPO2DESAT_TO_NORMAL:
+                labels[labels == 4] = 0
+
             # zero the parameter gradients
             optimizer.zero_grad()
 
             # forward + backward + optimize
             outputs = model(inputs)
 
-            if outputs.shape.numel() != inputs.shape.numel() * 5 and labels.shape[0] != labels.shape.numel():
+            if outputs.shape.numel() != inputs.shape.numel() * N_CLASSES and labels.shape[0] != labels.shape.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_index in range(labels.shape[0]):
@@ -468,7 +478,8 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
                 _, batch_predictions = torch.max(outputs, dim=1, keepdim=False)
                 batch_predictions = torch.ravel(batch_predictions)
-                batch_train_acc = accuracy(batch_predictions, batch_labels, task="multiclass", num_classes=5).item()
+                batch_train_acc = accuracy(batch_predictions, batch_labels, task="multiclass",
+                                           num_classes=N_CLASSES).item()
                 period_accs.append(batch_train_acc)
                 if len(period_accs) > RUNNING_LOSS_PERIOD:
                     period_accs = period_accs[-RUNNING_LOSS_PERIOD:]
@@ -527,8 +538,12 @@ if __name__ == "__main__":
     # Find out window size:
     sample_batch_input, sample_batch_labels = next(iter(train_loader))
     window_size = sample_batch_input.shape[2]
-    print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
+    N_CLASSES = int(torch.max(sample_batch_labels)) + 1
+    if CONVERT_SPO2DESAT_TO_NORMAL:
+        N_CLASSES -= 1
 
+    print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
+    print(f"# Classes: {N_CLASSES}")
     # Create Network:
     last_epoch = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     last_batch = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=last_epoch)
@@ -587,27 +602,30 @@ if __name__ == "__main__":
         net = None
         net_kwargs = {}
         if NET_TYPE == "UNET":
-            net = UNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS, kernel_size=KERNEL_SIZE,
+            net = UNet(nclass=N_CLASSES, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+                       kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet":
-            net = UResIncNet(nclass=5, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = UResIncNet(nclass=N_CLASSES, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                              skip_connection=True,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
-            net = ConvNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = ConvNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+                          layers=LAYERS,
                           kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ResIncNet":
-            net = ResIncNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+                            layers=LAYERS,
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "CombinedNet":
-            net = CombinedNet(nclass=5, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
                               sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
@@ -716,7 +734,8 @@ if __name__ == "__main__":
 
             if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
                 # print(f"Testing epoch: {epoch}")
-                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_loader, device=device, verbose=False,
+                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_loader, n_class=N_CLASSES,
+                                                  device=device, verbose=False,
                                                   progress_bar=True)
                 test_acc = metrics['aggregate_accuracy']
                 tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")

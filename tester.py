@@ -39,6 +39,10 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+    if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
+        CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
+    else:
+        CONVERT_SPO2DESAT_TO_NORMAL = False
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -51,6 +55,7 @@ if config is not None:
 else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
+    CONVERT_SPO2DESAT_TO_NORMAL = False
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
     NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
@@ -492,9 +497,10 @@ def get_window_label(window_labels: torch.tensor):
         return prominent_event.type(torch.int64), float(confidence)
 
 
-def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.tensor):
-    classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
-    cm_win = confusion_matrix(target=window_labels, preds=window_predictions, num_classes=5, task="multiclass")
+def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.tensor, n_class=5):
+    all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
+    classes = [all_classes[c] for c in range(n_class)]
+    cm_win = confusion_matrix(target=window_labels, preds=window_predictions, num_classes=n_class, task="multiclass")
 
     total_pred_win = torch.sum(cm_win)
     tps = torch.diag(cm_win)
@@ -516,7 +522,7 @@ def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.
     return cm_win, total_pred_win.item(), correct_pred_win.item(), tp_win, tn_win, fp_win, fn_win
 
 
-def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_batches=None,
+def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="cpu", max_batches=None,
               progress_bar=True, verbose=False, first_batch=0) \
         -> tuple[dict[str: float], list[list[float]], dict[str: dict[str: list | float]]]:
     if verbose:
@@ -532,13 +538,15 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
     unix_time_start = time.time()
 
     # prepare to count predictions for each class
-    classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
+    all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
+    classes = [all_classes[c] for c in range(n_class)]
+
     thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
     tprs_by_class = {c: [] for c in classes}
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
 
-    cm = torch.zeros((5, 5), device=device)
+    cm = torch.zeros((n_class, n_class), device=device)
     correct_pred = 0
     total_pred = 0
     tp = {c: 0 for c in classes}
@@ -566,13 +574,16 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
             batch_inputs = batch_inputs.to(device)
             batch_labels = batch_labels.to(device)
 
+            if CONVERT_SPO2DESAT_TO_NORMAL:
+                batch_labels[batch_labels==4] = 0
+
             # Predictions:
             batch_outputs = model(batch_inputs)
             batch_output_probs = F.softmax(batch_outputs, dim=1)
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
-            if batch_outputs.numel() != batch_inputs.numel() * 5 and batch_labels.shape[0] != batch_labels.numel():
+            if batch_outputs.numel() != batch_inputs.numel() * n_class and batch_labels.shape[0] != batch_labels.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_j in range(batch_labels.shape[0]):
@@ -580,8 +591,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
                 batch_labels = labels_by_window
 
             # Compute RoC:
-            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=5).to(device)
-            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=5, average="none").to(device)
+            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(device)
+            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(device)
             fprs, tprs, _ = roc(batch_output_probs, batch_labels)
             aucs = auroc(batch_output_probs, batch_labels)
             for c in range(len(classes)):
@@ -609,7 +620,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, device="cpu", max_b
                 batch_labels = torch.ravel(batch_labels)
                 batch_predictions = torch.ravel(batch_predictions)
 
-                result = get_window_stats_new(batch_labels, batch_predictions)
+                result = get_window_stats_new(batch_labels, batch_predictions, n_class=n_class)
                 cm_win, total_pred_win, correct_pred_win, tp_win, tn_win, fp_win, fn_win = result
 
                 cm += cm_win
@@ -821,6 +832,12 @@ if __name__ == "__main__":
         test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                                   pre_fetch=PRE_FETCH,
                                                   shuffle=False)
+    sample_batch_input, sample_batch_labels = next(iter(test_loader))
+    window_size = sample_batch_input.shape[2]
+    N_CLASSES = int(torch.max(sample_batch_labels)) + 1
+    if CONVERT_SPO2DESAT_TO_NORMAL:
+        N_CLASSES -= 1
+
     if TEST_MODEL:
         print(f"Device: {test_device}")
         print(NET_TYPE)

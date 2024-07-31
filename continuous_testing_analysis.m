@@ -2,8 +2,8 @@ clear;
 clc;
 
 config = ReadYaml("config.yml");
-TESTING_SUBSET = "severe";
-EPOCH = 5;
+TESTING_SUBSET = "moderate";
+EPOCH = 10;
 PATH_TO_SUBSET = config.("subset_" + string(TESTING_SUBSET) + "_directory");
 PATH_TO_SUBSET0_CONT_TESTING = config.("subset_0_continuous_testing_directory");
 PATH_TO_SUBSET_CONT_TESTING = config.("subset_" + string(TESTING_SUBSET) + "_continuous_testing_directory");
@@ -66,7 +66,7 @@ for i=1:length(a)
 end
 %%
 WINDOWS_SIZE_MIN=60;
-LABEL = 0;
+LABEL = 1;
 FREQ = 32;
 N_THREADS = 4;
 
@@ -134,6 +134,7 @@ parfor i=1:length(ids)
         % Get the window:
         window = rel_labels(j-filt_sz+1:j);
         clinical_events = 0;
+        total_events_duration = 0;
         k = 1;
         
         % Find start of events:
@@ -147,6 +148,7 @@ parfor i=1:length(ids)
                 % if event lasts 10s, count it towards clinical events
                 if d >= FREQ * 10
                     clinical_events = clinical_events + 1;
+                    total_events_duration = total_events_duration + d / FREQ;
                 end
                 % move one step after the event to search for others:
                 k = k + d;
