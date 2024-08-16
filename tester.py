@@ -39,10 +39,17 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+
     if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
         CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
     else:
         CONVERT_SPO2DESAT_TO_NORMAL = False
+
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_INPUT_CHANNELS = 1    
+        
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -56,6 +63,7 @@ else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     CONVERT_SPO2DESAT_TO_NORMAL = False
+    N_INPUT_CHANNELS = 1
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
     NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
@@ -575,7 +583,13 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             batch_labels = batch_labels.to(device)
 
             if CONVERT_SPO2DESAT_TO_NORMAL:
-                batch_labels[batch_labels==4] = 0
+                batch_labels[batch_labels == 4] = 0
+
+            n_channels_found = inputs.shape[1]
+            if n_channels_found != N_INPUT_CHANNELS:
+                assert n_channels_found == N_INPUT_CHANNELS + 1
+                # One excess channel has been detected, exclude the first (typically SpO2 or Flow)
+                inputs = inputs[:, 1:, :]
 
             # Predictions:
             batch_outputs = model(batch_inputs)
@@ -583,7 +597,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
-            if batch_outputs.numel() != batch_inputs.numel() * n_class and batch_labels.shape[0] != batch_labels.numel():
+            if batch_outputs.numel() != batch_inputs.numel() * n_class and batch_labels.shape[
+                0] != batch_labels.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_j in range(batch_labels.shape[0]):

@@ -6,7 +6,7 @@ from collections.abc import Generator
 from pathlib import Path
 import pandas as pd
 import math
-
+import matplotlib.pyplot as plt
 # Local imports:
 from common import Subject
 
@@ -202,11 +202,18 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(1)
+    (id, sub) = get_subject_by_id(4948)
+    print(len(sub.signals))
     print(sub.signal_headers)
-    print(sub.metadata)
+    # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    # df = sub.export_to_dataframe(signal_labels=["Pleth"], max_frequency=32)
+    plt.plot(sub.signals[1])
+    plt.show()
+    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32)
+    df.plot(x="time_secs", y="SpO2")
+    plt.show()
+    df.plot(x="time_secs", y="Pleth")
+    plt.show()
     # df.to_csv("107.csv")
     # print(df.shape[0])
     # print(sum(df["event_index"] == 1))

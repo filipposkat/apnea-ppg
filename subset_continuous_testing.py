@@ -20,7 +20,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 # --- START OF CONSTANTS --- #
 TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 5
+EPOCH = 10
 CREATE_ARRAYS = False
 SKIP_EXISTING_IDS = True
 WINDOW_SEC_SIZE = 16
@@ -40,6 +40,10 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+    if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
+        CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
+    else:
+        CONVERT_SPO2DESAT_TO_NORMAL = False
     if CREATE_ARRAYS:
         PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_directory"])
@@ -54,6 +58,7 @@ if config is not None:
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
     subset_id = 1
+    CONVERT_SPO2DESAT_TO_NORMAL = False
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
@@ -97,7 +102,7 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
 def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergence=None, split=True) \
         -> tuple[list, list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
-                                         max_frequency=SIGNALS_FREQUENCY)
+                                         frequency=SIGNALS_FREQUENCY)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
     if split:
@@ -277,6 +282,13 @@ if __name__ == "__main__":
             dataset = TensorDataset(X_test, y_test)
             loader = DataLoader(dataset=dataset, batch_size=8192, shuffle=False)
 
+            sample_batch_input, sample_batch_labels = next(iter(loader))
+            window_size = sample_batch_input.shape[2]
+            N_CLASSES = int(torch.max(sample_batch_labels)) + 1
+            if CONVERT_SPO2DESAT_TO_NORMAL:
+                assert N_CLASSES == 5
+                N_CLASSES = 4
+
             if torch.cuda.is_available():
                 test_device = torch.device("cuda:0")
             elif torch.backends.mps.is_available():
@@ -307,13 +319,16 @@ if __name__ == "__main__":
                     batch_inputs = batch_inputs.to(test_device)
                     batch_labels = batch_labels.to(test_device)
 
+                    if CONVERT_SPO2DESAT_TO_NORMAL:
+                        batch_labels[batch_labels == 4] = 0
+
                     # Predictions:
                     batch_outputs = net(batch_inputs)
                     batch_output_probs = F.softmax(batch_outputs, dim=1)
                     _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
                     saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
-                    saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, 5).tolist())
+                    saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, N_CLASSES).tolist())
                     saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
             matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),

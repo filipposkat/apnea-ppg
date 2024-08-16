@@ -12,7 +12,6 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
 GENERATE_TRAIN_TEST_SPLIT = False
-N_SIGNALS = 2
 CROSS_SUBJECT_TEST_SIZE = 100
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
@@ -31,9 +30,14 @@ if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_DESIRED_INPUT_SIGNALS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_DESIRED_INPUT_SIGNALS = 1
 else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
+    N_DESIRED_INPUT_SIGNALS = 1
 
 ARRAYS_DIR = PATH_TO_SUBSET.joinpath("arrays")
 
@@ -105,8 +109,8 @@ class MappedDataset(Dataset):
         sample_id: int = self.subject_ids[0]
         X, _ = self.load_arrays(sample_id)
         n_signals = X.shape[1]
-
-        assert n_signals == 1  # Flow has been deleted already
+        
+        # assert n_signals == 1  # Flow has been deleted already
         # assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
         # Inputs are indexed with two numbers (id, window_index),
@@ -128,15 +132,18 @@ class MappedDataset(Dataset):
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
-            assert X.shape[1] == 2
+            assert X.shape[1] >= 2
             y = X[:, 0, :]
+            X = np.delete(X, 0, axis=1)
         else:
             y = np.load(str(y_path)).astype("uint8")
             if y.ndim != 1:
                 y = y.reshape(X.shape[0], X.shape[2])
 
-        # Drop the flow signal since only Pleth will be used as input:
-        if X.shape[1] == 2:
+        
+        if N_DESIRED_INPUT_SIGNALS < X.shape[1] :
+            assert X.shape[1] == N_DESIRED_INPUT_SIGNALS + 1
+            # Drop the flow signal:
             X = np.delete(X, 0, axis=1)
         return X, y
 
@@ -148,15 +155,17 @@ class MappedDataset(Dataset):
         X = np.swapaxes(X, axis1=1, axis2=2)  # shape: (n_windows, n_signals, window_size), Flow comes first
 
         if "flow" == self.target:
-            assert X.shape[1] == 2
+            assert X.shape[1] >= 2
             y = X[:, 0, :]
+            X = np.delete(X, 0, axis=1)
         else:
             y = np.load(str(y_path)).astype("uint8")
             if y.ndim != 1:
                 y = y.reshape(X.shape[0], X.shape[2])
 
-        # Drop the flow signal since only Pleth will be used as input:
-        if X.shape[1] == 2:
+        if N_DESIRED_INPUT_SIGNALS < X.shape[1] :
+            assert X.shape[1] == N_DESIRED_INPUT_SIGNALS + 1
+            # Drop the flow signal:
             X = np.delete(X, 0, axis=1)
         return X, y
 
@@ -201,6 +210,8 @@ class MappedDataset(Dataset):
         for sub_id in batch_windows_by_sub.keys():
             window_indices = batch_windows_by_sub[sub_id]
             signals, labels = self.get_specific_windows(sub_id, window_indices)
+            if signals.shape[1] != N_DESIRED_INPUT_SIGNALS:
+                print(f"Subject: {sub_id} has incorrect dimensions ")
             X_batch.append(signals)
             y_batch.append(labels)
 

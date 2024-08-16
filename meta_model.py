@@ -12,6 +12,7 @@ import random
 # from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from scipy.fft import rfft, rfftfreq
+from torch.multiprocessing import Pool
 # Local imports:
 from common import Subject
 
@@ -20,13 +21,11 @@ SUBSET = 0
 EPOCH = 10
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
-WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 TEST_SIZE = 0.25
 SEED = 33
 COMPUTE_FOURIER_TRANSFORM = False
 FOURIER_COMPONENTS = 100
-WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -61,6 +60,25 @@ else:
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
+
+train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
+             589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
+             931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
+             1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
+             1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983, 2003,
+             2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292, 2317,
+             2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798, 2800,
+             2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149, 3156,
+             3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564, 3575,
+             3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867, 3902,
+             3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205, 4228,
+             4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554, 4592,
+             4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137, 5155,
+             5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433, 5457,
+             5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909, 5954,
+             5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280, 6291,
+             6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755, 6781,
+             6804, 6807, 6811]
 
 
 # --- END OF CONSTANTS --- #
@@ -109,6 +127,187 @@ def get_predictions(sub_id: int) -> dict:
     return matlab_dict
 
 
+def get_columns_of_subject(sub_id: int) -> (int, list):
+    matlab_dict = get_predictions(sub_id)
+    preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
+    preds: np.ndarray = matlab_dict["predictions"]
+    labels: np.ndarray = matlab_dict["labels"]
+    n_classes = preds_proba.shape[1]
+    # def moving_average(a, n=SIGNALS_FREQUENCY*60):
+    #     ret = np.cumsum(a, dtype=float)
+    #     ret[n:] = ret[n:] - ret[:-n]
+    #     return ret[n - 1:] / n
+    #
+    # preds_proba_ma = moving_average(preds_proba[:, 2].ravel())
+    # label = labels == 2
+    # labels_ma = moving_average(label)
+    # plt.figure()
+    # plt.plot(np.arange(0, preds_proba_ma.shape[0]), preds_proba_ma, label="Predicted probability MA")
+    # plt.plot(np.arange(0, labels_ma.shape[0]), labels_ma, label="Ground truth label MA")
+    # plt.legend()
+    # plt.show()
+    # exit()
+
+    # Input stats:
+    if COMPUTE_FOURIER_TRANSFORM:
+        preds_proba_f_dict = {f"probas_l{i}_f": np.abs(rfft(preds_proba[:, i].ravel())) for i in
+                              range(n_classes)}
+        xf = rfftfreq(preds_proba.shape[0], 1 / SIGNALS_FREQUENCY)
+        # plt.figure()
+        # plt.plot(xf, np.abs(preds_proba_f_dict["probas_l2_f"]))
+        # plt.show()
+    else:
+        preds_proba_f_dict = None
+
+    est_sleep_hours = np.size(labels) / (60 * 60 * SIGNALS_FREQUENCY)
+    mean_vector = preds_proba.mean(axis=0, keepdims=False)
+    std_vector = preds_proba.std(axis=0, keepdims=False)
+    skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
+    kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
+    first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
+    median_vector = np.percentile(preds_proba, q=50, axis=0, keepdims=False)
+    third_quartile_vector = np.percentile(preds_proba, q=75, axis=0, keepdims=False)
+    cv_vector = np.divide(std_vector, mean_vector + 0.000001)
+
+    # Calculation of other metrics:
+    preds = np.squeeze(preds)
+    n_pred_clinical_events = {e: 0 for e in (1, 2, 3)}
+    pred_clinical_event_durations = {e: [] for e in (1, 2, 3)}
+    i = 1
+    while i < len(preds):
+        event = preds[i]
+        if (1 <= event <= 3) and (preds[i] != preds[i - 1]):
+            d = 1
+            while (i + d < len(preds)) and preds[i + d] == event:
+                d += 1
+
+            if d >= SIGNALS_FREQUENCY * 10:
+                n_pred_clinical_events[event] += 1
+                pred_clinical_event_durations[event].append(d / SIGNALS_FREQUENCY)
+            i += d
+        else:
+            i += 1
+
+    mean_pred_clinical_event_duration = {e: np.mean(pred_clinical_event_durations[e]
+                                                    if n_pred_clinical_events[e] != 0 else 0.0)
+                                         for e in n_pred_clinical_events.keys()}
+
+    # Metadata inputs:
+    metadata_df = get_metadata(sub_id)
+
+    mesaid = int(metadata_df["mesaid"])
+    gender = int(metadata_df["gender1"])
+    age = int(metadata_df["sleepage5c"])
+    race = int(metadata_df["race1c"])
+    height = float(metadata_df["htcm5"])
+    weight = float(metadata_df["wtlb5"]) * 0.45359237  # lb to kg
+    bmi = float(metadata_df["nsrr_bmi"])
+    smoker_status = float(metadata_df["smkstat5"])
+    if not math.isnan(smoker_status):
+        smoker_status = int(smoker_status)
+    else:
+        smoker_status = 4
+    # 0: Never smoked
+    # 1: Former smoker quit more than 1 year ago
+    # 2: Former smoker quit less than 1 year ago
+    # 3: Current smoker
+    # 4: Do not know
+
+    # Output stats:
+    labels = np.squeeze(labels)
+    n_clinical_events = {e: 0 for e in (1, 2, 3)}
+    clinical_event_durations = {e: [] for e in (1, 2, 3)}
+    i = 1
+    while i < len(labels):
+        event = labels[i]
+        if (1 <= event <= 3) and (labels[i] != labels[i - 1]):
+            d = 1
+            while (i + d < len(labels)) and labels[i + d] == event:
+                d += 1
+
+            if d >= SIGNALS_FREQUENCY * 10:
+                n_clinical_events[event] += 1
+                clinical_event_durations[event].append(d / SIGNALS_FREQUENCY)
+            i += d
+        else:
+            i += 1
+
+    n_apnea_clinical_events = n_clinical_events[1] + n_clinical_events[2]
+    mean_apnea_clinical_event_duration = np.mean([*clinical_event_durations[1], *clinical_event_durations[2]]) \
+        if n_apnea_clinical_events != 0 else 0.0
+
+    n_hypopnea_clinical_events = n_clinical_events[3]
+    mean_hypopnea_clinical_event_duration = np.mean(clinical_event_durations[3]) \
+        if n_hypopnea_clinical_events != 0 else 0.0
+
+    ah = n_apnea_clinical_events + n_hypopnea_clinical_events
+    mean_apneaHypopnea_clinical_event_duration = \
+        np.mean([*clinical_event_durations[1], *clinical_event_durations[2], *clinical_event_durations[3]]) \
+            if ah != 0 else 0.0
+
+    if n_apnea_clinical_events == 0:
+        apnea_apneaHypopnea_ratio = 0.0
+    else:
+        apnea_apneaHypopnea_ratio = n_apnea_clinical_events / ah
+    if n_hypopnea_clinical_events == 0:
+        hypopnea_apneaHypopnea_ratio = 0.0
+    else:
+        hypopnea_apneaHypopnea_ratio = n_hypopnea_clinical_events / ah
+
+    N = labels.size
+    normalized_duration_vector = np.zeros(5)
+    mean_event_duration_vector = np.zeros(5)
+    for lbl in range(5):
+        normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
+
+    ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
+    ahi_c0h3a = float(metadata_df["ahi_c0h3a"])
+    ahi_o0h3a = float(metadata_df["ahi_o0h3a"])
+    if ahi_a0h3a < 5:
+        # No
+        cat = 0
+    elif ahi_a0h3a < 15:
+        # Mild
+        cat = 1
+    elif ahi_a0h3a < 30:
+        # Moderate
+        cat = 2
+    else:
+        # Severe
+        cat = 3
+
+    tmp_list = [gender, age, race, height, weight, bmi, smoker_status]
+    for l in range(n_classes):
+        tmp_list.append(mean_vector[l])
+        tmp_list.append(std_vector[l])
+        tmp_list.append(skewness_vector[l])
+        tmp_list.append(kurtosis_vector[l])
+        tmp_list.append(first_quartile_vector[l])
+        tmp_list.append(median_vector[l])
+        tmp_list.append(third_quartile_vector[l])
+        tmp_list.append(cv_vector[l])
+        if COMPUTE_FOURIER_TRANSFORM:
+            for f in range(FOURIER_COMPONENTS):
+                tmp_list.append(preds_proba_f_dict[f"probas_l{l}_f"][f])
+
+    tmp_list.extend([n_pred_clinical_events[e] / est_sleep_hours for e in n_pred_clinical_events.keys()])
+    tmp_list.extend([mean_pred_clinical_event_duration[e] for e in mean_pred_clinical_event_duration.keys()])
+
+    # Outputs:
+    tmp_list.extend([normalized_duration_vector[l] for l in range(n_classes)])
+    tmp_list.append(ahi_a0h3a)
+    tmp_list.append(ahi_c0h3a)
+    tmp_list.append(ahi_o0h3a)
+    tmp_list.append(cat)
+    tmp_list.append(mean_apnea_clinical_event_duration)
+    tmp_list.append(mean_hypopnea_clinical_event_duration)
+    tmp_list.append(mean_apneaHypopnea_clinical_event_duration)
+    tmp_list.append(apnea_apneaHypopnea_ratio)
+    tmp_list.append(hypopnea_apneaHypopnea_ratio)
+
+    return mesaid, tmp_list
+
+
 if __name__ == "__main__":
     PATH_TO_META_MODEL = PATH_TO_SUBSET_CONT_TESTING.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
                                                               str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
@@ -123,35 +322,21 @@ if __name__ == "__main__":
         print(f"Subset-{SUBSET} has no ids generated yet")
         exit(1)
 
-    train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
-                 589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
-                 931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
-                 1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
-                 1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983, 2003,
-                 2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292, 2317,
-                 2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798, 2800,
-                 2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149, 3156,
-                 3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564, 3575,
-                 3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867, 3902,
-                 3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205, 4228,
-                 4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554, 4592,
-                 4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137, 5155,
-                 5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433, 5457,
-                 5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909, 5954,
-                 5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280, 6291,
-                 6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755, 6781,
-                 6804, 6807, 6811]
-
     ids_ex_train = [id for id in ids if id not in train_ids]
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
     # meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
 
+    matlab_dict = get_predictions(meta_ids[0])
+    preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
+    N_CLASSES = preds_proba.shape[1]
+    print(f"# of Classes detected: {N_CLASSES}")
+
     if CREATE_DATA:
         mesaids = []
         data_list = []
         columns = ["gender", "age", "race", "height", "weight", "bmi", "smoker_status"]
-        for l in range(5):
+        for l in range(N_CLASSES):
             columns.append(f"mean_proba_l{l}")
             columns.append(f"std_proba_l{l}")
             columns.append(f"skewness_proba_l{l}")
@@ -164,176 +349,29 @@ if __name__ == "__main__":
                 for f in range(FOURIER_COMPONENTS):
                     columns.append(f"l{l}_f{f}")
 
+        for e in (1, 2, 3):
+            columns.append(f"pred_events_per_hour_l{e}")
+
+        for e in (1, 2, 3):
+            columns.append(f"mean_pred_event_duration_l{e}")
+
+        # Outputs:
+        for l in range(N_CLASSES):
+            columns.append(f"norm_duration_l{l}")
+
         columns.extend(
-            ["norm_duration_l0", "norm_duration_l1", "norm_duration_l2", "norm_duration_l3", "norm_duration_l4",
-             "ahi_a0h3a", "ahi_c0h3a", "ahi_o0h3a", "ahi_category",
+            ["ahi_a0h3a", "ahi_c0h3a", "ahi_o0h3a", "ahi_category",
              "mean_apnea_clinical_event_duration", "mean_hypopnea_clinical_event_duration",
+             "mean_apneaHypopnea_clinical_event_duration",
              "apnea_apneaHypopnea_ratio", "hypopnea_apneaHypopnea_ratio"])
 
-        for sub_id in tqdm(meta_ids):
-            matlab_dict = get_predictions(sub_id)
-            preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
-            preds: np.ndarray = matlab_dict["predictions"]
-            labels: np.ndarray = matlab_dict["labels"]
-
-            # def moving_average(a, n=SIGNALS_FREQUENCY*60):
-            #     ret = np.cumsum(a, dtype=float)
-            #     ret[n:] = ret[n:] - ret[:-n]
-            #     return ret[n - 1:] / n
-            #
-            # preds_proba_ma = moving_average(preds_proba[:, 2].ravel())
-            # label = labels == 2
-            # labels_ma = moving_average(label)
-            # plt.figure()
-            # plt.plot(np.arange(0, preds_proba_ma.shape[0]), preds_proba_ma, label="Predicted probability MA")
-            # plt.plot(np.arange(0, labels_ma.shape[0]), labels_ma, label="Ground truth label MA")
-            # plt.legend()
-            # plt.show()
-            # exit()
-
-            # Input stats:
-            if COMPUTE_FOURIER_TRANSFORM:
-                preds_proba_f_dict = {f"probas_l{i}_f": np.abs(rfft(preds_proba[:, i].ravel())) for i in range(5)}
-                xf = rfftfreq(preds_proba.shape[0], 1 / SIGNALS_FREQUENCY)
-                # plt.figure()
-                # plt.plot(xf, np.abs(preds_proba_f_dict["probas_l2_f"]))
-                # plt.show()
-            else:
-                preds_proba_f_dict = None
-
-            mean_vector = preds_proba.mean(axis=0, keepdims=False)
-            std_vector = preds_proba.std(axis=0, keepdims=False)
-            skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
-            kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
-            first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
-            median_vector = np.percentile(preds_proba, q=50, axis=0, keepdims=False)
-            third_quartile_vector = np.percentile(preds_proba, q=75, axis=0, keepdims=False)
-            cv_vector = np.divide(std_vector, mean_vector + 0.000001)
-
-            metadata_df = get_metadata(sub_id)
-
-            mesaid = int(metadata_df["mesaid"])
-            gender = int(metadata_df["gender1"])
-            age = int(metadata_df["sleepage5c"])
-            race = int(metadata_df["race1c"])
-            height = float(metadata_df["htcm5"])
-            weight = float(metadata_df["wtlb5"]) * 0.45359237  # lb to kg
-            bmi = float(metadata_df["nsrr_bmi"])
-            smoker_status = float(metadata_df["smkstat5"])
-            if not math.isnan(smoker_status):
-                smoker_status = int(smoker_status)
-            else:
-                smoker_status = 4
-            # 0: Never smoked
-            # 1: Former smoker quit more than 1 year ago
-            # 2: Former smoker quit less than 1 year ago
-            # 3: Current smoker
-            # 4: Do not know
-
-            # Output stats:
-            labels = np.squeeze(labels)
-            n_apnea_clinical_events = 0
-            apnea_clinical_event_durations = []
-            tmp = (labels == 1) | (labels == 2)
-            i = 1
-            while i < len(tmp):
-                if tmp[i] and not tmp[i - 1]:
-                    d = 1
-
-                    while (i+d < len(tmp)) and tmp[i + d]:
-                        d += 1
-
-                    if d >= SIGNALS_FREQUENCY * 10:
-                        n_apnea_clinical_events += 1
-                        apnea_clinical_event_durations.append(d / SIGNALS_FREQUENCY)
-                    i += d
-                else:
-                    i += 1
-
-            if n_apnea_clinical_events == 0:
-                mean_apnea_clinical_event_duration = 0.0
-            else:
-                mean_apnea_clinical_event_duration = np.mean(apnea_clinical_event_durations)
-
-            n_hypopnea_clinical_events = 0
-            hypopnea_clinical_event_durations = []
-            tmp = labels == 3
-            i = 1
-            while i < len(tmp):
-                if tmp[i] and not tmp[i - 1]:
-                    d = 1
-                    while (i+d < len(tmp)) and tmp[i + d]:
-                        d += 1
-                    if d >= SIGNALS_FREQUENCY * 10:
-                        n_hypopnea_clinical_events += 1
-                        hypopnea_clinical_event_durations.append(d / SIGNALS_FREQUENCY)
-                    i += d
-                else:
-                    i += 1
-
-            if n_hypopnea_clinical_events == 0:
-                mean_hypopnea_clinical_event_duration = 0.0
-            else:
-                mean_hypopnea_clinical_event_duration = np.mean(hypopnea_clinical_event_durations)
-
-            ah = n_apnea_clinical_events + n_hypopnea_clinical_events
-            if n_apnea_clinical_events == 0:
-                apnea_apneaHypopnea_ratio = 0.0
-            else:
-                apnea_apneaHypopnea_ratio = n_apnea_clinical_events / ah
-            if n_hypopnea_clinical_events == 0:
-                hypopnea_apneaHypopnea_ratio = 0.0
-            else:
-                hypopnea_apneaHypopnea_ratio = n_hypopnea_clinical_events / ah
-
-            N = labels.size
-            normalized_duration_vector = np.zeros(5)
-            mean_event_duration_vector = np.zeros(5)
-            for lbl in range(5):
-                normalized_duration_vector[lbl] = np.sum(labels == lbl) / N
-
-            ahi_a0h3a = float(metadata_df["ahi_a0h3a"])
-            ahi_c0h3a = float(metadata_df["ahi_c0h3a"])
-            ahi_o0h3a = float(metadata_df["ahi_o0h3a"])
-            if ahi_a0h3a < 5:
-                # No
-                cat = 0
-            elif ahi_a0h3a < 15:
-                # Mild
-                cat = 1
-            elif ahi_a0h3a < 30:
-                # Moderate
-                cat = 2
-            else:
-                # Severe
-                cat = 3
-
-            tmp_list = [gender, age, race, height, weight, bmi, smoker_status]
-            for l in range(5):
-                tmp_list.append(mean_vector[l])
-                tmp_list.append(std_vector[l])
-                tmp_list.append(skewness_vector[l])
-                tmp_list.append(kurtosis_vector[l])
-                tmp_list.append(first_quartile_vector[l])
-                tmp_list.append(median_vector[l])
-                tmp_list.append(third_quartile_vector[l])
-                tmp_list.append(cv_vector[l])
-                if COMPUTE_FOURIER_TRANSFORM:
-                    for f in range(FOURIER_COMPONENTS):
-                        tmp_list.append(preds_proba_f_dict[f"probas_l{l}_f"][f])
-
-            tmp_list.extend([normalized_duration_vector[l] for l in range(5)])
-            tmp_list.append(ahi_a0h3a)
-            tmp_list.append(ahi_c0h3a)
-            tmp_list.append(ahi_o0h3a)
-            tmp_list.append(cat)
-            tmp_list.append(mean_apnea_clinical_event_duration)
-            tmp_list.append(mean_hypopnea_clinical_event_duration)
-            tmp_list.append(apnea_apneaHypopnea_ratio)
-            tmp_list.append(hypopnea_apneaHypopnea_ratio)
-
-            mesaids.append(mesaid)
-            data_list.append(tmp_list)
+        with Pool(processes=4) as pool:
+            iters = len(meta_ids)
+            with tqdm(total=iters) as pbar:
+                for (mesaid, tmp_list) in pool.imap_unordered(get_columns_of_subject, meta_ids):
+                    mesaids.append(mesaid)
+                    data_list.append(tmp_list)
+                    pbar.update()
 
         meta_df = pd.DataFrame(data=data_list, columns=columns, index=mesaids)
         meta_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_df.csv"))

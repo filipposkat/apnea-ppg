@@ -61,6 +61,12 @@ if config is not None:
         CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
     else:
         CONVERT_SPO2DESAT_TO_NORMAL = False
+
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_INPUT_CHANNELS = 1    
+
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -111,6 +117,7 @@ if config is not None:
 else:
     subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
+    N_INPUT_CHANNELS = 1    
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
@@ -434,7 +441,7 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-
+            
             # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
             labels = labels.type(torch.int64)
 
@@ -443,6 +450,12 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             if CONVERT_SPO2DESAT_TO_NORMAL:
                 labels[labels == 4] = 0
+
+            n_channels_found = inputs.shape[1]
+            if n_channels_found != N_INPUT_CHANNELS:
+                assert n_channels_found == N_INPUT_CHANNELS + 1
+                # One excess channel has been detected, exclude the first (typically SpO2 or Flow)
+                inputs = inputs[:, 1:, :]
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -540,7 +553,8 @@ if __name__ == "__main__":
     window_size = sample_batch_input.shape[2]
     N_CLASSES = int(torch.max(sample_batch_labels)) + 1
     if CONVERT_SPO2DESAT_TO_NORMAL:
-        N_CLASSES -= 1
+        assert N_CLASSES == 5
+        N_CLASSES = 4
 
     print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
     print(f"# Classes: {N_CLASSES}")
@@ -602,30 +616,30 @@ if __name__ == "__main__":
         net = None
         net_kwargs = {}
         if NET_TYPE == "UNET":
-            net = UNet(nclass=N_CLASSES, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = UNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
                        kernel_size=KERNEL_SIZE,
                        sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet":
-            net = UResIncNet(nclass=N_CLASSES, in_chans=1, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                              skip_connection=True,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
-            net = ConvNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+            net = ConvNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
                           layers=LAYERS,
                           kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ResIncNet":
-            net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+            net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
                             layers=LAYERS,
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "CombinedNet":
-            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=1, max_channels=512, depth=DEPTH,
+            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
                               sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,

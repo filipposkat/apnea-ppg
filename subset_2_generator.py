@@ -1,3 +1,5 @@
+# Subset with 60s windows
+
 import math
 import time
 from itertools import filterfalse, count
@@ -210,7 +212,7 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
 def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
         -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
-                                         max_frequency=SIGNALS_FREQUENCY)
+                                         frequency=SIGNALS_FREQUENCY, anti_aliasing=False)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
     # 1. Do train test split preserving a whole sequence for test:
@@ -645,7 +647,8 @@ def create_arrays(ids: list[int]):
 
         if subject_arrs_path.exists() and SKIP_EXISTING_IDS:
             continue
-
+        else:
+            subject_arrs_path.mkdir(exist_ok=True, parents=True)
         # Save metadata
         metadata = sub.metadata
         metadata_df = pd.Series(metadata)

@@ -1,11 +1,12 @@
 import numpy as np
+from scipy.signal import butter, filtfilt, upfirdn, decimate, firwin, resample_poly, get_window
 import pandas as pd
 from itertools import islice
 from pathlib import Path
 
 
-def downsample_to_proportion(sequence, proportion: int) -> list:
-    """Down-samples thr given sequence so that the returned sequence length is a proportion of the given sequence length
+def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.ndarray:
+    """Down-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
 
     :param sequence: Iterable
         Sequence to be down-sampled
@@ -16,12 +17,58 @@ def downsample_to_proportion(sequence, proportion: int) -> list:
         The sequence down-sampled with length equal to (input sequence length * proportion)
 
     """
-    return list(islice(sequence, 0, len(sequence), int(1 / proportion)))
+    if lpf:
+        # # Calculate downsampling factor
+        # downsample_factor = 1 / proportion
+
+        # # Design a low-pass Butterworth filter
+        # order = 4  # Filter order
+        # b, a = butter(order, proportion, btype='low', output="ba", analog=False)  # ba returns IIR filter
+
+        # # Apply the filter
+        # sequence = filtfilt(b, a, sequence)
+        expected_len = int(len(sequence) * proportion)
+        downsample_factor = int(np.ceil(1 / proportion))
+        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=128,
+                                      ftype="fir")  # By default Hamming window is used
+        return downsampled_signal[:expected_len]
+    else:
+        return list(islice(sequence, 0, len(sequence), int(1 / proportion)))
+
+
+def upsample_to_proportion(sequence, proportion: int, lpf=True) -> list:
+    """Up-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
+
+    :param sequence: Iterable
+        Sequence to be up-sampled
+    :param proportion: int
+        Desired proportion of the output sequence length to the input sequence length
+
+    :return: list
+        The sequence up-sampled with length equal to (input sequence length * proportion)
+
+    """
+    # print(f"US1. Original length {len(sequence)}. Prop: {proportion}")
+    # # Upsample by inserting zeros
+    # upsampled_signal = upfirdn([1], sequence, up=proportion)  
+
+    # # Design a low-pass Butterworth filter
+    # order = 4  # Filter order
+    # b, a = butter(order, 1 / proportion, btype='low', output="sos", analog=False)  # sos returns FIR filter
+
+    # if lpf:
+    #     # Apply the filter to smooth the upsampled signal
+    #     upsampled_signal = filtfilt(b, a, upsampled_signal)
+
+    # print(f"US3. {len(upsampled_signal)}")
+    window = get_window(window="hamming", Nx=129, fftbins=False)
+    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="mean")
+    return upsampled_signal
 
 
 class Subject:
     id: int
-    signals: list[list]
+    signals: list[np.ndarray]
     signal_headers: list[dict]
     start: int
     duration: float
@@ -34,10 +81,10 @@ class Subject:
     def import_metadata(self, metadata_dict: dict):
         self.metadata = metadata_dict
 
-    def import_signals_from_edf(self, edf_file):
+    def import_signals_from_edf(self, edf_file, channel_names=["Flow", "SpO2" "Pleth"]):
         from pyedflib import highlevel
         # ch_names=["Flow", "Snore", "Thor", "Pleth"]
-        signals, signal_headers, header = highlevel.read_edf(edf_file, ch_names=["Flow", "Pleth"])
+        signals, signal_headers, header = highlevel.read_edf(edf_file, ch_names=channel_names)
         self.signals = signals
         self.signal_headers = signal_headers
 
@@ -174,16 +221,18 @@ class Subject:
             annotations[(s <= time_seq) & (time_seq <= f)] = 1
         return annotations
 
-    def export_to_dataframe(self, signal_labels: list[str] = None, max_frequency: float = None,
-                            print_downsampling_details=True) -> pd.DataFrame:
+    def export_to_dataframe(self, signal_labels: list[str] = None, frequency: float = None,
+                            print_downsampling_details=True, anti_aliasing=True, trim_spo2=False) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
-        :param max_frequency: Maximum allowed frequency. If any signal exceeds this then it will be down-sampled.
+        :param frequency: Desired frequency. If all signals will be resampled to this frequency
         :param print_downsampling_details: Whether to print details about the down-sampling performed to match signal
         lengths
         :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
         exported.
+        :param anti_aliasing: if True anti-aliasing LPF filter will be used when downsampling (for upsampling lpf will always be used).
+        :param trim_spo2: if True SpO2 signal will be zero trimmed and all other signals will be adjusted accordingly.
         :return: Pandas dataframe
         """
         df = pd.DataFrame()
@@ -196,37 +245,73 @@ class Subject:
             retained_signal_headers = [self.signal_headers[i] for i in range(len(self.signals))
                                        if self.signal_headers[i]["label"] in signal_labels]
 
+        # SpO2 may be incomplete: at start and end may have zeros:
+        if trim_spo2 and "SpO2" in signal_labels:
+            spo2_i = 0
+            for i in range(len(retained_signal_headers)):
+                if retained_signal_headers[i]["label"] == "SpO2":
+                    spo2_i = i
+                    break
+
+            spo2 = retained_signals[spo2_i]
+            original_spo2_length = len(spo2)
+            # Trim zeros from front:
+            spo2 = np.trim_zeros(spo2, trim='f')
+            front_zeros = original_spo2_length - len(spo2)
+
+            # Trim zeros from back:
+            spo2 = np.trim_zeros(spo2, trim='b')
+            back_zeros = original_spo2_length - len(spo2)
+
+            retained_signals[spo2_i] = spo2
+
+            # Adjust the other signals accordingly:
+            spo2_f = retained_signal_headers[spo2_i]["sample_frequency"]
+            for i in range(len(retained_signals)):
+                if i != spo2_i:
+                    freq = retained_signal_headers[i]["sample_frequency"]
+                    assert freq % spo2_f == 0
+                    proportion = freq // spo2_f  # SpO2 has 1Hz frequency so proportion is always > 1
+                    assert proportion == len(retained_signals[i]) // original_spo2_length
+                    front_zeros_to_drop = front_zeros * int(proportion)
+                    back_zeros_to_drop = back_zeros * int(proportion)
+                    retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
+                    assert proportion == len(retained_signals[i]) // len(spo2)
+
         # First it is important to find which signal has the lowest frequency:
         min_freq_signal_header = min(retained_signal_headers, key=lambda h: float(h["sample_frequency"]))
         min_freq_signal_index = retained_signal_headers.index(min_freq_signal_header)
         min_freq = min_freq_signal_header["sample_frequency"]
-        length = len(retained_signals[min_freq_signal_index])
 
-        if max_frequency is not None and min_freq > max_frequency:
-            min_freq = max_frequency
+        if frequency is not None:
             if print_downsampling_details:
-                print(f"All signals exceed the maximum frequency ({max_frequency}Hz)/ "
-                      f"Down-sampling all signals.")
-        elif print_downsampling_details:
-            print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
-                  f"Down-sampling rest signals (if any), to match signal length: {length}")
+                print(f"All signals will be resampled to ({frequency}Hz)/ "
+                      f"Resampling-sampling all signals. Anti-aliasing: {anti_aliasing}.")
+        else:
+            frequency = min_freq
+            length = len(retained_signals[min_freq_signal_index])
+            if print_downsampling_details:
+                print(f"Signal label with minimum frequency ({min_freq}Hz): {min_freq_signal_header['label']}. "
+                      f"Down-sampling rest signals (if any), to match signal length: {length}. Anti-aliasing: {anti_aliasing}.")
 
         for i in range(len(retained_signals)):
             header = retained_signal_headers[i]
             freq = header["sample_frequency"]
             label = header["label"]
-            proportion = min_freq / freq
+            proportion = frequency / freq
 
             if proportion == 1.0:
                 signal = retained_signals[i]
+            elif proportion < 1.0:
+                signal = downsample_to_proportion(retained_signals[i], proportion, lpf=anti_aliasing)
             else:
-                signal = downsample_to_proportion(retained_signals[i], proportion)
+                signal = upsample_to_proportion(retained_signals[i], proportion, lpf=True)
 
             df[label] = signal
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
 
         # Then the time column can be created
-        time_seq = [i / min_freq for i in range(df.shape[0])]
+        time_seq = [i / frequency for i in range(df.shape[0])]
         df["time_secs"] = time_seq
         df["time_secs"] = df["time_secs"].astype("float32")  # Save memory
 

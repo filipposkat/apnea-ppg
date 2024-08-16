@@ -75,7 +75,7 @@ if PATH_TO_METADATA_NSRR is not None:
 print("Creating objects from edf files and serializing them as binary files:")
 for subject_id, edf in tqdm(edf_dict.items()):
     sub = Subject(subject_id)
-    sub.import_signals_from_edf(edf)
+    sub.import_signals_from_edf(edf, channel_names=["Flow", "SpO2","Pleth"])
     sub.import_annotations_from_xml(annots_dict[subject_id])
     sub_dict = df.loc[subject_id, :].to_dict()
     sub.import_metadata(sub_dict)
