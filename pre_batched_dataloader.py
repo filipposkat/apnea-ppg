@@ -14,12 +14,12 @@ from torch.utils.data import Dataset
 from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
-BATCH_SIZE = 256
-BATCH_SIZE_TEST = 1024
+BATCH_SIZE = 128
+BATCH_SIZE_TEST = 512
 SEED = 33
 NUM_WORKERS = 2
 PREFETCH_FACTOR = 2
-SKIP_EXISTING = True
+SKIP_EXISTING = False
 SKIP_TRAIN = False
 SKIP_TEST = False
 SKIP_CROSS_TEST = False

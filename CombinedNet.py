@@ -106,10 +106,9 @@ class CombinedNet(nn.Module):
         self.split_channels_into_branches = split_channels_into_branches
 
         if split_channels_into_branches:
-            assert in_chans==2
+            assert in_chans == 2
             # One channel for UResIncNet and one for RNN
             in_chans = 1
-        
 
         self.UResIncNetBranch = UResIncNet(nclass=nclass, in_chans=in_chans, max_channels=max_channels, depth=depth,
                                            kernel_size=kernel_size, layers=layers,
@@ -131,13 +130,13 @@ class CombinedNet(nn.Module):
 
     def forward(self, x):
         if self.split_channels_into_branches:
-            x_pleth = x[:,[0], :]
-            x_spo2 = x[:,[1], :]
+            x_spo2 = x[:, [0], :]
+            x_pleth = x[:, [1], :]
             x1 = self.UResIncNetBranch(x_pleth)
             x2 = self.LSTMBranch(x_spo2)
         else:
             x1 = self.UResIncNetBranch(x)
-            x2 = self.LSTMBranch(x) 
+            x2 = self.LSTMBranch(x)
         x = torch.cat((x1, x2), dim=1)
 
         # Return the logits
@@ -155,13 +154,18 @@ class CombinedNet(nn.Module):
         else:
             dropout = 0.0
 
+        if hasattr(self, "extra_final_conv"):
+            extra_final_conv = self.extra_final_conv
+        else:
+            extra_final_conv = False
+
         if hasattr(self, "split_channels_into_branches"):
             split_channels_into_branches = self.split_channels_into_branches
         else:
             split_channels_into_branches = False
-        
+
         return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout}"
+                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}"
                 f"- lstm_MaxCH {self.max_channels} - "
                 f"lstm_Bidirectional {self.lstm_bidirectional} "
                 f"- lstm_Layers {self.lstm_layers} - lstm_Dropout {self.lstm_dropout} - split_channels_into_branches {split_channels_into_branches}")
@@ -178,17 +182,23 @@ class CombinedNet(nn.Module):
         else:
             dropout = 0.0
 
+        if hasattr(self, "extra_final_conv"):
+            extra_final_conv = self.extra_final_conv
+        else:
+            extra_final_conv = False
+
         if hasattr(self, "split_channels_into_branches"):
             split_channels_into_branches = self.split_channels_into_branches
         else:
             split_channels_into_branches = False
-        
+
         kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
                   "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
-                  "dropout": dropout, "skip_connection": self.skip_connection,
+                  "dropout": dropout, "skip_connection": self.skip_connection, "extra_final_conv": extra_final_conv,
                   "lstm_max_channels": self.max_channels, "lstm_layers": self.lstm_layers,
-                  "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional, "split_channels_into_branches": split_channels_into_branches
+                  "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional,
+                  "split_channels_into_branches": split_channels_into_branches
                   }
         return kwargs

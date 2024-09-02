@@ -46,11 +46,23 @@ with open("config.yml", 'r') as f:
 
 if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
+    if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
+        CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
+    else:
+        CONVERT_SPO2DESAT_TO_NORMAL = False
+
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_INPUT_CHANNELS = 1
+
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
 else:
     subset_id = 1
+    CONVERT_SPO2DESAT_TO_NORMAL = False
+    N_INPUT_CHANNELS = 1
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     COMPUTE_PLATFORM = "cpu"

@@ -16,7 +16,8 @@ from torch.utils.data import DataLoader
 from torch.multiprocessing import Pool
 
 # Local imports:
-from pre_batched_dataloader import get_pre_batched_test_loader, get_pre_batched_test_cross_sub_loader
+from pre_batched_dataloader import get_pre_batched_test_loader, get_pre_batched_test_cross_sub_loader, \
+    get_available_batch_sizes
 
 if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
@@ -24,6 +25,7 @@ if __name__ == "__main__":
 # --- START OF CONSTANTS --- #
 EPOCHS = 50
 BATCH_SIZE_TEST = 1024
+BATCH_SIZE_CROSS_TEST = 1024
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them
 LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
@@ -33,6 +35,14 @@ CROSS_SUBJECT_TESTING = True
 TEST_MODEL = False
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
+
+
+if BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto":
+    _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
+    if BATCH_SIZE_TEST == "auto":
+        BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
+    if BATCH_SIZE_CROSS_TEST == "auto":
+        BATCH_SIZE_CROSS_TEST = max([bs for bs in available_cross_test_bs])
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -495,11 +505,12 @@ def get_window_label(window_labels: torch.tensor):
         return torch.tensor(0, dtype=torch.int64), 1.0
     else:
         # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+
         unique_events, event_counts = window_labels.unique(
             return_counts=True)  # Tensor containing counts of unique values.
         prominent_event_index = torch.argmax(event_counts)
         prominent_event = unique_events[prominent_event_index]
-        confidence = event_counts[prominent_event] / torch.numel(window_labels)
+        confidence = event_counts[prominent_event_index] / torch.numel(window_labels)
 
         # print(event_counts)
         return prominent_event.type(torch.int64), float(confidence)
@@ -508,6 +519,8 @@ def get_window_label(window_labels: torch.tensor):
 def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.tensor, n_class=5):
     all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
     classes = [all_classes[c] for c in range(n_class)]
+    # Row i contains true labels of class i
+    # Column i contains predictions to class i
     cm_win = confusion_matrix(target=window_labels, preds=window_predictions, num_classes=n_class, task="multiclass")
 
     total_pred_win = torch.sum(cm_win)
@@ -585,11 +598,12 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             if CONVERT_SPO2DESAT_TO_NORMAL:
                 batch_labels[batch_labels == 4] = 0
 
-            n_channels_found = inputs.shape[1]
+            n_channels_found = batch_inputs.shape[1]
             if n_channels_found != N_INPUT_CHANNELS:
-                assert n_channels_found == N_INPUT_CHANNELS + 1
-                # One excess channel has been detected, exclude the first (typically SpO2 or Flow)
-                inputs = inputs[:, 1:, :]
+                diff = n_channels_found - N_INPUT_CHANNELS
+                assert diff > 0
+                # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                batch_inputs = batch_inputs[:, diff:, :]
 
             # Predictions:
             batch_outputs = model(batch_inputs)
@@ -597,8 +611,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
-            if batch_outputs.numel() != batch_inputs.numel() * n_class and batch_labels.shape[
-                0] != batch_labels.numel():
+            if batch_outputs.numel() * N_INPUT_CHANNELS != batch_inputs.numel() * n_class  \
+                    and batch_labels.shape[0] != batch_labels.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_j in range(batch_labels.shape[0]):
@@ -757,7 +771,7 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
                                                                  batch=b,
                                                                  device=device)
                 metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                                  max_batches=max_batches,
+                                                  max_batches=max_batches, n_class=N_CLASSES,
                                                   progress_bar=progress_bar, verbose=False)
                 save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
                 save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
@@ -793,7 +807,7 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
                                                              device=device)
 
             metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                              max_batches=max_batches,
+                                              max_batches=max_batches, n_class=N_CLASSES,
                                               progress_bar=progress_bar, verbose=False)
 
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
@@ -818,7 +832,7 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
         net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                          device=device)
         metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                          first_batch=first_batch, max_batches=max_batches,
+                                          first_batch=first_batch, max_batches=max_batches, n_class=N_CLASSES,
                                           progress_bar=progress_bar, verbose=False)
         save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
         save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
@@ -839,11 +853,14 @@ if __name__ == "__main__":
         test_device = torch.device("mps")
     else:
         test_device = torch.device("cpu")
+
     if CROSS_SUBJECT_TESTING:
-        test_loader = get_pre_batched_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
+        print(f"Using cross test batch size: {BATCH_SIZE_CROSS_TEST}")
+        test_loader = get_pre_batched_test_cross_sub_loader(batch_size=BATCH_SIZE_CROSS_TEST, num_workers=NUM_WORKERS,
                                                             pre_fetch=PRE_FETCH,
                                                             shuffle=False)
     else:
+        print(f"Using test batch size: {BATCH_SIZE_TEST}")
         test_loader = get_pre_batched_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                                   pre_fetch=PRE_FETCH,
                                                   shuffle=False)

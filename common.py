@@ -260,8 +260,9 @@ class Subject:
             front_zeros = original_spo2_length - len(spo2)
 
             # Trim zeros from back:
+            tmp_len = len(spo2)
             spo2 = np.trim_zeros(spo2, trim='b')
-            back_zeros = original_spo2_length - len(spo2)
+            back_zeros = tmp_len - len(spo2)
 
             retained_signals[spo2_i] = spo2
 
@@ -275,8 +276,13 @@ class Subject:
                     assert proportion == len(retained_signals[i]) // original_spo2_length
                     front_zeros_to_drop = front_zeros * int(proportion)
                     back_zeros_to_drop = back_zeros * int(proportion)
-                    retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
-                    assert proportion == len(retained_signals[i]) // len(spo2)
+                    if back_zeros_to_drop == 0:
+                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:]
+                        if front_zeros_to_drop == 0:
+                            print(f"{self.id}, ")
+                    else:
+                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
+                    assert proportion == len(retained_signals[i]) / len(spo2)
 
         # First it is important to find which signal has the lowest frequency:
         min_freq_signal_header = min(retained_signal_headers, key=lambda h: float(h["sample_frequency"]))

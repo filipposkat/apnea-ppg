@@ -28,6 +28,7 @@ variables:
   dataset:
     subset:  # int
     convert_spo2desat_to_normal: False
+    n_input_channels: 1
   models:
     net_type: # UNET or UResIncNet or ConvNet or ResIncNet
     net_identifier:

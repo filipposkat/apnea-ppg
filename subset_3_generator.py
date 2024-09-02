@@ -1,3 +1,5 @@
+# Per window labels
+
 import math
 import time
 from itertools import filterfalse, count

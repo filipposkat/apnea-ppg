@@ -20,7 +20,7 @@ from tqdm import tqdm
 # Local imports:
 from data_loaders_iterable import IterDataset, get_saved_train_loader, get_saved_test_loader
 from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched_test_loader, \
-    get_pre_batched_test_cross_sub_loader
+    get_pre_batched_test_cross_sub_loader, get_available_batch_sizes
 
 from UNet import UNet, ConvNet
 from UResIncNet import UResIncNet, ResIncNet
@@ -33,8 +33,8 @@ LOAD_CHECKPOINT: bool = True  # True or False
 LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
 EPOCHS = 50
-BATCH_SIZE = 256
-BATCH_SIZE_TEST = 1024
+BATCH_SIZE = "auto"  # 256
+BATCH_SIZE_TEST = "auto"  # 1024
 NUM_WORKERS = 2
 NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
@@ -51,6 +51,13 @@ SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
 
+if BATCH_SIZE == "auto" or BATCH_SIZE_TEST == "auto":
+    available_train_bs, available_test_bs, _ = get_available_batch_sizes()
+    if BATCH_SIZE == "auto":
+        BATCH_SIZE = max([bs for bs in available_test_bs])
+    if BATCH_SIZE_TEST == "auto":
+        BATCH_SIZE_TEST = max([bs for bs in available_train_bs])
+
 LR = LR_TO_BATCH_RATIO * BATCH_SIZE
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -65,7 +72,7 @@ if config is not None:
     if "n_input_channels" in config["variables"]["dataset"]:
         N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
     else:
-        N_INPUT_CHANNELS = 1    
+        N_INPUT_CHANNELS = 1
 
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
@@ -117,7 +124,7 @@ if config is not None:
 else:
     subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
-    N_INPUT_CHANNELS = 1    
+    N_INPUT_CHANNELS = 1
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
@@ -441,7 +448,7 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-            
+
             # Convert to accepted dtypes: float32, float64, int64 and maybe more but not sure
             labels = labels.type(torch.int64)
 
@@ -453,9 +460,10 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
             n_channels_found = inputs.shape[1]
             if n_channels_found != N_INPUT_CHANNELS:
-                assert n_channels_found == N_INPUT_CHANNELS + 1
-                # One excess channel has been detected, exclude the first (typically SpO2 or Flow)
-                inputs = inputs[:, 1:, :]
+                diff = n_channels_found - N_INPUT_CHANNELS
+                assert diff > 0
+                # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                inputs = inputs[:, diff:, :]
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -463,7 +471,8 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             # forward + backward + optimize
             outputs = model(inputs)
 
-            if outputs.shape.numel() != inputs.shape.numel() * N_CLASSES and labels.shape[0] != labels.shape.numel():
+            if outputs.shape.numel() * N_INPUT_CHANNELS != inputs.shape.numel() * N_CLASSES \
+                    and labels.shape[0] != labels.shape.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((labels.shape[0]), device=device, dtype=torch.int64)
                 for batch_index in range(labels.shape[0]):
@@ -542,6 +551,8 @@ if __name__ == "__main__":
 
     print(f"Device: {device}")
 
+    print(f"Using train batch size: {BATCH_SIZE}")
+    print(f"Using test batch size: {BATCH_SIZE_TEST}")
     # Prepare train dataloader:
     # train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     train_loader = get_pre_batched_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PRE_FETCH)
@@ -624,22 +635,32 @@ if __name__ == "__main__":
             net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
-                             skip_connection=True,
+                             skip_connection=True, extra_final_conv=False,
+                             custom_weight_init=CUSTOM_WEIGHT_INIT)
+            net_kwargs = net.get_kwargs()
+        elif NET_TYPE == "UResIncNet-2":
+            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
+                             kernel_size=KERNEL_SIZE,
+                             sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
+                             skip_connection=True, extra_final_conv=True,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
-            net = ConvNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
+            net = ConvNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512,
+                          depth=DEPTH,
                           layers=LAYERS,
                           kernel_size=KERNEL_SIZE, sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ResIncNet":
-            net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
+            net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512,
+                            depth=DEPTH,
                             layers=LAYERS,
                             kernel_size=KERNEL_SIZE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "CombinedNet":
-            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH,
+            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512,
+                              depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
                               sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
@@ -679,7 +700,7 @@ if __name__ == "__main__":
     print(NET_TYPE)
     print(IDENTIFIER)
 
-    summary(net, input_size=(BATCH_SIZE, 1, 512),
+    summary(net, input_size=(BATCH_SIZE, N_INPUT_CHANNELS, 512),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 
     print(optim_kwargs)

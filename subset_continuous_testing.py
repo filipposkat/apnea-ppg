@@ -1,3 +1,4 @@
+import json
 import math
 from pathlib import Path
 import numpy as np
@@ -6,6 +7,7 @@ from tqdm import tqdm
 
 import yaml
 import pandas as pd
+
 import matplotlib.pyplot as plt
 import random
 import torch
@@ -20,9 +22,13 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 # --- START OF CONSTANTS --- #
 TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 10
+EPOCH = 5
 CREATE_ARRAYS = False
+GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
+PER_WINDOW_EVALUATION = True
+
+# CREATE ARRAYS PARAMS:
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 STEP = 512  # The step between each window
@@ -30,6 +36,9 @@ TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
+
+# Per window TESTING PARAMS:
+AGGREGATION_WINDOW_SIZE_SECS = 60
 
 SEED = 33
 
@@ -44,6 +53,12 @@ if config is not None:
         CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
     else:
         CONVERT_SPO2DESAT_TO_NORMAL = False
+
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_INPUT_CHANNELS = 1
+
     if CREATE_ARRAYS:
         PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_directory"])
@@ -59,6 +74,7 @@ if config is not None:
 else:
     subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
+    N_INPUT_CHANNELS = 1
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
@@ -69,6 +85,29 @@ else:
 
 
 # --- END OF CONSTANTS --- #
+def get_window_label(window_labels: np.ndarray):
+    if np.sum(window_labels) == 0:
+        return 0, 1.0
+    else:
+        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+
+        unique_events, event_counts = np.unique(window_labels, return_counts=True)
+        prominent_event_index = np.argmax(event_counts)
+        prominent_event = unique_events[prominent_event_index]
+        confidence = event_counts[prominent_event_index] / len(window_labels)
+        return int(prominent_event), float(confidence)
+
+
+def get_window_label_from_probas(window_probas: np.ndarray):
+    """
+    :param window_probas: Array of shape (window length, n classes)
+    :return:
+    """
+    agg_probas = np.mean(window_probas, axis=0)
+    prominent_event_index = np.argmax(agg_probas)
+    confidence = agg_probas[prominent_event_index]
+    return int(prominent_event_index), float(confidence)
+
 
 def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     """
@@ -239,7 +278,7 @@ if __name__ == "__main__":
             X_test, y_test = get_subject_continuous_test_data(sub, split=split)
             save_arrays_combined(subject_arrs_path, X_test, y_test)
 
-    else:
+    elif GET_CONTINUOUS_PREDICTIONS:
         # id, sub = get_subject_by_id(SUBJECT_ID)
         # X_test, y_test = get_subject_continuous_test_data(sub)
 
@@ -322,6 +361,13 @@ if __name__ == "__main__":
                     if CONVERT_SPO2DESAT_TO_NORMAL:
                         batch_labels[batch_labels == 4] = 0
 
+                    n_channels_found = batch_inputs.shape[1]
+                    if n_channels_found != N_INPUT_CHANNELS:
+                        diff = n_channels_found - N_INPUT_CHANNELS
+                        assert diff > 0
+                        # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                        batch_inputs = batch_inputs[:, diff:, :]
+
                     # Predictions:
                     batch_outputs = net(batch_inputs)
                     batch_output_probs = F.softmax(batch_outputs, dim=1)
@@ -354,3 +400,203 @@ if __name__ == "__main__":
             # plt.xlabel("Sample i")
             # plt.show()
             # plt.close()
+    else:
+        from sklearn.metrics import confusion_matrix
+        from torchmetrics import ROC, AUROC
+        from adjusted_test_stats import get_stats_from_cm, get_metrics_from_cm, classification_performance, \
+            merged_classes_assesment
+
+        if SUBJECT_ID == "all":
+            sub_ids = subset_ids
+        elif isinstance(SUBJECT_ID, int):
+            sub_ids = [SUBJECT_ID]
+        elif isinstance(SUBJECT_ID, list):
+            sub_ids = SUBJECT_ID
+        else:
+            exit(1)
+
+        results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
+                                                            f"epoch-{EPOCH}")
+        agg_path = results_path / f"aggregation_win_{AGGREGATION_WINDOW_SIZE_SECS}s"
+
+        # prepare to count predictions for each class
+        all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
+        classes = None
+
+        if (agg_path / "agg_cm2.json").exists():
+            with open(agg_path / "agg_cm2.json", 'r') as file:
+                agg_cm2 = np.array(json.load(file))
+            n_class = agg_cm2.shape[0]
+            classes = all_classes[0:n_class]
+            classification_performance(cm=agg_cm2, plot_confusion=True, target_labels=classes, normalize="true")
+            merged_classes_assesment(agg_cm2, desired_classes=2)
+        else:
+            agg_cm1: np.ndarray
+            agg_cm2: np.ndarray
+            agg_metrics_1 = {}
+            agg_metrics_2 = {}
+
+            thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100))
+            tprs_by_class = {}
+            fprs_by_class = {}
+            aucs_by_class = {}
+
+            for sub_id in tqdm(sub_ids):
+                if sub_id in train_ids:
+                    sub_path = results_path.joinpath("validation-subjects")
+                else:
+                    sub_path = results_path.joinpath("cross-test-subjects")
+
+                assert sub_path.exists()
+
+                matlab_file = sub_path.joinpath(f"cont_test_signal_{sub_id}.mat")
+
+                matlab_dict = scipy.io.loadmat(str(matlab_file))
+                prediction_probas: np.ndarray = matlab_dict["prediction_probabilities"]
+                predictions: np.ndarray = matlab_dict["predictions"]
+                labels: np.ndarray = matlab_dict["labels"]
+
+                predictions = np.squeeze(predictions)
+                labels = np.squeeze(labels)
+
+                n_class = int(np.max(labels)) + 1
+                if classes is None:
+                    classes = [all_classes[c] for c in range(n_class)]
+                    agg_cm1 = np.zeros((n_class, n_class))
+                    agg_cm2 = np.zeros((n_class, n_class))
+                    tprs_by_class = {c: [] for c in classes}
+                    fprs_by_class = {c: [] for c in classes}
+                    aucs_by_class = {c: [] for c in classes}
+
+                length = len(labels)
+
+                aggregation_window_sample_size = AGGREGATION_WINDOW_SIZE_SECS * SIGNALS_FREQUENCY
+                n = length // aggregation_window_sample_size
+                remainder = length % aggregation_window_sample_size
+
+                seg_predictions = np.split(predictions[remainder:], indices_or_sections=n)
+                seg_prediction_probas = np.split(prediction_probas[remainder:, :], indices_or_sections=n, axis=0)
+                seg_labels = np.split(labels[remainder:], indices_or_sections=n)
+
+                per_window_preds1 = np.array([get_window_label(win)[0] for win in seg_predictions])
+                per_window_preds2 = np.array([get_window_label_from_probas(win)[0] for win in seg_prediction_probas])
+                per_window_probas = np.array([np.mean(win, axis=0) for win in seg_prediction_probas])
+                per_window_labels = np.array([get_window_label(win)[0] for win in seg_labels])
+
+                # RoC curve for this subject:
+                roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class)
+                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none")
+                fprs, tprs, _ = roc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
+                aucs = auroc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
+                for c in range(n_class):
+                    class_name = classes[c]
+                    fprs_by_class[class_name].append(fprs[c, :])
+                    tprs_by_class[class_name].append(tprs[c, :])
+                    aucs_by_class[class_name].append(aucs[c])
+
+                # Confusion matrix for this subject
+                sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1, labels=np.arange(n_class))
+                sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2, labels=np.arange(n_class))
+                agg_cm1 += sub_cm1
+                agg_cm2 += sub_cm2
+
+                # Metrics from CM:
+                metrics1 = get_metrics_from_cm(cm=sub_cm1, classes=classes)
+                metrics2 = get_metrics_from_cm(cm=sub_cm2, classes=classes)
+
+                for (k, v) in metrics1.items():
+                    if isinstance(v, dict):
+                        if k not in agg_metrics_1:
+                            agg_metrics_1[k] = {c: 0 for c in classes}
+                            agg_metrics_2[k] = {c: 0 for c in classes}
+
+                        for (ks, vs) in v.items():
+                            v1 = 0 if vs == "nan" else vs
+                            v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
+
+                            agg_metrics_1[k][ks] += v1
+                            agg_metrics_2[k][ks] += v2
+                    else:
+                        if k not in agg_metrics_1:
+                            agg_metrics_1[k] = 0
+                            agg_metrics_2[k] = 0
+
+                        agg_metrics_1[k] += v
+                        agg_metrics_2[k] += metrics2[k]
+
+                # classification_performance(cm=sub_cm1, plot_confusion=True, target_labels=classes)
+                # classification_performance(cm=sub_cm2, plot_confusion=True, target_labels=classes)
+
+            # Compute threshold average ROC for each class, across subjected:
+            roc_info_by_class = {}
+            average_auc_by_class = {}
+            for class_name in classes:
+                fprs = torch.stack(fprs_by_class[class_name], dim=0)
+                average_fpr = torch.mean(fprs, dim=0, keepdim=False)
+                tprs = torch.stack(tprs_by_class[class_name], dim=0)
+                average_tpr = torch.mean(tprs, dim=0, keepdim=False)
+                aucs = torch.tensor(aucs_by_class[class_name])
+                average_auc = torch.mean(aucs)
+
+                average_auc_by_class[class_name] = average_auc.item()
+
+                roc_info_by_class[class_name] = {
+                    "thresholds": thresholds.tolist(),
+                    "average_fpr": average_fpr.tolist(),
+                    "average_tpr": average_tpr.tolist(),
+                    "average_auc": average_auc.item()
+                }
+
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            axs = axs.ravel()
+            # Save ROC info:
+            with open(agg_path / "aggregate_roc_info.json", 'w') as file:
+                json.dump(roc_info_by_class, file)
+
+            # Save the ROC plot:
+            plot_path = agg_path.joinpath(f"aggregate_roc.png")
+            for c, class_name in enumerate(roc_info_by_class.keys()):
+                average_fpr = roc_info_by_class[class_name]["average_fpr"]
+                average_tpr = roc_info_by_class[class_name]["average_tpr"]
+                average_auc = roc_info_by_class[class_name]["average_auc"]
+
+                ax = axs[c]
+                ax.plot(average_fpr, average_tpr)
+                ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+                ax.set_xlim([0, 1])
+                ax.set_ylim([0, 1])
+                ax.set_xlabel("FPR")
+                ax.set_ylabel("TPR")
+            fig.savefig(str(plot_path))
+            plt.close(fig)
+
+            # Average metrics across subjects
+            for (k, v) in agg_metrics_1.items():
+                if isinstance(v, dict):
+                    for ks in v.keys():
+                        agg_metrics_1[k][ks] /= len(sub_ids)
+                        agg_metrics_2[k][ks] /= len(sub_ids)
+                else:
+                    agg_metrics_1[k] /= len(sub_ids)
+                    agg_metrics_2[k] /= len(sub_ids)
+
+            classification_performance(agg_cm1, plot_confusion=True, target_labels=classes)
+            classification_performance(agg_cm2, plot_confusion=True, target_labels=classes)
+
+            merged_classes_assesment(agg_cm2, desired_classes=2)
+
+            print(agg_metrics_1)
+            print(agg_metrics_2)
+
+            with open(agg_path / "agg_cm1.json", 'w') as file:
+                json.dump(agg_cm1.tolist(), file)
+
+            with open(agg_path / "agg_cm2.json", 'w') as file:
+                json.dump(agg_cm2.tolist(), file)
+
+            with open(agg_path / "agg_metrics_1.json", 'w') as file:
+                json.dump(agg_metrics_1, file)
+
+            with open(agg_path / "agg_metrics_2.json", 'w') as file:
+                json.dump(agg_metrics_2, file)
+

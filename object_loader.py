@@ -22,6 +22,10 @@ if config is not None:
     if "subject_metadata_file" in config["paths"]["local"]:
         PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
         PATH_TO_METADATA_NSRR = Path(config["paths"]["local"]["subject_metadata_nssr_file"])
+    else:
+        PATH_TO_METADATA = Path.cwd().joinpath("data", "mesa", "datasets", "mesa-sleep-dataset-0.7.0.csv")
+        PATH_TO_METADATA_NSRR = Path.cwd().joinpath("data", "mesa", "datasets",
+                                                    "mesa-sleep-harmonized-dataset-0.7.0.csv")
     PATH_TO_ANNOTATIONS = Path(config["paths"]["local"]["xml_annotations_directory"])
     PATH_TO_OUTPUT = Path(config["paths"]["local"]["csv_directory"])
 else:
@@ -202,14 +206,16 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(4948)
+    (id, sub) = get_subject_by_id(1)
     print(len(sub.signals))
     print(sub.signal_headers)
+    print(len(sub.signals[2]))
+
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    plt.plot(sub.signals[1])
+    plt.plot(sub.signals[2])
     plt.show()
-    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32)
+    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_spo2=True)
     df.plot(x="time_secs", y="SpO2")
     plt.show()
     df.plot(x="time_secs", y="Pleth")
