@@ -62,7 +62,7 @@ def upsample_to_proportion(sequence, proportion: int, lpf=True) -> list:
 
     # print(f"US3. {len(upsampled_signal)}")
     window = get_window(window="hamming", Nx=129, fftbins=False)
-    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="mean")
+    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
     return upsampled_signal
 
 
@@ -222,7 +222,7 @@ class Subject:
         return annotations
 
     def export_to_dataframe(self, signal_labels: list[str] = None, frequency: float = None,
-                            print_downsampling_details=True, anti_aliasing=True, trim_spo2=False) -> pd.DataFrame:
+                            print_downsampling_details=True, anti_aliasing=True, trim_signals=False) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
@@ -232,7 +232,8 @@ class Subject:
         :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
         exported.
         :param anti_aliasing: if True anti-aliasing LPF filter will be used when downsampling (for upsampling lpf will always be used).
-        :param trim_spo2: if True SpO2 signal will be zero trimmed and all other signals will be adjusted accordingly.
+        :param trim_signals: if True Min frequency signal will be zero trimmed and all other signals will be adjusted
+        accordingly.
         :return: Pandas dataframe
         """
         df = pd.DataFrame()
@@ -245,49 +246,80 @@ class Subject:
             retained_signal_headers = [self.signal_headers[i] for i in range(len(self.signals))
                                        if self.signal_headers[i]["label"] in signal_labels]
 
-        # SpO2 may be incomplete: at start and end may have zeros:
-        if trim_spo2 and "SpO2" in signal_labels:
-            spo2_i = 0
-            for i in range(len(retained_signal_headers)):
-                if retained_signal_headers[i]["label"] == "SpO2":
-                    spo2_i = i
-                    break
-
-            spo2 = retained_signals[spo2_i]
-            original_spo2_length = len(spo2)
-            # Trim zeros from front:
-            spo2 = np.trim_zeros(spo2, trim='f')
-            front_zeros = original_spo2_length - len(spo2)
-
-            # Trim zeros from back:
-            tmp_len = len(spo2)
-            spo2 = np.trim_zeros(spo2, trim='b')
-            back_zeros = tmp_len - len(spo2)
-
-            retained_signals[spo2_i] = spo2
-
-            # Adjust the other signals accordingly:
-            spo2_f = retained_signal_headers[spo2_i]["sample_frequency"]
-            for i in range(len(retained_signals)):
-                if i != spo2_i:
-                    freq = retained_signal_headers[i]["sample_frequency"]
-                    assert freq % spo2_f == 0
-                    proportion = freq // spo2_f  # SpO2 has 1Hz frequency so proportion is always > 1
-                    assert proportion == len(retained_signals[i]) // original_spo2_length
-                    front_zeros_to_drop = front_zeros * int(proportion)
-                    back_zeros_to_drop = back_zeros * int(proportion)
-                    if back_zeros_to_drop == 0:
-                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:]
-                        if front_zeros_to_drop == 0:
-                            print(f"{self.id}, ")
-                    else:
-                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
-                    assert proportion == len(retained_signals[i]) / len(spo2)
-
         # First it is important to find which signal has the lowest frequency:
         min_freq_signal_header = min(retained_signal_headers, key=lambda h: float(h["sample_frequency"]))
         min_freq_signal_index = retained_signal_headers.index(min_freq_signal_header)
         min_freq = min_freq_signal_header["sample_frequency"]
+
+        if trim_signals:
+            mfs = retained_signals[min_freq_signal_index]  # Min Frequency Signal
+            original_mfs_length = len(mfs)
+            # Trim zeros from front:
+            mfs = np.trim_zeros(mfs, trim='f')
+            front_zeros = original_mfs_length - len(mfs)
+
+            # Trim zeros from back:
+            tmp_len = len(mfs)
+            mfs = np.trim_zeros(mfs, trim='b')
+            back_zeros = tmp_len - len(mfs)
+
+            retained_signals[min_freq_signal_index] = mfs
+
+            # Adjust the other signals accordingly:
+            for i in range(len(retained_signals)):
+                if i != min_freq_signal_index:
+                    freq = retained_signal_headers[i]["sample_frequency"]
+                    assert freq % min_freq == 0
+                    proportion = freq // min_freq
+                    assert proportion == len(retained_signals[i]) // original_mfs_length
+                    front_zeros_to_drop = front_zeros * int(proportion)
+                    back_zeros_to_drop = back_zeros * int(proportion)
+                    if back_zeros_to_drop == 0:
+                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:]
+                        # if front_zeros_to_drop == 0:
+                        #     print(f"{self.id}, ")
+                    else:
+                        retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
+                    assert proportion == len(retained_signals[i]) / len(mfs)
+
+        # # SpO2 may be incomplete: at start and end may have zeros:
+        # if trim_spo2 and "SpO2" in signal_labels:
+        #     spo2_i = 0
+        #     for i in range(len(retained_signal_headers)):
+        #         if retained_signal_headers[i]["label"] == "SpO2":
+        #             spo2_i = i
+        #             break
+        #
+        #     spo2 = retained_signals[spo2_i]
+        #     original_spo2_length = len(spo2)
+        #     # Trim zeros from front:
+        #     spo2 = np.trim_zeros(spo2, trim='f')
+        #     front_zeros = original_spo2_length - len(spo2)
+        #
+        #     # Trim zeros from back:
+        #     tmp_len = len(spo2)
+        #     spo2 = np.trim_zeros(spo2, trim='b')
+        #     back_zeros = tmp_len - len(spo2)
+        #
+        #     retained_signals[spo2_i] = spo2
+        #
+        #     # Adjust the other signals accordingly:
+        #     spo2_f = retained_signal_headers[spo2_i]["sample_frequency"]
+        #     for i in range(len(retained_signals)):
+        #         if i != spo2_i:
+        #             freq = retained_signal_headers[i]["sample_frequency"]
+        #             assert freq % spo2_f == 0
+        #             proportion = freq // spo2_f  # SpO2 has 1Hz frequency so proportion is always > 1
+        #             assert proportion == len(retained_signals[i]) // original_spo2_length
+        #             front_zeros_to_drop = front_zeros * int(proportion)
+        #             back_zeros_to_drop = back_zeros * int(proportion)
+        #             if back_zeros_to_drop == 0:
+        #                 retained_signals[i] = retained_signals[i][front_zeros_to_drop:]
+        #                 if front_zeros_to_drop == 0:
+        #                     print(f"{self.id}, ")
+        #             else:
+        #                 retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
+        #             assert proportion == len(retained_signals[i]) / len(spo2)
 
         if frequency is not None:
             if print_downsampling_details:

@@ -206,19 +206,20 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(1)
+    (id, sub) = get_subject_by_id(182)
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))
 
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    plt.plot(sub.signals[2])
+    plt.plot(sub.signals[1])
     plt.show()
-    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_spo2=True)
+    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_signals=False)
     df.plot(x="time_secs", y="SpO2")
     plt.show()
     df.plot(x="time_secs", y="Pleth")
+    df.plot(x="time_secs", y="event_index")
     plt.show()
     # df.to_csv("107.csv")
     # print(df.shape[0])

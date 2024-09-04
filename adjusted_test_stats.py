@@ -26,7 +26,7 @@ if __name__ == "__main__":
 EPOCH = 5
 DESIRED_CLASSES = 2
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
-CROSS_SUBJECT_TESTING = True
+CROSS_SUBJECT_TESTING = False
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -220,17 +220,17 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
     else:
         print(f"Accuracy ({train_test})  %0.1f%% " % (accuracy * 100))
         print(f"Macro F1: {100 * macro_f1:.2f}%")
-    return accuracy
+    return metrics
 
 
-def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES):
+def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES, normalize=NORMALIZE):
     n_classes = cm_arr.shape[0]
-
+    metrics = None
     if n_classes == desired_classes:
         classes = ["Normal", "Obstructive Apnea", "Central Apnea", "Hypopnea", "SpO2 Desaturation"]
         classes = classes[0:n_classes]
-        classification_performance(cm_arr, test=True, plot_confusion=True, target_labels=classes,
-                                   normalize=NORMALIZE)
+        metrics = classification_performance(cm_arr, test=True, plot_confusion=True, target_labels=classes,
+                                             normalize=NORMALIZE)
     elif desired_classes == 4:
         # Combine classes Central apnea, Obstructive apnea
         classes4 = ["Normal", "Apnea", "Hypopnea", "SpO2 Desaturation"]
@@ -240,7 +240,8 @@ def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES
                       3: [4]}
 
         cm4 = merge_sum_array(array=cm_arr, indices_dict=merge_dict)
-        classification_performance(cm4, test=True, plot_confusion=True, target_labels=classes4, normalize=NORMALIZE)
+        metrics = classification_performance(cm4, test=True, plot_confusion=True, target_labels=classes4,
+                                             normalize=normalize)
     elif desired_classes == 3:
         # Combine classes Central apnea, Obstructive apnea, hypopnea
         if n_classes == 5:
@@ -255,7 +256,8 @@ def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES
                           1: [1, 2],
                           2: [3]}
         cm3 = merge_sum_array(array=cm_arr, indices_dict=merge_dict)
-        classification_performance(cm3, test=True, plot_confusion=True, target_labels=classes3, normalize=NORMALIZE)
+        metrics = classification_performance(cm3, test=True, plot_confusion=True, target_labels=classes3,
+                                             normalize=normalize)
     elif desired_classes == 2:
         # Combine classes Central apnea, Obstructive apnea, hypopnea and combine normal with spo2 desat
         classes2 = ["Normal", "Apnea-Hypopnea"]
@@ -267,7 +269,10 @@ def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES
             merge_dict = {0: [0],
                           1: [1, 2, 3]}
         cm2 = merge_sum_array(array=cm_arr, indices_dict=merge_dict)
-        classification_performance(cm2, test=True, plot_confusion=True, target_labels=classes2, normalize=NORMALIZE)
+        metrics = classification_performance(cm2, test=True, plot_confusion=True, target_labels=classes2,
+                                             normalize=normalize)
+
+    return metrics
 
 
 if __name__ == "__main__":
@@ -276,4 +281,4 @@ if __name__ == "__main__":
     cm = load_confusion_matrix(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=EPOCH, batch=batch,
                                cross_subject=CROSS_SUBJECT_TESTING)
     cm = np.array(cm)
-    merged_classes_assesment(cm, desired_classes=DESIRED_CLASSES)
+    metrics = merged_classes_assesment(cm, desired_classes=DESIRED_CLASSES, normalize=NORMALIZE)

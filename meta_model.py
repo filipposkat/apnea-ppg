@@ -18,7 +18,7 @@ from common import Subject
 
 # --- START OF CONSTANTS --- #
 SUBSET = 0
-EPOCH = 10
+EPOCH = 5
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals

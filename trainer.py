@@ -54,9 +54,9 @@ RUNNING_LOSS_PERIOD = 100
 if BATCH_SIZE == "auto" or BATCH_SIZE_TEST == "auto":
     available_train_bs, available_test_bs, _ = get_available_batch_sizes()
     if BATCH_SIZE == "auto":
-        BATCH_SIZE = max([bs for bs in available_test_bs])
+        BATCH_SIZE = max([bs for bs in available_train_bs])
     if BATCH_SIZE_TEST == "auto":
-        BATCH_SIZE_TEST = max([bs for bs in available_train_bs])
+        BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
 
 LR = LR_TO_BATCH_RATIO * BATCH_SIZE
 with open("config.yml", 'r') as f:
@@ -112,7 +112,10 @@ if config is not None:
         assert "class_weights" in config["variables"]["models"]
         cw_tmp = config["variables"]["models"]["class_weights"]
         assert cw_tmp is not None
-        CLASS_WEIGHTS = cw_tmp
+        if CONVERT_SPO2DESAT_TO_NORMAL:
+            assert len(cw_tmp) == 4
+        else:
+            CLASS_WEIGHTS = cw_tmp
     else:
         CLASS_WEIGHTS = None
 
@@ -563,12 +566,17 @@ if __name__ == "__main__":
     sample_batch_input, sample_batch_labels = next(iter(train_loader))
     window_size = sample_batch_input.shape[2]
     N_CLASSES = int(torch.max(sample_batch_labels)) + 1
+    signals_found = sample_batch_input.shape[1]
     if CONVERT_SPO2DESAT_TO_NORMAL:
         assert N_CLASSES == 5
         N_CLASSES = 4
-
+    print(sample_batch_input.shape)
+    print(sample_batch_labels.shape)
     print(f"Window size: {window_size}. Batch size: {BATCH_SIZE}")
     print(f"# Classes: {N_CLASSES}")
+    print(f"# of signals found: {signals_found}. # of signals to use: {N_INPUT_CHANNELS}")
+    print(f"Class weights: {CLASS_WEIGHTS}")
+
     # Create Network:
     last_epoch = get_last_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
     last_batch = get_last_batch(net_type=NET_TYPE, identifier=IDENTIFIER, epoch=last_epoch)
@@ -700,7 +708,7 @@ if __name__ == "__main__":
     print(NET_TYPE)
     print(IDENTIFIER)
 
-    summary(net, input_size=(BATCH_SIZE, N_INPUT_CHANNELS, 512),
+    summary(net, input_size=(BATCH_SIZE, N_INPUT_CHANNELS, window_size),
             col_names=('input_size', "output_size", "kernel_size", "num_params"), device=device)
 
     print(optim_kwargs)

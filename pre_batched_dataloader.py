@@ -31,9 +31,14 @@ if config is not None:
     subset_id = int(config["variables"]["dataset"]["subset"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
+    if "n_input_channels" in config["variables"]["dataset"]:
+        N_DESIRED_INPUT_SIGNALS = config["variables"]["dataset"]["n_input_channels"]
+    else:
+        N_DESIRED_INPUT_SIGNALS = 1
 else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
+    N_DESIRED_INPUT_SIGNALS = 1
 
 ARRAYS_DIR = PATH_TO_SUBSET.joinpath("arrays")
 
@@ -295,6 +300,7 @@ def get_pre_batched_test_cross_sub_loader(batch_size: int = BATCH_SIZE_TEST, num
 
 
 if __name__ == "__main__":
+    print(f"Desired input signals: {N_DESIRED_INPUT_SIGNALS}")
     create_pre_batched_tensors(batch_size=BATCH_SIZE)
 
     # test_loader = get_pre_batched_test_loader(batch_size=1024, num_workers=2, pre_fetch=1, shuffle=False)

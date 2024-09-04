@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
 GENERATE_TRAIN_TEST_SPLIT = False
-CROSS_SUBJECT_TEST_SIZE = 100
+CROSS_SUBJECT_TEST_SIZE_PROPORTION = 0.25
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024  # 8192
@@ -24,6 +24,7 @@ SAVE_BATCH_INDICES_TRAIN = False
 SAVE_BATCH_INDICES_TEST = True
 SAVE_BATCH_INDICES_CROSS_TEST = True
 
+CROSS_SUBJECT_TEST_SIZE = 100
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 if config is not None:
@@ -46,8 +47,8 @@ dataloaders_path = PATH_TO_SUBSET_TRAINING.joinpath("dataloaders-mapped")
 dataloaders_path.mkdir(parents=True, exist_ok=True)
 
 # Get all ids in the directory with arrays. Each subdir is one subject
-if GENERATE_TRAIN_TEST_SPLIT:
-    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
+if GENERATE_TRAIN_TEST_SPLIT or len(subset_ids) != 400:
     rng = random.Random(33)
     cross_sub_test_ids = rng.sample(subset_ids, CROSS_SUBJECT_TEST_SIZE)
     train_ids = [id for id in subset_ids if id not in cross_sub_test_ids]
@@ -109,7 +110,7 @@ class MappedDataset(Dataset):
         sample_id: int = self.subject_ids[0]
         X, _ = self.load_arrays(sample_id)
         n_signals = X.shape[1]
-        
+
         # assert n_signals == 1  # Flow has been deleted already
         # assert X.shape[2] == WINDOW_SAMPLES_SIZE
 
@@ -140,8 +141,7 @@ class MappedDataset(Dataset):
             if y.ndim != 1:
                 y = y.reshape(X.shape[0], X.shape[2])
 
-        
-        if N_DESIRED_INPUT_SIGNALS < X.shape[1] :
+        if N_DESIRED_INPUT_SIGNALS < X.shape[1]:
             assert X.shape[1] == N_DESIRED_INPUT_SIGNALS + 1
             # Drop the flow signal:
             X = np.delete(X, 0, axis=1)
@@ -163,7 +163,7 @@ class MappedDataset(Dataset):
             if y.ndim != 1:
                 y = y.reshape(X.shape[0], X.shape[2])
 
-        if N_DESIRED_INPUT_SIGNALS < X.shape[1] :
+        if N_DESIRED_INPUT_SIGNALS < X.shape[1]:
             assert X.shape[1] == N_DESIRED_INPUT_SIGNALS + 1
             # Drop the flow signal:
             X = np.delete(X, 0, axis=1)

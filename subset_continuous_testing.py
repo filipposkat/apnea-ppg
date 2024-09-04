@@ -1,6 +1,8 @@
 import json
 import math
 from pathlib import Path
+from typing import Literal
+
 import numpy as np
 import scipy
 from tqdm import tqdm
@@ -22,7 +24,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 # --- START OF CONSTANTS --- #
 TESTING_SUBSET = 0
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 5
+EPOCH = 10
 CREATE_ARRAYS = False
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
@@ -38,8 +40,9 @@ EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candid
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 
 # Per window TESTING PARAMS:
-AGGREGATION_WINDOW_SIZE_SECS = 60
-
+AGGREGATION_WINDOW_SIZE_SECS = 1
+NORMALIZE: Literal["true", "pred", "all", "none"] = "none"
+DERSIRED_MERGED_CLASSES = 2
 SEED = 33
 
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
@@ -95,6 +98,37 @@ def get_window_label(window_labels: np.ndarray):
         prominent_event_index = np.argmax(event_counts)
         prominent_event = unique_events[prominent_event_index]
         confidence = event_counts[prominent_event_index] / len(window_labels)
+        return int(prominent_event), float(confidence)
+
+
+def get_window_label2(window_labels: np.ndarray, frequency=SIGNALS_FREQUENCY):
+    """
+    :param window_labels:
+    :param frequency:
+    :return: If at least 10s of apneic event is inside the window, then it is labeled as such. Otherwise,
+    it is labeled based on the highest event count.
+    """
+    if np.sum(window_labels) == 0:
+        return 0, 1.0
+    else:
+        # 0=no events, 1=central apnea, 2=obstructive apnea, 3=hypopnea, 4=spO2 desaturation
+
+        unique_events, event_counts = np.unique(window_labels, return_counts=True)
+        prominent_event_index = np.argmax(event_counts)
+        prominent_event = unique_events[prominent_event_index]
+        confidence = event_counts[prominent_event_index] / len(window_labels)
+
+        if len(window_labels) >= 10 * frequency and not (1 <= prominent_event <= 3):
+            apneic_labels = window_labels[(1 <= window_labels) & (window_labels <= 3)]
+            if len(apneic_labels) > 10 * frequency:
+                unique_apneic_events, apneic_event_counts = np.unique(apneic_labels, return_counts=True)
+                prominent_apneic_event_index = np.argmax(apneic_event_counts)
+                prominent_apneic_event = unique_events[prominent_event_index]
+                prominent_apneic_event_count = apneic_event_counts[prominent_apneic_event_index]
+                if prominent_apneic_event_count >= 10 * frequency:
+                    prominent_event = prominent_apneic_event
+                    confidence = prominent_apneic_event_count / len(window_labels)
+
         return int(prominent_event), float(confidence)
 
 
@@ -404,7 +438,7 @@ if __name__ == "__main__":
         from sklearn.metrics import confusion_matrix
         from torchmetrics import ROC, AUROC
         from adjusted_test_stats import get_stats_from_cm, get_metrics_from_cm, classification_performance, \
-            merged_classes_assesment
+            merged_classes_assesment, merge_sum_columns
 
         if SUBJECT_ID == "all":
             sub_ids = subset_ids
@@ -418,18 +452,48 @@ if __name__ == "__main__":
         results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                             f"epoch-{EPOCH}")
         agg_path = results_path / f"aggregation_win_{AGGREGATION_WINDOW_SIZE_SECS}s"
+        agg_path.mkdir(exist_ok=True)
 
         # prepare to count predictions for each class
         all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
         classes = None
 
-        if (agg_path / "agg_cm2.json").exists():
+        if agg_path.joinpath("agg_cm2.json").exists():
             with open(agg_path / "agg_cm2.json", 'r') as file:
                 agg_cm2 = np.array(json.load(file))
+            with open(agg_path / "aggregate_roc_info.json", 'r') as file:
+                roc_info_by_class = json.load(file)
+
             n_class = agg_cm2.shape[0]
             classes = all_classes[0:n_class]
-            classification_performance(cm=agg_cm2, plot_confusion=True, target_labels=classes, normalize="true")
-            merged_classes_assesment(agg_cm2, desired_classes=2)
+            classification_performance(cm=agg_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+                                                      normalize=NORMALIZE)
+            # Save merged metrics
+            with open(agg_path / f"agg_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                json.dump(merged_metrics, file)
+
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            axs = axs.ravel()
+
+            # Save the ROC plot:
+            plot_path = agg_path.joinpath(f"aggregate_roc.png")
+            for c, class_name in enumerate(roc_info_by_class.keys()):
+                average_fpr = roc_info_by_class[class_name]["average_fpr"]
+                average_tpr = roc_info_by_class[class_name]["average_tpr"]
+                average_auc = roc_info_by_class[class_name]["average_auc"]
+
+                ax = axs[c]
+                ax.plot(average_fpr, average_tpr)
+                ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+                ax.set_xlim([0, 1])
+                ax.set_ylim([0, 1])
+                ax.set_xlabel("FPR")
+                ax.set_ylabel("TPR")
+
+            fig.savefig(str(plot_path))
+            plt.show()
+            plt.close(fig)
         else:
             agg_cm1: np.ndarray
             agg_cm2: np.ndarray
@@ -459,7 +523,7 @@ if __name__ == "__main__":
                 predictions = np.squeeze(predictions)
                 labels = np.squeeze(labels)
 
-                n_class = int(np.max(labels)) + 1
+                n_class = prediction_probas.shape[1]
                 if classes is None:
                     classes = [all_classes[c] for c in range(n_class)]
                     agg_cm1 = np.zeros((n_class, n_class))
@@ -488,6 +552,7 @@ if __name__ == "__main__":
                 auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none")
                 fprs, tprs, _ = roc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
                 aucs = auroc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
+
                 for c in range(n_class):
                     class_name = classes[c]
                     fprs_by_class[class_name].append(fprs[c, :])
@@ -495,8 +560,10 @@ if __name__ == "__main__":
                     aucs_by_class[class_name].append(aucs[c])
 
                 # Confusion matrix for this subject
-                sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1, labels=np.arange(n_class))
-                sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2, labels=np.arange(n_class))
+                sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
+                                           labels=np.arange(n_class))
+                sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
+                                           labels=np.arange(n_class))
                 agg_cm1 += sub_cm1
                 agg_cm2 += sub_cm2
 
@@ -547,13 +614,14 @@ if __name__ == "__main__":
                     "average_auc": average_auc.item()
                 }
 
-            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
-            axs = axs.ravel()
             # Save ROC info:
             with open(agg_path / "aggregate_roc_info.json", 'w') as file:
                 json.dump(roc_info_by_class, file)
 
             # Save the ROC plot:
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            axs = axs.ravel()
+
             plot_path = agg_path.joinpath(f"aggregate_roc.png")
             for c, class_name in enumerate(roc_info_by_class.keys()):
                 average_fpr = roc_info_by_class[class_name]["average_fpr"]
@@ -580,10 +648,9 @@ if __name__ == "__main__":
                     agg_metrics_1[k] /= len(sub_ids)
                     agg_metrics_2[k] /= len(sub_ids)
 
-            classification_performance(agg_cm1, plot_confusion=True, target_labels=classes)
-            classification_performance(agg_cm2, plot_confusion=True, target_labels=classes)
+            classification_performance(agg_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
 
-            merged_classes_assesment(agg_cm2, desired_classes=2)
+            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES, normalize=NORMALIZE)
 
             print(agg_metrics_1)
             print(agg_metrics_2)
@@ -600,3 +667,6 @@ if __name__ == "__main__":
             with open(agg_path / "agg_metrics_2.json", 'w') as file:
                 json.dump(agg_metrics_2, file)
 
+            # Save merged metrics
+            with open(agg_path / f"agg_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                json.dump(merged_metrics, file)
