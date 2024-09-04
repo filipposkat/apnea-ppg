@@ -24,8 +24,8 @@ if __name__ == "__main__":
 
 # --- START OF CONSTANTS --- #
 EPOCHS = 50
-BATCH_SIZE_TEST = 1024
-BATCH_SIZE_CROSS_TEST = 1024
+BATCH_SIZE_TEST = "auto"
+BATCH_SIZE_CROSS_TEST = "auto"
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them
 LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2

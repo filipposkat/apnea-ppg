@@ -30,13 +30,13 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
         expected_len = int(len(sequence) * proportion)
         downsample_factor = int(np.ceil(1 / proportion))
         downsampled_signal = decimate(x=sequence, q=downsample_factor, n=128,
-                                      ftype="fir")  # By default Hamming window is used
+                                      ftype="fir")  # By default, Hamming window is used
         return downsampled_signal[:expected_len]
     else:
         return list(islice(sequence, 0, len(sequence), int(1 / proportion)))
 
 
-def upsample_to_proportion(sequence, proportion: int, lpf=True) -> list:
+def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     """Up-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
 
     :param sequence: Iterable
@@ -343,7 +343,7 @@ class Subject:
             elif proportion < 1.0:
                 signal = downsample_to_proportion(retained_signals[i], proportion, lpf=anti_aliasing)
             else:
-                signal = upsample_to_proportion(retained_signals[i], proportion, lpf=True)
+                signal = upsample_to_proportion(retained_signals[i], proportion)
 
             df[label] = signal
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
