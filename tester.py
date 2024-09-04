@@ -3,6 +3,8 @@ import yaml
 from pathlib import Path
 import datetime, time
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import json
 import os
 from tqdm import tqdm
@@ -36,7 +38,6 @@ TEST_MODEL = False
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
 
-
 if BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto":
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
     if BATCH_SIZE_TEST == "auto":
@@ -58,8 +59,8 @@ if config is not None:
     if "n_input_channels" in config["variables"]["dataset"]:
         N_INPUT_CHANNELS = config["variables"]["dataset"]["n_input_channels"]
     else:
-        N_INPUT_CHANNELS = 1    
-        
+        N_INPUT_CHANNELS = 1
+
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{subset_id}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
     if f"subset_{subset_id}_saved_models_directory" in config["paths"]["local"]:
@@ -126,6 +127,56 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
         cm_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_cm.json")
     with open(cm_path, 'w') as file:
         json.dump(confusion_matrix, file)
+
+    if True:
+        if cross_subject:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                             f"batch-{batch}-cross_test_cm.png")
+        else:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_cm.png")
+
+        cm = np.array(confusion_matrix)
+        normalize = "true"
+
+        n_classes = cm.shape[0]
+        if n_classes == 5:
+            target_labels = ["normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat"]
+        elif n_classes == 4:
+            target_labels = ["normal", "central_apnea", "obstructive_apnea", "hypopnea"]
+        else:
+            target_labels = None
+
+        if target_labels is None:
+            df_cm_abs = pd.DataFrame(cm)
+        else:
+            df_cm_abs = pd.DataFrame(cm, index=target_labels,
+                                     columns=target_labels)
+
+        if normalize == "true":
+            for r in range(cm.shape[0]):
+                s = np.sum(cm[r, :])
+                s = 1 if s == 0 else s
+                cm[r, :] = cm[r, :] / s
+        elif normalize == "pred":
+            for c in range(cm.shape[0]):
+                s = np.sum(cm[:, c])
+                s = 1 if s == 0 else s
+                cm[:, c] = cm[:, c] / s
+        elif normalize == "all":
+            cm = cm / np.sum(cm)
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}, Batch: {batch}, "
+                     f"Cross-Test:{cross_subject}")
+        sns.set_theme(font_scale=1)  # for label size
+        if normalize:
+            sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", ax=ax, cbar=True)
+        else:
+            sns.heatmap(df_cm_abs, annot=True, fmt="d", ax=ax, cbar=True)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("True")
+        fig.savefig(str(plot_path))
+        plt.close(fig)
 
 
 def save_metrics(metrics: dict[str: float], net_type: str, identifier: str, epoch: int, batch: int,
@@ -611,7 +662,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
-            if batch_outputs.numel() * N_INPUT_CHANNELS != batch_inputs.numel() * n_class  \
+            if batch_outputs.numel() * N_INPUT_CHANNELS != batch_inputs.numel() * n_class \
                     and batch_labels.shape[0] != batch_labels.numel():
                 # Per window classification nut labels per sample:
                 labels_by_window = torch.zeros((batch_labels.shape[0]), device=device, dtype=torch.int64)

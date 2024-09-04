@@ -187,6 +187,12 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
     macro_f1 = metrics["macro_f1"]
 
     if plot_confusion:
+        if not target_labels:
+            df_cm_abs = pd.DataFrame(cm)
+        else:
+            df_cm_abs = pd.DataFrame(cm, index=target_labels,
+                                 columns=target_labels)
+
         if normalize == "true":
             for r in range(cm.shape[0]):
                 s = np.sum(cm[r, :])
@@ -200,20 +206,15 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
         elif normalize == "all":
             cm = cm / np.sum(cm)
 
-        if not target_labels:
-            df_cm = pd.DataFrame(cm)
-        else:
-            df_cm = pd.DataFrame(cm, index=target_labels,
-                                 columns=target_labels)
         plt.figure(figsize=(10, 7))
         plt.title(f"Accuracy ({train_test})  %0.1f%% " % (accuracy * 100))
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
-            sns.heatmap(df_cm, annot=True, fmt=".2f", )
-
+            sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", cbar=True)
+            # sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'top'}, fmt=".2f", cbar=False)
         else:
-            sns.heatmap(df_cm, annot=True, fmt="d")
+            sns.heatmap(df_cm_abs, annot=True, fmt="d", cbar=True)
         plt.xlabel("Predicted")
         plt.ylabel("True")
         plt.show()
@@ -227,28 +228,28 @@ def merged_classes_assesment(cm_arr: np.ndarray, desired_classes=DESIRED_CLASSES
     n_classes = cm_arr.shape[0]
     metrics = None
     if n_classes == desired_classes:
-        classes = ["Normal", "Obstructive Apnea", "Central Apnea", "Hypopnea", "SpO2 Desaturation"]
+        classes = ["Normal", "Central Apnea", "Obstructive Apnea", "Hypopnea", "SpO2 Desaturation"]
         classes = classes[0:n_classes]
         metrics = classification_performance(cm_arr, test=True, plot_confusion=True, target_labels=classes,
                                              normalize=NORMALIZE)
     elif desired_classes == 4:
-        # Combine classes Central apnea, Obstructive apnea
-        classes4 = ["Normal", "Apnea", "Hypopnea", "SpO2 Desaturation"]
-        merge_dict = {0: [0],
-                      1: [1, 2],
-                      2: [3],
-                      3: [4]}
+        # Combine classes Normal SpO2 desat
+        classes4 = ["Normal", "Central Apnea", "Obstructive Apnea", "Hypopnea"]
+        merge_dict = {0: [0, 4],
+                      1: [1],
+                      2: [2],
+                      3: [3]}
 
         cm4 = merge_sum_array(array=cm_arr, indices_dict=merge_dict)
         metrics = classification_performance(cm4, test=True, plot_confusion=True, target_labels=classes4,
                                              normalize=normalize)
     elif desired_classes == 3:
-        # Combine classes Central apnea, Obstructive apnea, hypopnea
+        # Combine also, classes Central apnea, Obstructive apnea
         if n_classes == 5:
-            classes3 = ["Normal", "Apnea-Hypopnea", "SpO2 Desaturation"]
-            merge_dict = {0: [0],
-                          1: [1, 2, 3],
-                          2: [4]}
+            classes3 = ["Normal", "Apnea", "Hypopnea"]
+            merge_dict = {0: [0, 4],
+                          1: [1, 2],
+                          2: [3]}
         else:
             assert n_classes == 4
             classes3 = ["Normal", "Apnea", "Hypopnea"]

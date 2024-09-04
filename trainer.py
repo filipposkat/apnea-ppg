@@ -248,7 +248,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
         if running_accuracy is not None:
             train_metrics_dict["train_running_accuracy"] = running_accuracy
 
-        metrics_path = model_path.joinpath(f"batch-{batch}-train_mectrics.json")
+        metrics_path = model_path.joinpath(f"batch-{batch}-train_metrics.json")
         with open(metrics_path, 'w') as file:
             json.dump(train_metrics_dict, file)
 
@@ -333,7 +333,7 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
 
 
 def get_saved_epochs(net_type: str, identifier: str) -> list[int]:
-    model_path = MODELS_PATH.joinpath(f"{net_type}", identifier)
+    model_path = MODELS_PATH.joinpath(f"{net_type}", str(identifier))
     if model_path.exists():
         epochs = []
         for file in model_path.iterdir():
@@ -351,7 +351,7 @@ def get_saved_batches(net_type: str, identifier: str, epoch: int | str) -> list[
     if epoch is None or epoch == "final" or epoch == "last":
         epoch = get_last_epoch(net_type=net_type, identifier=identifier)
 
-    model_path = MODELS_PATH.joinpath(net_type, identifier, f"epoch-{epoch}")
+    model_path = MODELS_PATH.joinpath(str(net_type), str(identifier), f"epoch-{epoch}")
     if epoch != -1 and model_path.exists():
         batches = []
         for file in model_path.iterdir():
