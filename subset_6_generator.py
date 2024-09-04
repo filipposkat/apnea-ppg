@@ -20,6 +20,7 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SIGNALS = ["SpO2", "Pleth"]
+EXCLUDE_LOW_SQI_SUBJECTS = True
 SUBSET = 5
 SUBSET_SIZE = 800  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = True
@@ -41,6 +42,7 @@ DROP_EVENT_WINDOWS_IF_NEEDED = False
 COUNT_LABELS = True
 SAVE_ARRAYS_EXPANDED = False
 SEED = 33
+LOW_SQI_SUBS = [1148, 2590, 4216, 5884, 6350, 6493, 67496]  # Pleth SQI < 3
 
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
 STEP = STEP_SECS * SIGNALS_FREQUENCY
@@ -66,6 +68,9 @@ def get_best_ids():
 
         # Score each subject based on events:
         for id, sub in all_subjects_generator():
+            if EXCLUDE_LOW_SQI_SUBJECTS and id in LOW_SQI_SUBS:
+                continue
+
             df = sub.export_to_dataframe(print_downsampling_details=False)
 
             n_central_apnea_events = df["event_index"].apply(lambda e: 1 if e == 1 else 0).sum()
@@ -101,6 +106,8 @@ def get_best_ids():
                 if len(id_score_dict.values()) >= SUBSET_SIZE:
                     break
                 if id not in id_score_dict.values():
+                    if EXCLUDE_LOW_SQI_SUBJECTS and id in LOW_SQI_SUBS:
+                        continue
                     df = sub.export_to_dataframe(print_downsampling_details=False)
 
                     n_central_apnea_events = df["event_index"].apply(lambda e: 1 if e == 1 else 0).sum()

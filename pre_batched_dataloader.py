@@ -303,11 +303,11 @@ if __name__ == "__main__":
     print(f"Desired input signals: {N_DESIRED_INPUT_SIGNALS}")
     create_pre_batched_tensors(batch_size=BATCH_SIZE)
 
-    # test_loader = get_pre_batched_test_loader(batch_size=1024, num_workers=2, pre_fetch=1, shuffle=False)
-    # for data in tqdm(test_loader, total=len(test_loader)):
+    # train_loader = get_pre_batched_train_loader(num_workers=2, pre_fetch=1, shuffle=False)
+    # for data in tqdm(train_loader, total=len(train_loader)):
     #     X, y = data
     #     print(X.shape)
-    # 1009 and 112
+
     # for i in tqdm(range(2254)):
     #     if i != 1009:
     #         pathX = PRE_BATCHED_TENSORS_PATH / "bs1024" / "test-cross-subject" / f"batch-{i}" / "X.pt"

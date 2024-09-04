@@ -129,6 +129,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
         json.dump(confusion_matrix, file)
 
     if True:
+        normalize = "true"
         if cross_subject:
             plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
                                              f"batch-{batch}-cross_test_cm.png")
@@ -136,7 +137,6 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
             plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_cm.png")
 
         cm = np.array(confusion_matrix)
-        normalize = "true"
 
         n_classes = cm.shape[0]
         if n_classes == 5:
@@ -168,7 +168,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
         fig, ax = plt.subplots(figsize=(10, 7))
         ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
         sns.set_theme(font_scale=1)  # for label size
-        if normalize:
+        if normalize is not None:
             sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", ax=ax, cbar=True)
         else:
             sns.heatmap(df_cm_abs, annot=True, fmt="d", ax=ax, cbar=True)

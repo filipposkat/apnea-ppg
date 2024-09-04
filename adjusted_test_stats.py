@@ -23,7 +23,7 @@ if __name__ == "__main__":
     from trainer import get_last_batch
 
 # --- START OF CONSTANTS --- #
-EPOCH = 5
+EPOCH = 14
 DESIRED_CLASSES = 5
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 CROSS_SUBJECT_TESTING = False
@@ -191,7 +191,7 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
             df_cm_abs = pd.DataFrame(cm)
         else:
             df_cm_abs = pd.DataFrame(cm, index=target_labels,
-                                 columns=target_labels)
+                                     columns=target_labels)
 
         if normalize == "true":
             for r in range(cm.shape[0]):
@@ -207,7 +207,7 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
             cm = cm / np.sum(cm)
 
         plt.figure(figsize=(10, 7))
-        plt.title(f"Accuracy ({train_test}): {100*accuracy:.2f}%. Macro F1: {100*macro_f1:.2f}%")
+        plt.title(f"Accuracy ({train_test}): {100 * accuracy:.2f}%. Macro F1: {100 * macro_f1:.2f}%")
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
