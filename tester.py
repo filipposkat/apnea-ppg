@@ -166,8 +166,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
             cm = cm / np.sum(cm)
 
         fig, ax = plt.subplots(figsize=(10, 7))
-        ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}, Batch: {batch}, "
-                     f"Cross-Test:{cross_subject}")
+        ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
             sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", ax=ax, cbar=True)

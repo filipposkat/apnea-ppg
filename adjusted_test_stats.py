@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
 # --- START OF CONSTANTS --- #
 EPOCH = 5
-DESIRED_CLASSES = 2
+DESIRED_CLASSES = 5
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 CROSS_SUBJECT_TESTING = False
 
@@ -207,7 +207,7 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
             cm = cm / np.sum(cm)
 
         plt.figure(figsize=(10, 7))
-        plt.title(f"Accuracy ({train_test})  %0.1f%% " % (accuracy * 100))
+        plt.title(f"Accuracy ({train_test}): {100*accuracy:.2f}%. Macro F1: {100*macro_f1:.2f}%")
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
