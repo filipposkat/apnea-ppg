@@ -213,13 +213,13 @@ if __name__ == "__main__":
 
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    plt.plot(sub.signals[2][921600:625696])
-    plt.show()
-    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_signals=False)
+
+    plt.plot(sub.signals[1])
+
+    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_signals=True)
     df.plot(x="time_secs", y="SpO2")
-    plt.show()
     df.plot(x="time_secs", y="Pleth")
-    df.plot(x="time_secs", y="event_index")
+    # df.plot(x="time_secs", y="event_index")
     plt.show()
     # df.to_csv("107.csv")
     # print(df.shape[0])

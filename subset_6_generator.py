@@ -20,16 +20,17 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 
 # --- START OF CONSTANTS --- #
 SIGNALS = ["SpO2", "Pleth"]
+REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN = True
 EXCLUDE_LOW_SQI_SUBJECTS = True
 SUBSET = 6
-SUBSET_SIZE = 800  # The number of subjects that will remain after screening down the whole dataset
+SUBSET_SIZE = 600  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
 WINDOW_SEC_SIZE = 60
 SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
 ANTI_ALIASING = True
 TRIM = True
-STEP_SECS = 10  # The step between each window
+STEP_SECS = 5  # The step between each window
 CONTINUOUS_LABEL = True
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512
@@ -209,7 +210,8 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
 def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
         -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=SIGNALS, print_downsampling_details=False,
-                                         anti_aliasing=True, frequency=SIGNALS_FREQUENCY, trim_signals=TRIM)
+                                         anti_aliasing=True, frequency=SIGNALS_FREQUENCY, trim_signals=TRIM,
+                                         median_to_low_spo2_values=REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
     # 1. Do train test split preserving a whole sequence for test:
@@ -595,6 +597,7 @@ def create_arrays(ids: list[int]):
         ids = get_best_ids()
 
     sub_seed_dict = {}
+    rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
     random.seed(SEED)  # Set the seed
 
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -614,7 +617,19 @@ def create_arrays(ids: list[int]):
         metadata_df = pd.Series(metadata)
         metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
-        sub_seed_dict[id] = random.getstate()
+        if rng_seed_pth.is_file():
+            # Not first time generating the subset
+            with open(str(rng_seed_pth), mode="rb") as file:
+                saved_sub_seed_dict = pickle.load(file)
+            if id in saved_sub_seed_dict:
+                state = saved_sub_seed_dict[id]
+                random.setstate(state)
+        else:
+            # First time generating the subset
+            sub_seed_dict[id] = random.getstate()
+            with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
+                pickle.dump(sub_seed_dict, file)
+
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
@@ -648,8 +663,7 @@ def create_arrays(ids: list[int]):
 
     plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
     print(sub_seed_dict)
-    with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
-        pickle.dump(sub_seed_dict, file)
+
 
 
 if __name__ == "__main__":

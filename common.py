@@ -27,6 +27,7 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
 
         # # Apply the filter
         # sequence = filtfilt(b, a, sequence)
+
         expected_len = int(len(sequence) * proportion)
         downsample_factor = int(np.ceil(1 / proportion))
         downsampled_signal = decimate(x=sequence, q=downsample_factor, n=256,
@@ -60,9 +61,9 @@ def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     #     # Apply the filter to smooth the upsampled signal
     #     upsampled_signal = filtfilt(b, a, upsampled_signal)
 
-    # print(f"US3. {len(upsampled_signal)}")
-    window = get_window(window="hamming", Nx=129, fftbins=False)
-    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
+    # window = get_window(window="hamming", Nx=20*proportion+1, fftbins=False)
+    # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
+    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")
     return upsampled_signal
 
 
@@ -81,7 +82,7 @@ class Subject:
     def import_metadata(self, metadata_dict: dict):
         self.metadata = metadata_dict
 
-    def import_signals_from_edf(self, edf_file, channel_names=["Flow", "SpO2" "Pleth"]):
+    def import_signals_from_edf(self, edf_file, channel_names=("Flow", "SpO2" "Pleth")):
         from pyedflib import highlevel
         # ch_names=["Flow", "Snore", "Thor", "Pleth"]
         signals, signal_headers, header = highlevel.read_edf(edf_file, ch_names=channel_names)
@@ -222,7 +223,8 @@ class Subject:
         return annotations
 
     def export_to_dataframe(self, signal_labels: list[str] = None, frequency: float = None,
-                            print_downsampling_details=True, anti_aliasing=True, trim_signals=False) -> pd.DataFrame:
+                            print_downsampling_details=True, anti_aliasing=True, trim_signals=True,
+                            median_to_low_spo2_values=True) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
@@ -234,6 +236,7 @@ class Subject:
         :param anti_aliasing: if True anti-aliasing LPF filter will be used when downsampling (for upsampling lpf will always be used).
         :param trim_signals: if True Min frequency signal will be zero trimmed and all other signals will be adjusted
         accordingly.
+        :param median_to_low_spo2_values: After trimming, Values in SpO2 below 60, are replaced with the median of all SpO2 values
         :return: Pandas dataframe
         """
         df = pd.DataFrame()
@@ -320,6 +323,19 @@ class Subject:
         #             else:
         #                 retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
         #             assert proportion == len(retained_signals[i]) / len(spo2)
+
+        if median_to_low_spo2_values:
+            threshold = 60
+            spo2_i = -1
+            for i in range(len(retained_signals)):
+                lbl = retained_signal_headers[i]["label"]
+                if lbl == "SpO2":
+                    spo2_i = i
+                    break
+            if spo2_i != -1:
+                spo2 = retained_signals[spo2_i]
+                median_spo2_value = np.median(spo2)
+                retained_signals[spo2_i][spo2 <= threshold] = median_spo2_value
 
         if frequency is not None:
             if print_downsampling_details:

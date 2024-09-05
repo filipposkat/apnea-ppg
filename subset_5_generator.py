@@ -600,6 +600,7 @@ def create_arrays(ids: list[int]):
         ids = get_best_ids()
 
     sub_seed_dict = {}
+    rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
     random.seed(SEED)  # Set the seed
 
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -619,7 +620,19 @@ def create_arrays(ids: list[int]):
         metadata_df = pd.Series(metadata)
         metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
-        sub_seed_dict[id] = random.getstate()
+        if rng_seed_pth.is_file():
+            # Not first time generating the subset
+            with open(str(rng_seed_pth), mode="rb") as file:
+                saved_sub_seed_dict = pickle.load(file)
+            if id in saved_sub_seed_dict:
+                state = saved_sub_seed_dict[id]
+                random.setstate(state)
+        else:
+            # First time generating the subset
+            sub_seed_dict[id] = random.getstate()
+            with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
+                pickle.dump(sub_seed_dict, file)
+
         X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:

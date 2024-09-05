@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import json
-import os
 from tqdm import tqdm
 
 # Local imports:
@@ -23,8 +22,8 @@ if __name__ == "__main__":
     from trainer import get_last_batch
 
 # --- START OF CONSTANTS --- #
-EPOCH = 14
-DESIRED_CLASSES = 5
+EPOCH = 4
+DESIRED_CLASSES = 2
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 CROSS_SUBJECT_TESTING = False
 
