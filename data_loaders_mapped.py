@@ -48,12 +48,18 @@ dataloaders_path.mkdir(parents=True, exist_ok=True)
 
 
 def get_subject_train_test_split():
-    # Get all ids in the directory with arrays. Each subdir is one subject
-    subset_ids = [int(f.name) for f in ARRAYS_DIR.iterdir() if f.is_dir()]
-    if GENERATE_TRAIN_TEST_SPLIT or len(subset_ids) != 400:
+    path = PATH_TO_SUBSET
+    if path.is_file():
+        ids_arr = np.load(str(path))  # array to save the best subject ids
+        ids: list = ids_arr.tolist()  # equivalent list
+    else:
+        print(f"Subset-{subset_id} has no ids generated yet")
+        exit(1)
+
+    if GENERATE_TRAIN_TEST_SPLIT or len(ids) != 400:
         rng = random.Random(33)
-        cross_sub_test_ids = rng.sample(subset_ids, CROSS_SUBJECT_TEST_SIZE)
-        train_ids = [id for id in subset_ids if id not in cross_sub_test_ids]
+        cross_sub_test_ids = rng.sample(ids, CROSS_SUBJECT_TEST_SIZE)
+        train_ids = [id for id in ids if id not in cross_sub_test_ids]
     else:
         cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
                               6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847,

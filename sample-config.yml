@@ -32,6 +32,7 @@ variables:
   models:
     net_type: # UNET or UResIncNet or ConvNet or ResIncNet
     net_identifier:
+    first_out_chans: 8  # multiple of 4
     kernel_size: 3
     depth: 8
     layers: 2

@@ -29,7 +29,7 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
         # sequence = filtfilt(b, a, sequence)
         expected_len = int(len(sequence) * proportion)
         downsample_factor = int(np.ceil(1 / proportion))
-        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=128,
+        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=256,
                                       ftype="fir")  # By default, Hamming window is used
         return downsampled_signal[:expected_len]
     else:

@@ -199,8 +199,8 @@ class EncoderBlock(nn.Module):
 
 class DecoderBlock(nn.Module):
     # Consists of 2x2 transposed convolution -> Conv -> LeakyReLU(0.2)
-    def __init__(self, in_chans, out_chans, kernel_size=4, layers=1, skip_connection=True, sampling_factor=2,
-                 dropout=0.0):
+    def __init__(self, in_chans, out_chans, kernel_size=4, layers=1, sampling_factor=2, dropout=0.0,
+                 skip_connection=True, expected_skip_connection_chans=None):
         super().__init__()
         self.in_chans = in_chans
         self.out_chans = out_chans
@@ -209,15 +209,27 @@ class DecoderBlock(nn.Module):
         self.dropout = dropout
         self.skip_connection = skip_connection
 
-        # Up-sampling:
-        skip_factor = 1 if skip_connection else 2
+        if skip_connection:
+            if expected_skip_connection_chans is None:
+                skip_factor = 1
+                # If max_channels was not reached during encoding then: skip_conn_chans == in_chans // 2
+                # in_chans // 2 + in_chans // 2 = in_chans
+                chans_after_connection = in_chans
+            else:
+                # skip_conn_chans + in_chans // 2 = in_chans (should be equal in most cases)
+                chans_after_connection = expected_skip_connection_chans + in_chans // 2
+        else:
+            # Channels from transpose convolution:
+            chans_after_connection = in_chans // 2
+
         self.decoder = nn.ModuleList()
+        # Up-sampling:
         self.upsample = TransposeConvolutionBlock(in_chans, in_chans // 2, kernel_size=kernel_size,
                                                   sampling_factor=sampling_factor)
 
         # Simple convolution for channel adjustment:
         self.decoder.append(
-            nn.Conv1d(in_chans // skip_factor, out_chans, kernel_size=kernel_size, stride=1, padding="same"))
+            nn.Conv1d(chans_after_connection, out_chans, kernel_size=kernel_size, stride=1, padding="same"))
         self.decoder.append(nn.BatchNorm1d(out_chans))
         self.decoder.append(nn.LeakyReLU(0.2))
 
@@ -241,12 +253,18 @@ class DecoderBlock(nn.Module):
 
 
 class UResIncNet(nn.Module):
-    def __init__(self, nclass=5, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1, sampling_factor=2,
-                 sampling_method="conv_stride", dropout=0.0, skip_connection=True, extra_final_conv=False,
+    def __init__(self, nclass=5, in_chans=1, first_out_chans=4, max_channels=512, depth=8, kernel_size=4, layers=1,
+                 sampling_factor=2, sampling_method="conv_stride", dropout=0.0, skip_connection=True,
+                 extra_final_conv=False,
                  custom_weight_init=False):
         super().__init__()
+        if extra_final_conv and first_out_chans == 4:
+            # For backwards compatibility, before the existence of first_out_chans
+            first_out_chans = 8
+
         self.nclass = nclass
         self.in_chans = in_chans
+        self.first_out_chans = first_out_chans
         self.max_channels = max_channels
         self.depth = depth
         self.kernel_size = kernel_size
@@ -265,18 +283,18 @@ class UResIncNet(nn.Module):
         # else:
         #     out_chans = 4
 
-        out_chans = 4
+        out_chans = self.first_out_chans
 
         # First block is special, input channel dimensionality has to be adjusted otherwise residual block will fail.
         # Also, the first block should not do any downsampling (stride = 1):
-        self.encoder.append(EncoderBlock(in_chans, out_chans,
+        self.encoder.append(EncoderBlock(self.in_chans, out_chans,
                                          kernel_size=self.kernel_size,
                                          layers=self.layers,
                                          sampling_factor=1,
                                          sampling_method=self.sampling_method))
         n_same_channel_blocks = 0
         for _ in range(depth - 1):
-            if out_chans * 2 <= max_channels:
+            if out_chans * 2 <= self.max_channels:
                 in_chans, out_chans = out_chans, out_chans * 2
             else:
                 in_chans, out_chans = out_chans, out_chans
@@ -290,17 +308,19 @@ class UResIncNet(nn.Module):
 
         for _ in range(depth - 1):
 
-            if self.extra_final_conv and out_chans // 2 >= 8 and n_same_channel_blocks == 0:
+            if out_chans // 2 >= self.first_out_chans and n_same_channel_blocks == 0:
                 in_chans, out_chans = out_chans, out_chans // 2
-            elif not self.extra_final_conv and out_chans // 2 >= 4 and n_same_channel_blocks == 0:
-                in_chans, out_chans = out_chans, out_chans // 2
+                expected_skip_conn_chans = in_chans // 2
             else:
                 in_chans, out_chans = out_chans, out_chans
                 n_same_channel_blocks -= 1
+                expected_skip_conn_chans = self.max_channels
+
             self.decoder.append(DecoderBlock(in_chans, out_chans,
                                              kernel_size=self.kernel_size,
                                              layers=self.layers,
                                              skip_connection=self.skip_connection,
+                                             expected_skip_connection_chans=expected_skip_conn_chans,
                                              sampling_factor=self.sampling_factor,
                                              dropout=self.dropout))
 
@@ -344,6 +364,11 @@ class UResIncNet(nn.Module):
 
     def get_args_summary(self):
         # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "first_out_chans"):
+            first_out_chans = self.first_out_chans
+        else:
+            first_out_chans = 4
+
         if hasattr(self, "layers"):
             layers = self.layers
         else:
@@ -359,11 +384,17 @@ class UResIncNet(nn.Module):
         else:
             extra_final_conv = False
 
-        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}")
+        return (
+            f"FirstOutChans {first_out_chans} - MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
+            f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}")
 
     def get_kwargs(self):
         # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "first_out_chans"):
+            first_out_chans = self.first_out_chans
+        else:
+            first_out_chans = 4
+
         if hasattr(self, "layers"):
             layers = self.layers
         else:
@@ -379,7 +410,8 @@ class UResIncNet(nn.Module):
         else:
             extra_final_conv = False
 
-        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "max_channels": self.max_channels,
+        kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "first_out_chans": first_out_chans,
+                  "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
                   "skip_connection": self.skip_connection, "dropout": dropout,

@@ -21,12 +21,12 @@ from object_loader import all_subjects_generator, get_subjects_by_ids_generator,
 # --- START OF CONSTANTS --- #
 SIGNALS = ["SpO2", "Pleth"]
 EXCLUDE_LOW_SQI_SUBJECTS = True
-SUBSET = 5
+SUBSET = 6
 SUBSET_SIZE = 800  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = False  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
 WINDOW_SEC_SIZE = 60
-SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
 ANTI_ALIASING = True
 TRIM = True
 STEP_SECS = 10  # The step between each window
@@ -82,12 +82,6 @@ def get_best_ids():
 
             n_hypopnea_events = df["event_index"].apply(lambda e: 1 if e == 3 else 0).sum()
             if n_hypopnea_events == 0:
-                # Exclude subjects who do not have any of the desired events
-                continue
-
-            # n_spo2_desat_events = len(sub.get_events_by_concept("spo2_desat"))
-            n_spo2_desat_events = df["event_index"].apply(lambda e: 1 if e == 4 else 0).sum()
-            if n_spo2_desat_events == 0:
                 # Exclude subjects who do not have any of the desired events
                 continue
 

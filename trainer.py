@@ -40,6 +40,7 @@ NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
 PRE_FETCH_TEST = 1
 CLASSIFY_PER_SAMPLE = True
+FIRST_OUT_CHANS = 4
 LR_TO_BATCH_RATIO = 1 / 25600  # If lr is defined in config then it will be omitted
 LR_WARMUP = False
 LR_WARMUP_ASCENDING = True
@@ -96,6 +97,9 @@ if config is not None:
     LAYERS = int(config["variables"]["models"]["layers"])
     SAMPLING_METHOD = config["variables"]["models"]["sampling_method"]
     DROPOUT = float(config["variables"]["models"]["dropout"])
+    if "first_out_chans" in config["variables"]["models"]:
+        FIRST_OUT_CHANS = int(config["variables"]["models"]["first_out_chans"])
+        assert FIRST_OUT_CHANS % 4 == 0
     if "lstm_max_features" in config["variables"]["models"]:
         LSTM_MAX_FEATURES = int(config["variables"]["models"]["lstm_max_features"])
         LSTM_LAYERS = int(config["variables"]["models"]["lstm_layers"])
@@ -640,14 +644,16 @@ if __name__ == "__main__":
                        sampling_method=SAMPLING_METHOD)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet":
-            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, first_out_chans=FIRST_OUT_CHANS,
+                             max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                              skip_connection=True, extra_final_conv=False,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet-2":
-            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, max_channels=512, depth=DEPTH, layers=LAYERS,
+            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, first_out_chans=FIRST_OUT_CHANS,
+                             max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
                              skip_connection=True, extra_final_conv=True,
@@ -667,7 +673,9 @@ if __name__ == "__main__":
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "CombinedNet":
-            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512,
+            net = CombinedNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS,
+                              first_out_chans=FIRST_OUT_CHANS,
+                              max_channels=512,
                               depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
                               sampling_method=SAMPLING_METHOD, dropout=DROPOUT,

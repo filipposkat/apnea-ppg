@@ -80,7 +80,8 @@ class RNN(nn.Module):
 
 
 class CombinedNet(nn.Module):
-    def __init__(self, nclass=5, in_size=512, in_chans=1, max_channels=512, depth=8, kernel_size=4, layers=1,
+    def __init__(self, nclass=5, in_size=512, in_chans=1, first_out_chans=4, max_channels=512,
+                 depth=8, kernel_size=4, layers=1,
                  sampling_factor=2,
                  sampling_method="conv_stride", dropout=0.0, skip_connection=True,
                  lstm_max_features=512, lstm_layers=2, lstm_dropout: float = 0.1, lstm_bidirectional=True,
@@ -88,6 +89,7 @@ class CombinedNet(nn.Module):
         super().__init__()
         self.nclass = nclass
         self.in_size = in_size
+        self.first_out_chans = first_out_chans
         self.in_chans = in_chans
         self.max_channels = max_channels
         self.depth = depth
@@ -110,7 +112,8 @@ class CombinedNet(nn.Module):
             # One channel for UResIncNet and one for RNN
             in_chans = 1
 
-        self.UResIncNetBranch = UResIncNet(nclass=nclass, in_chans=in_chans, max_channels=max_channels, depth=depth,
+        self.UResIncNetBranch = UResIncNet(nclass=nclass, in_chans=in_chans, first_out_chans=self.first_out_chans,
+                                           max_channels=max_channels, depth=depth,
                                            kernel_size=kernel_size, layers=layers,
                                            sampling_factor=sampling_factor, sampling_method=sampling_method,
                                            dropout=dropout, skip_connection=skip_connection)
@@ -144,6 +147,11 @@ class CombinedNet(nn.Module):
 
     def get_args_summary(self):
         # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "first_out_chans"):
+            first_out_chans = self.first_out_chans
+        else:
+            first_out_chans = 4
+
         if hasattr(self, "layers"):
             layers = self.layers
         else:
@@ -164,7 +172,7 @@ class CombinedNet(nn.Module):
         else:
             split_channels_into_branches = False
 
-        return (f"MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
+        return (f"FirstOutChans {first_out_chans} - MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
                 f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}"
                 f"- lstm_MaxCH {self.max_channels} - "
                 f"lstm_Bidirectional {self.lstm_bidirectional} "
@@ -172,6 +180,11 @@ class CombinedNet(nn.Module):
 
     def get_kwargs(self):
         # For backwards compatibility with older class which did not have layers attribute:
+        if hasattr(self, "first_out_chans"):
+            first_out_chans = self.first_out_chans
+        else:
+            first_out_chans = 4
+
         if hasattr(self, "layers"):
             layers = self.layers
         else:
@@ -193,7 +206,7 @@ class CombinedNet(nn.Module):
             split_channels_into_branches = False
 
         kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
-                  "max_channels": self.max_channels,
+                  "first_out_chans": first_out_chans, "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
                   "dropout": dropout, "skip_connection": self.skip_connection, "extra_final_conv": extra_final_conv,
