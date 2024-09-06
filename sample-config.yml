@@ -41,9 +41,11 @@ variables:
     lstm_max_features: 128
     lstm_layers: 2
     lstm_dropout: 0.1
-    use_weighted_loss: False
-    class_weights:  # List of class weights
     custom_net_weight_init: False
+  loss:
+    loss_func: "cel"
+    use_weighted_loss: False
+    class_weights: # List of class weights
   optimizer:
     type: "adam"
     lr:

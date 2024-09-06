@@ -22,8 +22,8 @@ if __name__ == "__main__":
     from trainer import get_last_batch
 
 # --- START OF CONSTANTS --- #
-EPOCH = 4
-DESIRED_CLASSES = 2
+EPOCH = 6
+DESIRED_CLASSES = 5
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 CROSS_SUBJECT_TESTING = False
 

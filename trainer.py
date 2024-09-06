@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torchmetrics.functional import accuracy
 from torch.utils.data import DataLoader, IterableDataset
+
+from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
 from torchinfo import summary
 from ray import train
 
@@ -84,6 +86,14 @@ if config is not None:
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
+
+    if "loss" in config["variables"]:
+        LOSS_FUNCTION = config["variables"]["loss"]["loss_func"]
+        use_weighted_loss = config["variables"]["loss"]["use_weighted_loss"]
+    else:
+        LOSS_FUNCTION = "cel"
+        use_weighted_loss = False
+
     if "lr" in config["variables"]["optimizer"]:
         LR = float(config["variables"]["optimizer"]["lr"])
         if "type" in config["variables"]["optimizer"]:
@@ -108,13 +118,13 @@ if config is not None:
         LSTM_MAX_FEATURES = 128
         LSTM_LAYERS = 2
         LSTM_DROPOUT = 0.1
-    use_weighted_loss = config["variables"]["models"]["use_weighted_loss"]
+
     if use_weighted_loss:
         # Class weights:
         # Subset1: Balance based on samples: old[1, 176, 23, 12, 3] now: [1, 95, 13, 7, 2]
         # Subset1 UResIncNET-"ks3-depth8-strided-0": Balance based on final recall: [1, 59, 20, 17, 1]
-        assert "class_weights" in config["variables"]["models"]
-        cw_tmp = config["variables"]["models"]["class_weights"]
+        assert "class_weights" in config["variables"]["loss"]
+        cw_tmp = config["variables"]["loss"]["class_weights"]
         assert cw_tmp is not None
         if CONVERT_SPO2DESAT_TO_NORMAL:
             assert len(cw_tmp) == 4
@@ -146,6 +156,7 @@ else:
     LSTM_MAX_FEATURES = 128
     LSTM_LAYERS = 2
     LSTM_DROPOUT = 0.1
+    LOSS_FUNCTION = "cel"
     use_weighted_loss = False
     CLASS_WEIGHTS = None
     CUSTOM_WEIGHT_INIT = False
@@ -571,6 +582,8 @@ if __name__ == "__main__":
     window_size = sample_batch_input.shape[2]
     N_CLASSES = int(torch.max(sample_batch_labels)) + 1
     signals_found = sample_batch_input.shape[1]
+    assert signals_found >= N_INPUT_CHANNELS  # N_INPUT_CHANNELS is defined in config.yml
+
     if CONVERT_SPO2DESAT_TO_NORMAL:
         assert N_CLASSES == 5
         N_CLASSES = 4
@@ -690,12 +703,33 @@ if __name__ == "__main__":
         start_from_batch = 0
 
         # Define loss:
-        if weights is not None:
-            loss_kwargs = {"weight": weights}
-            loss = nn.CrossEntropyLoss(**loss_kwargs)
+        if LOSS_FUNCTION == "cel":
+            if weights is not None:
+                loss_kwargs = {"weight": weights}
+                loss = nn.CrossEntropyLoss(**loss_kwargs)
+            else:
+                loss_kwargs = None
+                loss = nn.CrossEntropyLoss()
         else:
-            loss_kwargs = None
-            loss = nn.CrossEntropyLoss()
+            # Generalized-Wasserstein-Dice-Loss
+            if N_CLASSES == 5:
+                M = torch.tensor([[0.0, 1.0, 1.0, 0.7, 0.5],
+                                  [1.0, 0.0, 0.3, 0.5, 1.0],
+                                  [1.0, 0.3, 0.0, 0.5, 1.0],
+                                  [0.7, 0.5, 0.5, 0.0, 0.7],
+                                  [0.5, 1.0, 1.0, 0.7, 0.0]], dtype=torch.float32).to(device)
+            else:
+                assert N_CLASSES == 4
+                M = torch.tensor([[0.0, 1.0, 1.0, 0.7],
+                                  [1.0, 0.0, 0.3, 0.5],
+                                  [1.0, 0.3, 0.0, 0.5],
+                                  [0.7, 0.5, 0.5, 0.0]], dtype=torch.float32).to(device)
+            if use_weighted_loss:
+                loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
+            else:
+                loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
+
+            loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
 
         # Set LR:
         lr = LR
