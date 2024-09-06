@@ -163,7 +163,7 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
     from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
-
+    from dice_loss import DiceLoss
 # --- END OF CONSTANTS --- #
 
 
@@ -704,14 +704,14 @@ if __name__ == "__main__":
         start_from_batch = 0
 
         # Define loss:
-        if LOSS_FUNCTION == "cel":
+        if LOSS_FUNCTION == "dl":
             if weights is not None:
                 loss_kwargs = {"weight": weights}
-                loss = nn.CrossEntropyLoss(**loss_kwargs)
+                loss = DiceLoss(**loss_kwargs)
             else:
                 loss_kwargs = None
                 loss = nn.CrossEntropyLoss()
-        else:
+        elif LOSS_FUNCTION == "gwdl":
             # Generalized-Wasserstein-Dice-Loss
             if N_CLASSES == 5:
                 M = torch.tensor([[0.0, 1.0, 1.0, 0.7, 0.3],
@@ -731,6 +731,16 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
 
             loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
+        else:
+            # cel
+            if weights is not None:
+                loss_kwargs = {"weight": weights}
+                loss = nn.CrossEntropyLoss(**loss_kwargs)
+            else:
+                loss_kwargs = None
+                loss = nn.CrossEntropyLoss()
+
+        print(f"Using loss function: {type(loss).__name__}")
 
         # Set LR:
         lr = LR
