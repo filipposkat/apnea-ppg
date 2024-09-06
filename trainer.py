@@ -13,7 +13,6 @@ import torch.optim as optim
 from torchmetrics.functional import accuracy
 from torch.utils.data import DataLoader, IterableDataset
 
-from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
 from torchinfo import summary
 from ray import train
 
@@ -162,6 +161,8 @@ else:
     CUSTOM_WEIGHT_INIT = False
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
+if LOSS_FUNCTION != "cel":
+    from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
 
 # --- END OF CONSTANTS --- #
 
@@ -713,11 +714,11 @@ if __name__ == "__main__":
         else:
             # Generalized-Wasserstein-Dice-Loss
             if N_CLASSES == 5:
-                M = torch.tensor([[0.0, 1.0, 1.0, 0.7, 0.5],
+                M = torch.tensor([[0.0, 1.0, 1.0, 0.7, 0.3],
                                   [1.0, 0.0, 0.3, 0.5, 1.0],
                                   [1.0, 0.3, 0.0, 0.5, 1.0],
                                   [0.7, 0.5, 0.5, 0.0, 0.7],
-                                  [0.5, 1.0, 1.0, 0.7, 0.0]], dtype=torch.float32).to(device)
+                                  [0.3, 1.0, 1.0, 0.7, 0.0]], dtype=torch.float32).to(device)
             else:
                 assert N_CLASSES == 4
                 M = torch.tensor([[0.0, 1.0, 1.0, 0.7],

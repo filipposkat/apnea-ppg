@@ -37,6 +37,7 @@ TEST_SEARCH_SAMPLE_STEP = 512
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 NO_EVENTS_TO_EVENTS_RATIO = 5
+INCLUDE_SPO2DESAT_IN_NOEVENT = True
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
 EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
@@ -340,8 +341,18 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
         y_test = [window_df["event_index"] for window_df in test_windows_dfs]
 
         def window_dropping_continuous(X, y):
-            num_of_event_windows = np.count_nonzero([window.sum() for window in y])
-            num_of_no_event_windows = len(y) - num_of_event_windows
+            def no_event_condition(window):
+                if INCLUDE_SPO2DESAT_IN_NOEVENT:
+                    return all((window == 0) | (window == 4))
+                else:
+                    return all(window == 0)
+
+            num_of_no_event_windows = 0
+            for window in y:
+                if no_event_condition(window):
+                    num_of_no_event_windows += 1
+
+            num_of_event_windows = len(y) - num_of_no_event_windows
             target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
             diff = num_of_no_event_windows - target_num_no_event_windows
 
@@ -353,12 +364,12 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce no event windows by num_to_drop:
                 combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): Xy[1].sum() == 0 and next(c) < num_to_drop, combined_xy))
+                    filterfalse(lambda Xy, c=count(): no_event_condition(Xy[1]) and next(c) < num_to_drop, combined_xy))
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce event windows by num_to_drop:
                 combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): Xy[1].sum() != 0 and next(c) < num_to_drop, combined_xy))
+                    filterfalse(lambda Xy, c=count(): not no_event_condition(Xy[1]) and next(c) < num_to_drop, combined_xy))
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
@@ -663,7 +674,6 @@ def create_arrays(ids: list[int]):
 
     plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
     print(sub_seed_dict)
-
 
 
 if __name__ == "__main__":
