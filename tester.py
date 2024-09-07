@@ -158,7 +158,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
                 s = 1 if s == 0 else s
                 cm[r, :] = cm[r, :] / s
         elif normalize == "pred":
-            for c in range(cm.shape[0]):
+            for c in range(cm.shape[1]):
                 s = np.sum(cm[:, c])
                 s = 1 if s == 0 else s
                 cm[:, c] = cm[:, c] / s
@@ -167,6 +167,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
 
         fig, ax = plt.subplots(figsize=(10, 7))
         ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
+
         sns.set_theme(font_scale=1)  # for label size
         if normalize is not None:
             sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", ax=ax, cbar=True)

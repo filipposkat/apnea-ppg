@@ -206,20 +206,28 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(4939)
+    (id, sub) = get_subject_by_id(4389)
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))
 
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
+    plt.plot(sub.signals[1][16840:16961])  # 1 Hz: sample=second
 
-    plt.plot(sub.signals[1])
+    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=False, trim_signals=True)
+    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    dfm = df.loc[mask, :]
+    dfm.plot(x="time_secs", y="SpO2")
+    dfm.plot(x="time_secs", y="Pleth")
+    dfm.plot(x="time_secs", y="event_index")
 
     df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_signals=True)
-    df.plot(x="time_secs", y="SpO2")
-    df.plot(x="time_secs", y="Pleth")
-    # df.plot(x="time_secs", y="event_index")
+    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    dfm = df.loc[mask, :]
+    dfm.plot(x="time_secs", y="SpO2")
+    dfm.plot(x="time_secs", y="Pleth")
+    dfm.plot(x="time_secs", y="event_index")
     plt.show()
     # df.to_csv("107.csv")
     # print(df.shape[0])

@@ -30,7 +30,8 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
 
         expected_len = int(len(sequence) * proportion)
         downsample_factor = int(np.ceil(1 / proportion))
-        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=256,
+        N = downsample_factor * 32
+        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=N,
                                       ftype="fir")  # By default, Hamming window is used
         return downsampled_signal[:expected_len]
     else:
@@ -61,9 +62,10 @@ def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     #     # Apply the filter to smooth the upsampled signal
     #     upsampled_signal = filtfilt(b, a, upsampled_signal)
 
-    # window = get_window(window="hamming", Nx=20*proportion+1, fftbins=False)
-    # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
-    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")
+    N = int(32*proportion)+1
+    window = get_window(window="hamming", Nx=N, fftbins=False)
+    upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
+    # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")
     return upsampled_signal
 
 

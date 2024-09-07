@@ -22,7 +22,7 @@ if __name__ == "__main__":
     from trainer import get_last_batch
 
 # --- START OF CONSTANTS --- #
-EPOCH = 10
+EPOCH = 1
 DESIRED_CLASSES = 5
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 CROSS_SUBJECT_TESTING = False
@@ -198,7 +198,7 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
                 s = 1 if s == 0 else s
                 cm[r, :] = cm[r, :] / s
         elif normalize == "pred":
-            for c in range(cm.shape[0]):
+            for c in range(cm.shape[1]):
                 s = np.sum(cm[:, c])
                 s = 1 if s == 0 else s
                 cm[:, c] = cm[:, c] / s
