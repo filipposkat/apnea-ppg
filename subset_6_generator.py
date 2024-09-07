@@ -36,7 +36,7 @@ TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
-NO_EVENTS_TO_EVENTS_RATIO = 5
+NO_EVENTS_TO_EVENTS_RATIO = 2
 INCLUDE_SPO2DESAT_IN_NOEVENT = True
 MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window dropping
 EXCLUDE_10s_AFTER_EVENT = True

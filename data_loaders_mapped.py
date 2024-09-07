@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
 GENERATE_TRAIN_TEST_SPLIT = False
-CROSS_SUBJECT_TEST_SIZE_PROPORTION = 0.25
+CROSS_SUBJECT_TEST_PROPORTION = 0.25
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
 BATCH_SIZE = 256
 BATCH_SIZE_TEST = 1024  # 8192
@@ -48,7 +48,7 @@ dataloaders_path.mkdir(parents=True, exist_ok=True)
 
 
 def get_subject_train_test_split():
-    path = PATH_TO_SUBSET
+    path = PATH_TO_SUBSET / "ids.npy"
     if path.is_file():
         ids_arr = np.load(str(path))  # array to save the best subject ids
         ids: list = ids_arr.tolist()  # equivalent list
@@ -57,8 +57,9 @@ def get_subject_train_test_split():
         exit(1)
 
     if GENERATE_TRAIN_TEST_SPLIT or len(ids) != 400:
+        cross_sub_test_size =  int(len(ids) * CROSS_SUBJECT_TEST_PROPORTION)
         rng = random.Random(33)
-        cross_sub_test_ids = rng.sample(ids, CROSS_SUBJECT_TEST_SIZE)
+        cross_sub_test_ids = rng.sample(ids, cross_sub_test_size)
         train_ids = [id for id in ids if id not in cross_sub_test_ids]
     else:
         cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
@@ -115,7 +116,7 @@ class MappedDataset(Dataset):
     def __init__(self,
                  subject_ids: list[int],
                  dataset_split: str = "train",
-                 desired_target: str = "pleth",
+                 desired_target: str = "y",
                  arrays_dir: Path = ARRAYS_DIR,
                  transform=None,
                  target_transform=None,
@@ -241,7 +242,7 @@ class MappedDataset(Dataset):
             window_indices = batch_windows_by_sub[sub_id]
             signals, labels = self.get_specific_windows(sub_id, window_indices)
             if signals.shape[1] != N_DESIRED_INPUT_SIGNALS:
-                print(f"Subject: {sub_id} has incorrect dimensions ")
+                print(f"Subject: {sub_id} has incorrect number of signals. Expected: {N_DESIRED_INPUT_SIGNALS}, Got: {signals.shape[1]} ")
             X_batch.append(signals)
             y_batch.append(labels)
 
