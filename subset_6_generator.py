@@ -341,11 +341,11 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
         y_test = [window_df["event_index"] for window_df in test_windows_dfs]
 
         def window_dropping_continuous(X, y):
-            def no_event_condition(window):
+            def no_event_condition(y_window):
                 if INCLUDE_SPO2DESAT_IN_NOEVENT:
-                    return all((window == 0) | (window == 4))
+                    return all((y_window == 0) | (y_window == 4))
                 else:
-                    return all(window == 0)
+                    return all(y_window == 0)
 
             num_of_no_event_windows = 0
             for window in y:
@@ -369,18 +369,24 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce event windows by num_to_drop:
                 combined_xy = list(
-                    filterfalse(lambda Xy, c=count(): not no_event_condition(Xy[1]) and next(c) < num_to_drop, combined_xy))
+                    filterfalse(lambda Xy, c=count(): not no_event_condition(Xy[1]) and next(c) < num_to_drop,
+                                combined_xy))
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
         X_train, y_train = window_dropping_continuous(X_train, y_train)
-        # X_test, y_test = window_dropping_continuous(X_test, y_test)
     else:
         # One label per window / non-continuous
         y_train = [assign_window_label(window_df["event_index"]) for window_df in train_windows_dfs]
         y_test = [assign_window_label(window_df["event_index"]) for window_df in test_windows_dfs]
 
         def window_dropping(X, y):
+            def no_event_condition(y):
+                if INCLUDE_SPO2DESAT_IN_NOEVENT:
+                    return (y == 0) or (y == 4)
+                else:
+                    return y == 0
+
             num_of_event_windows = np.count_nonzero(y)
             num_of_no_event_windows = len(y) - num_of_event_windows
             target_num_no_event_windows = NO_EVENTS_TO_EVENTS_RATIO * num_of_event_windows
@@ -393,63 +399,17 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             if diff > 0:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce no event windows by num_to_drop:
-                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] == 0 and next(c) < num_to_drop, combined_xy))
+                combined_xy = list(
+                    filterfalse(lambda Xy, c=count(): no_event_condition(Xy[1]) and next(c) < num_to_drop, combined_xy))
             elif diff < 0 and DROP_EVENT_WINDOWS_IF_NEEDED:
                 num_to_drop = min(abs(diff), (len(y) - MIN_WINDOWS))
                 # Reduce event windows by num_to_drop:
-                combined_xy = list(filterfalse(lambda Xy, c=count(): Xy[1] != 0 and next(c) < num_to_drop, combined_xy))
+                combined_xy = list(filterfalse(lambda Xy, c=count(): not no_event_condition(Xy[1])
+                                                                     and next(c) < num_to_drop, combined_xy))
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
         X_train, y_train = window_dropping(X_train, y_train)
-        # X_test, y_test = window_dropping(X_test, y_test)
-
-    # # 5. Split into train and test:
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
-    #                                                     random_state=SEED)
-    # # print(f"Events train%: {np.count_nonzero(y_train) / len(y_train)}")
-    # # print(f"Events test%: {np.count_nonzero(y_test) / len(y_test)}")
-
-    # # 6. Drop no-event windows within 10s (= 320 samples) after event window:
-    # if DROP_10s_AFTER_EVENT:
-    #     windows_to_drop = []
-    #     # for every window:
-    #     for i in range(len(y_train)):
-    #         if CONTINUOUS_LABEL:
-    #             # if it has event at the last 10s of the window
-    #             if sum(y_train[i][191:512]) != 0:
-    #                 # Check every possible event sample between 192 end 512 (last 10s of the window):
-    #                 for j in range(191, 512):
-    #                     # Examine event samples one by one:
-    #                     if y_train[i][j] != 0:
-    #                         samples_til_window_end = 511 - j
-    #                         # Check the next 10s for windows starting with no event:
-    #                         # [(10s of samples (320) - (samples remaining until end of window)] // step + 1 :
-    #                         drop_zone = (10 * 32 - samples_til_window_end) // STEP + 1
-    #                         for k in range(i + 1, i + drop_zone):
-    #                             samples_in_drop_zone = (1 + drop_zone - (k - i)) * STEP
-    #                             if sum(y_train[k][0:samples_in_drop_zone]) == 0:
-    #                                 # Add no event window to drop list:
-    #                                 windows_to_drop.append(j)
-    #                             else:
-    #                                 # Event window found within 10s of the event window we examine,
-    #                                 # thus there is no need to drop more no event windows since i will reach this event
-    #                                 break
-    #         else:
-    #             drop_zone = (10 * 32) // STEP + 1
-    #             if y_train[i] != 0:
-    #                 # Check the next 10s for no event windows:
-    #                 for j in range(i + 1, i + drop_zone):
-    #                     if y_train[j] == 0:
-    #                         # Add no event window to drop list:
-    #                         windows_to_drop.append(j)
-    #                     else:
-    #                         # Event window found within 10s of the event window we examine,
-    #                         # thus there is no need to drop more no event windows since i will reach this event
-    #                         break
-    #     X_train = [X_train[j] for j in range(len(X_train)) if j not in windows_to_drop]
-    #     y_train = [X_train[j] for j in range(len(y_train)) if j not in windows_to_drop]
-
     return X_train, X_test, y_train, y_test
 
 
@@ -492,56 +452,6 @@ def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_te
     np.save(str(y_test_path), y_test_arr)
 
 
-def save_arrays_expanded(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
-    """
-    Saves one array per window for one subject in two directories: train, test.
-    X_{index} has shape (WINDOW_SAMPLES_SIZE, numOfSignals)
-    y_{index} has shape (WINDOW_SAMPLES_SIZE, 1)
-
-    :param subject_arrs_path: Path to save subject's arrays
-    :param X_train: iterable with train window signals
-    :param y_train: iterable with train window labels
-    :param X_test: iterable with test window signals
-    :param y_test: iterable with test window signals
-    :return: Nothing
-    """
-    # Save train arrays, one file each
-    n_train_windows = len(y_train)
-    for w in range(n_train_windows):
-        # Transform window to numpy array:
-        X_window = np.array(X_train[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
-        y_window = np.array(y_train[w], dtype="uint8").ravel()
-
-        # Create directory for subject:
-        subject_train_dir = subject_arrs_path.joinpath(str(id).zfill(4), "train")
-        subject_train_dir.mkdir(parents=True, exist_ok=True)
-
-        X_window_path = subject_train_dir.joinpath(f"X_{w}.npy")
-        y_window_path = subject_train_dir.joinpath(f"y_{w}.npy")
-
-        # Save the arrays
-        np.save(str(X_window_path), X_window)
-        np.save(str(y_window_path), y_window)
-
-    # Same for test:
-    n_test_windows = len(y_test)
-    for w in range(n_test_windows):
-        # Transform window to numpy array:
-        X_window = np.array(X_test[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
-        y_window = np.array(y_test[w], dtype="uint8").ravel()
-
-        # Create directory for subject:
-        subject_test_dir = subject_arrs_path.joinpath(str(id).zfill(4), "test")
-        subject_test_dir.mkdir(parents=True, exist_ok=True)
-
-        X_window_path = subject_test_dir.joinpath(f"X_{w}.npy")
-        y_window_path = subject_test_dir.joinpath(f"y_{w}.npy")
-
-        # Save the arrays
-        np.save(str(X_window_path), X_window)
-        np.save(str(y_window_path), y_window)
-
-
 def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont):
     print(f"Train: {train_label_counts} total={sum(train_label_counts.values())}")
     print({k: f"{100 * v / sum(train_label_counts.values()):.2f}%" for (k, v) in train_label_counts.items()})
@@ -563,25 +473,38 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         train_counts_cont = list(train_label_counts_cont.values())
         test_counts_cont = list(test_label_counts_cont.values())
 
-        fig, ax = plt.subplots(nrows=1, ncols=2)
+        fig_cont, ax = plt.subplots(nrows=1, ncols=2)
 
         ax[0].set_title("Train set label counts")
-        ax[0].bar(X_axis - 0.2, train_counts, 0.4, label='Window Labels')
-        ax[0].bar(X_axis + 0.2, train_counts_cont, 0.4, label='Sample Labels')
+        ax[0].bar(X_axis, train_counts_cont, 0.4, label='Sample Labels')
         ax[0].set_xticks(X_axis, [str(x) for x in labels])
         ax[0].set_xlabel("Event index")
         ax[0].set_ylabel("Count")
         ax[0].legend()
 
         ax[1].set_title("Test set label counts")
-        ax[1].bar(X_axis - 0.2, test_counts, 0.4, label='Window Labels')
-        ax[1].bar(X_axis + 0.2, test_counts_cont, 0.4, label='Sample Labels')
+        ax[1].bar(X_axis, test_counts_cont, 0.4, label='Sample Labels')
         ax[1].set_xticks(X_axis, [str(x) for x in labels])
         ax[1].set_xlabel("Event index")
         ax[1].set_ylabel("Count")
         ax[1].legend()
+        fig_cont.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_continuous_label.png"))
 
-        fig.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_continuous_label.png"))
+        fig_win, ax = plt.subplots(nrows=1, ncols=2)
+        ax[0].set_title("Train set label counts")
+        ax[0].bar(X_axis, train_counts, 0.4, label='Window Labels')
+        ax[0].set_xticks(X_axis, [str(x) for x in labels])
+        ax[0].set_xlabel("Event index")
+        ax[0].set_ylabel("Count")
+        ax[0].legend()
+
+        ax[1].set_title("Test set label counts")
+        ax[1].bar(X_axis, test_counts, 0.4, label='Window Labels')
+        ax[1].set_xticks(X_axis, [str(x) for x in labels])
+        ax[1].set_xlabel("Event index")
+        ax[1].set_ylabel("Count")
+        ax[1].legend()
+        fig_win.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_window_label.png"))
     else:
         fig, ax = plt.subplots(nrows=1, ncols=2)
 
@@ -667,12 +590,10 @@ def create_arrays(ids: list[int]):
                     train_label_counts[i] += train_event_counts[i]
                     test_label_counts[i] += test_event_counts[i]
 
-        if SAVE_ARRAYS_EXPANDED:
-            save_arrays_expanded(subject_arrs_path, X_train, y_train, X_test, y_test)
-        else:
-            save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
+        save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
 
-    plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
+    if COUNT_LABELS and not SKIP_EXISTING_IDS:
+        plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
     print(sub_seed_dict)
 
 

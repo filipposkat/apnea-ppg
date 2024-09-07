@@ -206,7 +206,7 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(27)
+    (id, sub) = get_subject_by_id(4939)
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))

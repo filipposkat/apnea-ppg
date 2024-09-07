@@ -57,7 +57,7 @@ def get_subject_train_test_split():
         exit(1)
 
     if GENERATE_TRAIN_TEST_SPLIT or len(ids) != 400:
-        cross_sub_test_size =  int(len(ids) * CROSS_SUBJECT_TEST_PROPORTION)
+        cross_sub_test_size = int(len(ids) * CROSS_SUBJECT_TEST_PROPORTION)
         rng = random.Random(33)
         cross_sub_test_ids = rng.sample(ids, cross_sub_test_size)
         train_ids = [id for id in ids if id not in cross_sub_test_ids]
