@@ -151,7 +151,12 @@ class MappedDataset(Dataset):
 
         subject_ids = tqdm(self.subject_ids) if initialization_progress else self.subject_ids
         for id in subject_ids:
-            _, y = self.load_arrays(id)
+            X, y = self.load_arrays(id)
+            detected_n_signals = X.shape[1]
+            if detected_n_signals != N_DESIRED_INPUT_SIGNALS:
+                print(f"Subject: {id} has incorrect number of signals. Expected: {N_DESIRED_INPUT_SIGNALS}, Got: {detected_n_signals} ")
+            # detected_window_size_= X.shape[2]
+
             n_windows = y.shape[0]
             self.id_size_dict[id] = n_windows
             self.total_windows += n_windows

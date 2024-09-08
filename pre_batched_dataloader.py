@@ -187,8 +187,8 @@ class PreBatchedDataset(Dataset):
         batch_dir = self.directory / f"batch-{idx}"
         X_path = batch_dir / "X.pt"
         y_path = batch_dir / "y.pt"
-        X = torch.load(X_path)
-        y = torch.load(y_path)
+        X = torch.load(X_path, weights_only=True)
+        y = torch.load(y_path, weights_only=True)
         return X, y
 
 

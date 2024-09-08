@@ -1,9 +1,12 @@
-# Same as subset-1 but with anti-aliasing used during resampling and with SpO2 included instead of Flow
+# Same as subset-1 but with anti-aliasing N=128 used during resampling, 60s windows
+# and with SpO2 included instead of Flow
 
 import math
 import time
 from itertools import filterfalse, count
 from pathlib import Path
+from typing import Tuple, Any, List
+
 import numpy as np
 from collections import Counter
 from tqdm import tqdm
@@ -38,7 +41,6 @@ MIN_WINDOWS = 1000  # Minimum value of subject's windows to remain after window 
 EXCLUDE_10s_AFTER_EVENT = True
 DROP_EVENT_WINDOWS_IF_NEEDED = False
 COUNT_LABELS = True
-SAVE_ARRAYS_EXPANDED = False
 SEED = 33
 
 WINDOW_SAMPLES_SIZE = WINDOW_SEC_SIZE * SIGNALS_FREQUENCY
@@ -211,8 +213,12 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
-        -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
+def get_subject_train_test_data(subject: Subject,
+                                train_test_split_index: int = None,
+                                sufficiently_low_divergence=None,
+                                return_train_test_split_index=True) \
+        -> tuple[Any, list[Any], Any, list[Any] | list[int], int | None] | tuple[
+            Any, list[Any], Any, list[Any] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["SpO2", "Pleth"], print_downsampling_details=False,
                                          anti_aliasing=True, frequency=SIGNALS_FREQUENCY, trim_signals=TRIM)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
@@ -230,34 +236,34 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
     candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
 
     sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
-    for i in candidates_subsample:
-        # Split into train and test:
-        # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
-        # in order to know later the point where continuity breaks. So ignore_index=False
+    if train_test_split_index is None:
+        for i in candidates_subsample:
+            # Split into train and test:
+            # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
+            # in order to know later the point where continuity breaks. So ignore_index=False
+            train_df = pd.concat(
+                [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+                axis=0, ignore_index=False)
+            test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+                drop=True)
+
+            # Find the JSD similarity of the train and test distributions:
+            divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
+
+            # We want to minimize the divergence because we want to maximize similarity
+            if divergence < min_split_divergence:
+                min_split_divergence = divergence
+                best_split = (train_df, test_df)
+                if divergence < sufficiently_low_divergence:
+                    break
+    else:
+        i = train_test_split_index
         train_df = pd.concat(
             [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
             axis=0, ignore_index=False)
         test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
             drop=True)
-
-        # Find the JSD similarity of the train and test distributions:
-        divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
-        # print(f"i={i}/{num_of_candidates}")
-        # print(f"JSD: {divergence:.4f}")
-        # y_train = train_df["event_index"]
-        # y_test = test_df["event_index"]
-        # print(f"TRAIN  -  CA: {sum(y_train == 1) / len(y_train):.2f}  OA: {sum(y_train == 2) / len(y_train):.2f}  "
-        #       f"H: {sum(y_train == 3) / len(y_train):.2f}  S: {sum(y_train == 4) / len(y_train):.2f}")
-        # print(f"TEST  -  CA: {sum(y_test == 1) / len(y_test):.2f}  OA: {sum(y_test == 2) / len(y_test):.2f}  "
-        #       f"H: {sum(y_test == 3) / len(y_test):.2f}  S: {sum(y_test == 4) / len(y_test):.2f}")
-        # print("-------------------------------------------------------------------------------------------------------")
-
-        # We want to minimize the divergence because we want to maximize similarity
-        if divergence < min_split_divergence:
-            min_split_divergence = divergence
-            best_split = (train_df, test_df)
-            if divergence < sufficiently_low_divergence:
-                break
+        best_split = (train_df, test_df)
 
     train_df = best_split[0]
     test_df = best_split[1]
@@ -394,55 +400,10 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             return X, y
 
         X_train, y_train = window_dropping(X_train, y_train)
-        # X_test, y_test = window_dropping(X_test, y_test)
-
-    # # 5. Split into train and test:
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, shuffle=True, stratify=y,
-    #                                                     random_state=SEED)
-    # # print(f"Events train%: {np.count_nonzero(y_train) / len(y_train)}")
-    # # print(f"Events test%: {np.count_nonzero(y_test) / len(y_test)}")
-
-    # # 6. Drop no-event windows within 10s (= 320 samples) after event window:
-    # if DROP_10s_AFTER_EVENT:
-    #     windows_to_drop = []
-    #     # for every window:
-    #     for i in range(len(y_train)):
-    #         if CONTINUOUS_LABEL:
-    #             # if it has event at the last 10s of the window
-    #             if sum(y_train[i][191:512]) != 0:
-    #                 # Check every possible event sample between 192 end 512 (last 10s of the window):
-    #                 for j in range(191, 512):
-    #                     # Examine event samples one by one:
-    #                     if y_train[i][j] != 0:
-    #                         samples_til_window_end = 511 - j
-    #                         # Check the next 10s for windows starting with no event:
-    #                         # [(10s of samples (320) - (samples remaining until end of window)] // step + 1 :
-    #                         drop_zone = (10 * 32 - samples_til_window_end) // STEP + 1
-    #                         for k in range(i + 1, i + drop_zone):
-    #                             samples_in_drop_zone = (1 + drop_zone - (k - i)) * STEP
-    #                             if sum(y_train[k][0:samples_in_drop_zone]) == 0:
-    #                                 # Add no event window to drop list:
-    #                                 windows_to_drop.append(j)
-    #                             else:
-    #                                 # Event window found within 10s of the event window we examine,
-    #                                 # thus there is no need to drop more no event windows since i will reach this event
-    #                                 break
-    #         else:
-    #             drop_zone = (10 * 32) // STEP + 1
-    #             if y_train[i] != 0:
-    #                 # Check the next 10s for no event windows:
-    #                 for j in range(i + 1, i + drop_zone):
-    #                     if y_train[j] == 0:
-    #                         # Add no event window to drop list:
-    #                         windows_to_drop.append(j)
-    #                     else:
-    #                         # Event window found within 10s of the event window we examine,
-    #                         # thus there is no need to drop more no event windows since i will reach this event
-    #                         break
-    #     X_train = [X_train[j] for j in range(len(X_train)) if j not in windows_to_drop]
-    #     y_train = [X_train[j] for j in range(len(y_train)) if j not in windows_to_drop]
-
-    return X_train, X_test, y_train, y_test
+    if return_train_test_split_index:
+        return X_train, X_test, y_train, y_test, train_test_split_index
+    else:
+        return X_train, X_test, y_train, y_test
 
 
 def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
@@ -483,57 +444,6 @@ def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_te
     np.save(str(X_test_path), X_test_arr)
     np.save(str(y_test_path), y_test_arr)
 
-
-def save_arrays_expanded(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
-    """
-    Saves one array per window for one subject in two directories: train, test.
-    X_{index} has shape (WINDOW_SAMPLES_SIZE, numOfSignals)
-    y_{index} has shape (WINDOW_SAMPLES_SIZE, 1)
-
-    :param subject_arrs_path: Path to save subject's arrays
-    :param X_train: iterable with train window signals
-    :param y_train: iterable with train window labels
-    :param X_test: iterable with test window signals
-    :param y_test: iterable with test window signals
-    :return: Nothing
-    """
-    # Save train arrays, one file each
-    n_train_windows = len(y_train)
-    for w in range(n_train_windows):
-        # Transform window to numpy array:
-        X_window = np.array(X_train[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
-        y_window = np.array(y_train[w], dtype="uint8").ravel()
-
-        # Create directory for subject:
-        subject_train_dir = subject_arrs_path.joinpath(str(id).zfill(4), "train")
-        subject_train_dir.mkdir(parents=True, exist_ok=True)
-
-        X_window_path = subject_train_dir.joinpath(f"X_{w}.npy")
-        y_window_path = subject_train_dir.joinpath(f"y_{w}.npy")
-
-        # Save the arrays
-        np.save(str(X_window_path), X_window)
-        np.save(str(y_window_path), y_window)
-
-    # Same for test:
-    n_test_windows = len(y_test)
-    for w in range(n_test_windows):
-        # Transform window to numpy array:
-        X_window = np.array(X_test[w], dtype="float32").reshape(WINDOW_SAMPLES_SIZE, -1)
-        y_window = np.array(y_test[w], dtype="uint8").ravel()
-
-        # Create directory for subject:
-        subject_test_dir = subject_arrs_path.joinpath(str(id).zfill(4), "test")
-        subject_test_dir.mkdir(parents=True, exist_ok=True)
-
-        X_window_path = subject_test_dir.joinpath(f"X_{w}.npy")
-        y_window_path = subject_test_dir.joinpath(f"y_{w}.npy")
-
-        # Save the arrays
-        np.save(str(X_window_path), X_window)
-        np.save(str(y_window_path), y_window)
-
-
 def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont):
     print(f"Train: {train_label_counts} total={sum(train_label_counts.values())}")
     print({k: f"{100 * v / sum(train_label_counts.values()):.2f}%" for (k, v) in train_label_counts.items()})
@@ -555,25 +465,38 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         train_counts_cont = list(train_label_counts_cont.values())
         test_counts_cont = list(test_label_counts_cont.values())
 
-        fig, ax = plt.subplots(nrows=1, ncols=2)
+        fig_cont, ax = plt.subplots(nrows=1, ncols=2)
 
         ax[0].set_title("Train set label counts")
-        ax[0].bar(X_axis - 0.2, train_counts, 0.4, label='Window Labels')
-        ax[0].bar(X_axis + 0.2, train_counts_cont, 0.4, label='Sample Labels')
+        ax[0].bar(X_axis, train_counts_cont, 0.4, label='Sample Labels')
         ax[0].set_xticks(X_axis, [str(x) for x in labels])
         ax[0].set_xlabel("Event index")
         ax[0].set_ylabel("Count")
         ax[0].legend()
 
         ax[1].set_title("Test set label counts")
-        ax[1].bar(X_axis - 0.2, test_counts, 0.4, label='Window Labels')
-        ax[1].bar(X_axis + 0.2, test_counts_cont, 0.4, label='Sample Labels')
+        ax[1].bar(X_axis, test_counts_cont, 0.4, label='Sample Labels')
         ax[1].set_xticks(X_axis, [str(x) for x in labels])
         ax[1].set_xlabel("Event index")
         ax[1].set_ylabel("Count")
         ax[1].legend()
+        fig_cont.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_continuous_label.png"))
 
-        fig.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_continuous_label.png"))
+        fig_win, ax = plt.subplots(nrows=1, ncols=2)
+        ax[0].set_title("Train set label counts")
+        ax[0].bar(X_axis, train_counts, 0.4, label='Window Labels')
+        ax[0].set_xticks(X_axis, [str(x) for x in labels])
+        ax[0].set_xlabel("Event index")
+        ax[0].set_ylabel("Count")
+        ax[0].legend()
+
+        ax[1].set_title("Test set label counts")
+        ax[1].bar(X_axis, test_counts, 0.4, label='Window Labels')
+        ax[1].set_xticks(X_axis, [str(x) for x in labels])
+        ax[1].set_xlabel("Event index")
+        ax[1].set_ylabel("Count")
+        ax[1].legend()
+        fig_win.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_window_label.png"))
     else:
         fig, ax = plt.subplots(nrows=1, ncols=2)
 
@@ -601,6 +524,8 @@ def create_arrays(ids: list[int]):
 
     sub_seed_dict = {}
     rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
+    split_index_dict = {}
+    split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
     random.seed(SEED)  # Set the seed
 
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -630,10 +555,29 @@ def create_arrays(ids: list[int]):
         else:
             # First time generating the subset
             sub_seed_dict[id] = random.getstate()
-            with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
+            with open(str(rng_seed_pth), mode="wb") as file:
                 pickle.dump(sub_seed_dict, file)
 
-        X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
+        train_test_split_i = None
+        save_split_i = True
+        if split_index_pth.is_file():
+            # Not first time generating the subset
+            with open(str(split_index_pth), mode="rb") as file:
+                split_index_dict = pickle.load(file)
+            if id in split_index_dict:
+                train_test_split_i = split_index_dict[id]
+                save_split_i = False
+
+        X_train, X_test, y_train, y_test, train_test_split_i = \
+            get_subject_train_test_data(sub,
+                                        train_test_split_index=train_test_split_i,
+                                        return_train_test_split_index=True)
+
+        if save_split_i:
+            # First time generating the subset
+            split_index_dict[id] = random.getstate()
+            with open(str(split_index_pth), mode="wb") as file:
+                pickle.dump(sub_seed_dict, file)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
             train_y_cont = np.array(y_train).flatten()
@@ -659,9 +603,6 @@ def create_arrays(ids: list[int]):
                     train_label_counts[i] += train_event_counts[i]
                     test_label_counts[i] += test_event_counts[i]
 
-        if SAVE_ARRAYS_EXPANDED:
-            save_arrays_expanded(subject_arrs_path, X_train, y_train, X_test, y_test)
-        else:
             save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
 
     plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)

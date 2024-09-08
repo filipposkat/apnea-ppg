@@ -213,17 +213,17 @@ if __name__ == "__main__":
 
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    plt.plot(sub.signals[1][16840:16961])  # 1 Hz: sample=second
+    # plt.plot(sub.signals[1][16840:16901])  # 1 Hz: sample=second
 
-    df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=False, trim_signals=True)
-    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
-    dfm = df.loc[mask, :]
-    dfm.plot(x="time_secs", y="SpO2")
-    dfm.plot(x="time_secs", y="Pleth")
-    dfm.plot(x="time_secs", y="event_index")
+    # df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=False, trim_signals=True)
+    # mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    # dfm = df.loc[mask, :]
+    # dfm.plot(x="time_secs", y="SpO2")
+    # dfm.plot(x="time_secs", y="Pleth")
+    # dfm.plot(x="time_secs", y="event_index")
 
     df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=True, trim_signals=True)
-    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16900)
     dfm = df.loc[mask, :]
     dfm.plot(x="time_secs", y="SpO2")
     dfm.plot(x="time_secs", y="Pleth")

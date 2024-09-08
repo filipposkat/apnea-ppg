@@ -4,6 +4,8 @@ import math
 import time
 from itertools import filterfalse, count
 from pathlib import Path
+from typing import Tuple, Any, List
+
 import numpy as np
 from collections import Counter
 from tqdm import tqdm
@@ -208,8 +210,11 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=None) \
-        -> tuple[list, list, list[pd.Series] | list[int], list[pd.Series] | list[int]]:
+def get_subject_train_test_data(subject: Subject,
+                                train_test_split_index: int = None,
+                                return_train_test_split_index=True) \
+        -> tuple[Any, list[Any], Any, list[Any] | list[int], Any | None] | \
+           tuple[Any, list[Any], Any, list[Any] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=SIGNALS, print_downsampling_details=False,
                                          anti_aliasing=True, frequency=SIGNALS_FREQUENCY, trim_signals=TRIM,
                                          median_to_low_spo2_values=REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN)
@@ -221,41 +226,42 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
     # Number of rolling test set sequences:
     num_of_candidates = (sub_df.shape[0] - test_size) // TEST_SEARCH_SAMPLE_STEP + 1  # a//b = math.floor(a/b)
     candidates = list(range(num_of_candidates))
-    min_split_divergence = 99
+    min_split_divergence = 999
     best_split = None
 
     candidates_subsample_size = int(EXAMINED_TEST_SETS_SUBSAMPLE * num_of_candidates)
     candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
 
     sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
-    for i in candidates_subsample:
-        # Split into train and test:
-        # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
-        # in order to know later the point where continuity breaks. So ignore_index=False
+    if train_test_split_index is None:
+        for i in candidates_subsample:
+            # Split into train and test:
+            # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
+            # in order to know later the point where continuity breaks. So ignore_index=False
+            train_df = pd.concat(
+                [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+                axis=0, ignore_index=False)
+            test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+                drop=True)
+
+            # Find the JSD similarity of the train and test distributions:
+            divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
+
+            # We want to minimize the divergence because we want to maximize similarity
+            if divergence < min_split_divergence:
+                min_split_divergence = divergence
+                best_split = (train_df, test_df)
+                train_test_split_index = i
+                if divergence < sufficiently_low_divergence:
+                    break
+    else:
+        i = train_test_split_index
         train_df = pd.concat(
             [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
             axis=0, ignore_index=False)
         test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
             drop=True)
-
-        # Find the JSD similarity of the train and test distributions:
-        divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
-        # print(f"i={i}/{num_of_candidates}")
-        # print(f"JSD: {divergence:.4f}")
-        # y_train = train_df["event_index"]
-        # y_test = test_df["event_index"]
-        # print(f"TRAIN  -  CA: {sum(y_train == 1) / len(y_train):.2f}  OA: {sum(y_train == 2) / len(y_train):.2f}  "
-        #       f"H: {sum(y_train == 3) / len(y_train):.2f}  S: {sum(y_train == 4) / len(y_train):.2f}")
-        # print(f"TEST  -  CA: {sum(y_test == 1) / len(y_test):.2f}  OA: {sum(y_test == 2) / len(y_test):.2f}  "
-        #       f"H: {sum(y_test == 3) / len(y_test):.2f}  S: {sum(y_test == 4) / len(y_test):.2f}")
-        # print("-------------------------------------------------------------------------------------------------------")
-
-        # We want to minimize the divergence because we want to maximize similarity
-        if divergence < min_split_divergence:
-            min_split_divergence = divergence
-            best_split = (train_df, test_df)
-            if divergence < sufficiently_low_divergence:
-                break
+        best_split = (train_df, test_df)
 
     train_df = best_split[0]
     test_df = best_split[1]
@@ -287,7 +293,6 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
                         blacklist_tmp.clear()
                         break
                 samples_to_exclude.extend(blacklist_tmp)
-    # print(samples_to_exclude)
 
     # Take equal-sized windows with a specified step:
     # 3. Calculate the number of windows:
@@ -410,7 +415,10 @@ def get_subject_train_test_data(subject: Subject, sufficiently_low_divergence=No
             return X, y
 
         X_train, y_train = window_dropping(X_train, y_train)
-    return X_train, X_test, y_train, y_test
+    if return_train_test_split_index:
+        return X_train, X_test, y_train, y_test, train_test_split_index
+    else:
+        return X_train, X_test, y_train, y_test
 
 
 def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_test):
@@ -532,6 +540,8 @@ def create_arrays(ids: list[int]):
 
     sub_seed_dict = {}
     rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
+    split_index_dict = {}
+    split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
     random.seed(SEED)  # Set the seed
 
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -561,10 +571,29 @@ def create_arrays(ids: list[int]):
         else:
             # First time generating the subset
             sub_seed_dict[id] = random.getstate()
-            with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
+            with open(str(rng_seed_pth), mode="wb") as file:
                 pickle.dump(sub_seed_dict, file)
 
-        X_train, X_test, y_train, y_test = get_subject_train_test_data(sub)
+        train_test_split_i = None
+        save_split_i = True
+        if split_index_pth.is_file():
+            # Not first time generating the subset
+            with open(str(split_index_pth), mode="rb") as file:
+                split_index_dict = pickle.load(file)
+            if id in split_index_dict:
+                train_test_split_i = split_index_dict[id]
+                save_split_i = False
+
+        X_train, X_test, y_train, y_test, train_test_split_i = \
+            get_subject_train_test_data(sub,
+                                        train_test_split_index=train_test_split_i,
+                                        return_train_test_split_index=True)
+
+        if save_split_i:
+            # First time generating the subset
+            split_index_dict[id] = random.getstate()
+            with open(str(split_index_pth), mode="wb") as file:
+                pickle.dump(sub_seed_dict, file)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
             train_y_cont = np.array(y_train).flatten()

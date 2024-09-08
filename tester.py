@@ -892,12 +892,21 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
 
 
 if __name__ == "__main__":
-    if COMPUTE_PLATFORM == "opencl":
-        PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
-        PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
-        os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
-        torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
-        test_device = "privateuseone:0"
+    if COMPUTE_PLATFORM == "opencl" or COMPUTE_PLATFORM == "ocl":
+        # This was the method before version 0.1.0 of dlprimitives pytorch backend: http://blog.dlprimitives.org/
+        # PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
+        # PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
+        # os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
+        # torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
+        # test_device = "privateuseone:0"
+
+        # Since 0.1.0:
+        # Download appropriate wheel from: https://github.com/artyom-beilis/pytorch_dlprim/releases
+        # the cp number depends on Python version
+        # So for Windows, torch==2.4:
+        # pip install pytorch_ocl-0.1.0+torch2.4-cp310-none-linux_x86_64.whl
+        import pytorch_ocl
+        test_device = "ocl:0"
     elif torch.cuda.is_available():
         test_device = torch.device("cuda:0")
     elif torch.backends.mps.is_available():
@@ -975,7 +984,7 @@ if __name__ == "__main__":
         plt.scatter(epoch_frac, train_running_losses, label="train_running_loss")
 
     if len(train_running_accs) == len(epoch_frac):
-        plt.plot(epoch_frac, train_running_accs, label="train_running_losses")
+        plt.plot(epoch_frac, train_running_accs, label="train_running_accuracy")
     elif len(train_running_accs) > 0:
         train_running_accs = [m["train_running_accuracy"] if "train_running_accuracy" in m.keys() else 0.0 for m in
                               metrics]

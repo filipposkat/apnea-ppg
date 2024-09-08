@@ -162,6 +162,7 @@ else:
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
+    # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
     from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
     from dice_loss import DiceLoss
 # --- END OF CONSTANTS --- #
@@ -176,6 +177,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                     running_losses: list[float] = None, running_loss: float = None, running_accuracy: float = None,
                     test_metrics: dict = None, test_cm: list[list[float]] = None,
                     roc_info: dict[str: dict[str: list | float]] = None,
+                    device: str = "infer",
                     other_details: str = ""):
     """
     :param net: Neural network model to save
@@ -200,6 +202,8 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
     :param running_losses: The running period losses of the train loop
     :param running_loss: The last running loss in the epoch
     :param running_accuracy: The last running accuracy in the epoch
+    :param device: if "infer", tensors are kept to their current devices, otherwise all tensors are moved to the
+    specified device
     :param other_details: Any other details to be noted
     :return:
     """
@@ -223,6 +227,14 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                    f'Epoch: {epoch}\n',
                    f'{other_details}\n']
         file.writelines("% s\n" % line for line in details)
+
+
+    if device != "infer":
+        net = net.to(device)
+        optimizer = optimizer.to(device)
+        criterion = criterion.to(device)
+        if not isinstance(dataloader_rng_state, torch.ByteTensor):
+            dataloader_rng_state = dataloader_rng_state.to(device)
 
     state = {
         'epoch': epoch,
@@ -275,7 +287,10 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
             torch.Generator | random.Random | None, float]:
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
 
-    state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": str(device)})
+    if isinstance(device, str) and "ocl" in device:
+        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": "cpu"}, weights_only=False)
+    else:
+        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": str(device)}, weights_only=False)
 
     if "batch_size" in state.keys():
         batch_size = int(state["batch_size"])
@@ -555,12 +570,21 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
 
 
 if __name__ == "__main__":
-    if COMPUTE_PLATFORM == "opencl":
-        PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
-        PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
-        os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
-        torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
-        device = "privateuseone:0"
+    if COMPUTE_PLATFORM == "opencl" or COMPUTE_PLATFORM == "ocl":
+        # This was the method before version 0.1.0 of dlprimitives pytorch backend: http://blog.dlprimitives.org/
+        # PATH_TO_PT_OCL_DLL = Path(config["paths"]["local"]["pt_ocl_dll"])
+        # PATH_TO_DEPENDENCY_DLLS = Path(config["paths"]["local"]["dependency_dlls"])
+        # os.add_dll_directory(str(PATH_TO_DEPENDENCY_DLLS))
+        # torch.ops.load_library(str(PATH_TO_PT_OCL_DLL))
+        # device = "privateuseone:0"
+
+        # Since 0.1.0:
+        # Download appropriate wheel from: https://github.com/artyom-beilis/pytorch_dlprim/releases
+        # the cp number depends on Python version
+        # So for Windows, torch==2.4
+        # pip install pytorch_ocl-0.1.0+torch2.4-cp310-none-linux_x86_64.whl
+        import pytorch_ocl
+        device = "ocl:0"
     elif torch.cuda.is_available():
         device = torch.device("cuda:0")
     elif torch.backends.mps.is_available():
@@ -791,7 +815,10 @@ if __name__ == "__main__":
                          "lr_scheduler": lr_scheduler,
                          "lr_scheduler_kwargs": lr_scheduler_kwargs,
                          "identifier": IDENTIFIER,
-                         "batch_size": BATCH_SIZE}
+                         "batch_size": BATCH_SIZE,
+                         "device": "cpu" if COMPUTE_PLATFORM == "opencl" else "infer"
+                         # opencl port doc states that model should be saved on cpu
+                         }
     batches_in_epoch = len(train_loader)
     # loop over the dataset multiple times:
     with tqdm(range(start_from_epoch, EPOCHS + 1), initial=start_from_epoch - 1, total=EPOCHS,
