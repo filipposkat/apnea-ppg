@@ -542,6 +542,17 @@ def create_arrays(ids: list[int]):
     rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
     split_index_dict = {}
     split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
+
+    if rng_seed_pth.is_file():
+        # Not first time generating the subset
+        with open(str(rng_seed_pth), mode="rb") as file:
+            sub_seed_dict = pickle.load(file)
+
+    if split_index_pth.is_file():
+        # Not first time generating the subset
+        with open(str(split_index_pth), mode="rb") as file:
+            split_index_dict = pickle.load(file)
+
     random.seed(SEED)  # Set the seed
 
     train_label_counts: dict[int: int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -561,28 +572,21 @@ def create_arrays(ids: list[int]):
         metadata_df = pd.Series(metadata)
         metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
-        if rng_seed_pth.is_file():
-            # Not first time generating the subset
-            with open(str(rng_seed_pth), mode="rb") as file:
-                saved_sub_seed_dict = pickle.load(file)
-            if id in saved_sub_seed_dict:
-                state = saved_sub_seed_dict[id]
-                random.setstate(state)
+        if id in sub_seed_dict:
+            state = sub_seed_dict[id]
+            random.setstate(state)
         else:
             # First time generating the subset
             sub_seed_dict[id] = random.getstate()
             with open(str(rng_seed_pth), mode="wb") as file:
                 pickle.dump(sub_seed_dict, file)
 
-        train_test_split_i = None
-        save_split_i = True
-        if split_index_pth.is_file():
-            # Not first time generating the subset
-            with open(str(split_index_pth), mode="rb") as file:
-                split_index_dict = pickle.load(file)
-            if id in split_index_dict:
-                train_test_split_i = split_index_dict[id]
-                save_split_i = False
+        if id in split_index_dict:
+            train_test_split_i = split_index_dict[id]
+            save_split_i = False
+        else:
+            train_test_split_i = None
+            save_split_i = True
 
         X_train, X_test, y_train, y_test, train_test_split_i = \
             get_subject_train_test_data(sub,

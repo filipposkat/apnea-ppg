@@ -173,7 +173,7 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergence=None, split=True) \
+def get_subject_continuous_test_data(subject: Subject, split=True, train_test_split_index: int = None) \
         -> tuple[list, list[pd.Series] | list[int]]:
     sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
                                          frequency=SIGNALS_FREQUENCY)
@@ -193,27 +193,32 @@ def get_subject_continuous_test_data(subject: Subject, sufficiently_low_divergen
         candidates_subsample = random.sample(candidates, k=candidates_subsample_size)
 
         sufficiently_low_divergence = 1.0 - TARGET_TRAIN_TEST_SIMILARITY
-        for i in candidates_subsample:
-            # Split into train and test:
-            # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
-            # in order to know later the point where continuity breaks. So ignore_index=False
-            train_df = pd.concat(
-                [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
-                axis=0, ignore_index=False)
+        if train_test_split_index is None:
+            for i in candidates_subsample:
+                # Split into train and test:
+                # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
+                # in order to know later the point where continuity breaks. So ignore_index=False
+                train_df = pd.concat(
+                    [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+                    axis=0, ignore_index=False)
+                test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+                    drop=True)
+
+                # Find the JSD similarity of the train and test distributions:
+                divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
+
+                # We want to minimize the divergence because we want to maximize similarity
+                if divergence < min_split_divergence:
+                    min_split_divergence = divergence
+                    best_split = (train_df, test_df)
+                    if divergence < sufficiently_low_divergence:
+                        break
+            train_df = best_split[0]
+            test_df = best_split[1]
+        else:
+            i = train_test_split_index
             test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
                 drop=True)
-
-            # Find the JSD similarity of the train and test distributions:
-            divergence = jensen_shannon_divergence(train_df["event_index"], test_df["event_index"])
-
-            # We want to minimize the divergence because we want to maximize similarity
-            if divergence < min_split_divergence:
-                min_split_divergence = divergence
-                best_split = (train_df, test_df)
-                if divergence < sufficiently_low_divergence:
-                    break
-        train_df = best_split[0]
-        test_df = best_split[1]
     else:
         test_df = sub_df
 
@@ -271,23 +276,39 @@ if __name__ == "__main__":
         exit(1)
 
     if subset_id == 1:
-        train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
+        train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561,
+                     571,
                      589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
-                     931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
-                     1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
-                     1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983, 2003,
-                     2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292, 2317,
-                     2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798, 2800,
-                     2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149, 3156,
-                     3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564, 3575,
-                     3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867, 3902,
-                     3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205, 4228,
-                     4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554, 4592,
-                     4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137, 5155,
-                     5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433, 5457,
-                     5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909, 5954,
-                     5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280, 6291,
-                     6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755, 6781,
+                     931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263,
+                     1266,
+                     1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623,
+                     1626,
+                     1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983,
+                     2003,
+                     2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292,
+                     2317,
+                     2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798,
+                     2800,
+                     2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149,
+                     3156,
+                     3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564,
+                     3575,
+                     3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867,
+                     3902,
+                     3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205,
+                     4228,
+                     4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554,
+                     4592,
+                     4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137,
+                     5155,
+                     5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433,
+                     5457,
+                     5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909,
+                     5954,
+                     5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280,
+                     6291,
+                     6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755,
+                     6781,
                      6804, 6807, 6811]
     else:
         train_ids, _ = get_subject_train_test_split()
@@ -299,12 +320,19 @@ if __name__ == "__main__":
         PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays").mkdir(exist_ok=True)
         print(subset_ids)
 
-        # Rng dict should be provided to get accurate validation splits. The file needs to be in the TESTING_SUBSET dir
+        # These dicts should be provided to get accurate validation splits.
+        # The files needs to be in the TESTING_SUBSET dir
         rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
         saved_sub_seed_dict = {}
+        saved_split_index_dict = {}
+        split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
         if rng_seed_pth.is_file():
             with open(str(rng_seed_pth), mode="rb") as file:
                 saved_sub_seed_dict = pickle.load(file)
+        if split_index_pth.is_file():
+            # Not first time generating the subset
+            with open(str(split_index_pth), mode="rb") as file:
+                saved_split_index_dict = pickle.load(file)
 
         for (id, sub) in get_subjects_by_ids_generator(subset_ids, progress_bar=True):
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
@@ -327,7 +355,13 @@ if __name__ == "__main__":
                 state = saved_sub_seed_dict[id]
                 random.setstate(state)
 
-            X_test, y_test = get_subject_continuous_test_data(sub, split=split)
+            if split and id in saved_split_index_dict:
+                train_test_split_i = saved_split_index_dict[id]
+            else:
+                train_test_split_i = None
+
+            X_test, y_test = get_subject_continuous_test_data(sub, split=split,
+                                                              train_test_split_index=train_test_split_i)
             save_arrays_combined(subject_arrs_path, X_test, y_test)
 
     elif GET_CONTINUOUS_PREDICTIONS:
@@ -668,7 +702,8 @@ if __name__ == "__main__":
 
             classification_performance(agg_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
 
-            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES, normalize=NORMALIZE)
+            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+                                                      normalize=NORMALIZE)
 
             print(agg_metrics_1)
             print(agg_metrics_2)
