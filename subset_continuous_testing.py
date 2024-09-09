@@ -52,7 +52,7 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    subset_id = int(config["variables"]["dataset"]["subset"])
+    trainedOn_subset_id = int(config["variables"]["dataset"]["subset"])
     if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
         CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
     else:
@@ -66,23 +66,25 @@ if config is not None:
     if CREATE_ARRAYS:
         PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{TESTING_SUBSET}_directory"])
-    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{subset_id}_training_directory"])
+    PATH_TO_TRAINED_ON_SUBSET = Path(config["paths"]["local"][f"subset_{trainedOn_subset_id}_directory"])
+    PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{trainedOn_subset_id}_training_directory"])
     if f"subset_{TESTING_SUBSET}_continuous_testing_directory" in config["paths"]["local"]:
         PATH_TO_SUBSET_CONT_TESTING = Path(
             config["paths"]["local"][f"subset_{TESTING_SUBSET}_continuous_testing_directory"])
     else:
         PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
-    MODELS_PATH = Path(config["paths"]["local"][f"subset_{subset_id}_saved_models_directory"])
+    MODELS_PATH = Path(config["paths"]["local"][f"subset_{trainedOn_subset_id}_saved_models_directory"])
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
-    subset_id = 1
+    trainedOn_subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
     N_INPUT_CHANNELS = 1
     PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
-    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
+    PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "dataset-all")
     PATH_TO_SUBSET_CONT_TESTING = PATH_TO_SUBSET
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_1_training_directory"])
+    PATH_TO_TRAINED_ON_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     MODELS_PATH = Path(config["paths"]["local"][f"subset_1_saved_models_directory"])
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
@@ -266,16 +268,18 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
 
 
 if __name__ == "__main__":
+    print(f"Using the subject subset: {TESTING_SUBSET}")
+    print(f"The compatibility was selected to be with the subset (set the models were trained on): {trainedOn_subset_id}")
 
     path = PATH_TO_SUBSET.joinpath("ids.npy")
     if path.is_file():
         subset_ids_arr = np.load(str(path))  # array to save the best subject ids
         subset_ids = subset_ids_arr.tolist()  # equivalent list
     else:
-        print(f"Subset-{subset_id} has no ids generated yet")
+        print(f"Subset-{TESTING_SUBSET} has no ids generated yet")
         exit(1)
 
-    if subset_id == 1:
+    if trainedOn_subset_id == 1:
         train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561,
                      571,
                      589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
@@ -322,10 +326,10 @@ if __name__ == "__main__":
 
         # These dicts should be provided to get accurate validation splits.
         # The files need to be in the subset that is used for training the models
-        rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
+        rng_seed_pth = PATH_TO_TRAINED_ON_SUBSET / "sub_seed_dict.plk"
         saved_sub_seed_dict = {}
         saved_split_index_dict = {}
-        split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
+        split_index_pth = PATH_TO_TRAINED_ON_SUBSET / "train_test_split_index_dict.plk"
         if rng_seed_pth.is_file():
             with open(str(rng_seed_pth), mode="rb") as file:
                 saved_sub_seed_dict = pickle.load(file)
