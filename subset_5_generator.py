@@ -444,6 +444,7 @@ def save_arrays_combined(subject_arrs_path: Path, X_train, y_train, X_test, y_te
     np.save(str(X_test_path), X_test_arr)
     np.save(str(y_test_path), y_test_arr)
 
+
 def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont):
     print(f"Train: {train_label_counts} total={sum(train_label_counts.values())}")
     print({k: f"{100 * v / sum(train_label_counts.values()):.2f}%" for (k, v) in train_label_counts.items()})

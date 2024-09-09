@@ -23,10 +23,10 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
-TESTING_SUBSET = 0
+TESTING_SUBSET = "0-60s"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 10
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
 PER_WINDOW_EVALUATION = True
@@ -321,7 +321,7 @@ if __name__ == "__main__":
         print(subset_ids)
 
         # These dicts should be provided to get accurate validation splits.
-        # The files needs to be in the TESTING_SUBSET dir
+        # The files need to be in the subset that is used for training the models
         rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
         saved_sub_seed_dict = {}
         saved_split_index_dict = {}
