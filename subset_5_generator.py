@@ -254,6 +254,7 @@ def get_subject_train_test_data(subject: Subject,
             if divergence < min_split_divergence:
                 min_split_divergence = divergence
                 best_split = (train_df, test_df)
+                train_test_split_index = i
                 if divergence < sufficiently_low_divergence:
                     break
     else:
@@ -581,7 +582,7 @@ def create_arrays(ids: list[int]):
             # First time generating the subset
             split_index_dict[id] = random.getstate()
             with open(str(split_index_pth), mode="wb") as file:
-                pickle.dump(sub_seed_dict, file)
+                pickle.dump(split_index_dict, file)
 
         if COUNT_LABELS and not SKIP_EXISTING_IDS:
             train_y_cont = np.array(y_train).flatten()
