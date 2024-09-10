@@ -34,9 +34,8 @@ PER_WINDOW_EVALUATION = True
 # CREATE ARRAYS PARAMS:
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
-STEP = 512  # The step between each window
 TEST_SIZE = 0.3
-TEST_SEARCH_SAMPLE_STEP = 512
+TEST_SEARCH_SAMPLE_STEP = 512  # Make sure to use the same as trainedOn subset
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 
@@ -175,13 +174,15 @@ def jensen_shannon_divergence(P: pd.Series, Q: pd.Series) -> float:
     return 0.5 * DPM + 0.5 * DMP
 
 
-def get_subject_continuous_test_data(subject: Subject, split=True, train_test_split_index: int = None) \
+def get_subject_continuous_test_data(subject: Subject, signals=("SpO2", "Pleth"),
+                                     train_test_split=True,
+                                     train_test_split_index: int = None) \
         -> tuple[list, list[pd.Series] | list[int]]:
-    sub_df = subject.export_to_dataframe(signal_labels=["Pleth"], print_downsampling_details=False,
+    sub_df = subject.export_to_dataframe(signal_labels=signals, print_downsampling_details=False,
                                          frequency=SIGNALS_FREQUENCY)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 
-    if split:
+    if train_test_split:
         # 1. Do train test split preserving a whole sequence for test:
         # Find all possible sequences for test set:
         test_size = int(TEST_SIZE * sub_df.shape[0])  # number of rows/samples
@@ -274,7 +275,7 @@ if __name__ == "__main__":
     path = PATH_TO_SUBSET.joinpath("ids.npy")
     if path.is_file():
         subset_ids_arr = np.load(str(path))  # array to save the best subject ids
-        subset_ids = subset_ids_arr.tolist()  # equivalent list
+        subset_ids: list[int] = subset_ids_arr.tolist()  # equivalent list
     else:
         print(f"Subset-{TESTING_SUBSET} has no ids generated yet")
         exit(1)
@@ -324,6 +325,11 @@ if __name__ == "__main__":
         PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays").mkdir(exist_ok=True)
         print(subset_ids)
 
+        if N_INPUT_CHANNELS == 2:
+            input_signals = ["SpO2", "Pleth"]
+        else:
+            input_signals = ["Pleth"]
+
         # These dicts should be provided to get accurate validation splits.
         # The files need to be in the subset that is used for training the models
         rng_seed_pth = PATH_TO_TRAINED_ON_SUBSET / "sub_seed_dict.plk"
@@ -364,7 +370,9 @@ if __name__ == "__main__":
             else:
                 train_test_split_i = None
 
-            X_test, y_test = get_subject_continuous_test_data(sub, split=split,
+            X_test, y_test = get_subject_continuous_test_data(sub,
+                                                              signals=input_signals,
+                                                              train_test_split=split,
                                                               train_test_split_index=train_test_split_i)
             save_arrays_combined(subject_arrs_path, X_test, y_test)
 

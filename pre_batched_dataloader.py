@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 from data_loaders_mapped import MappedDataset, BatchSampler, \
     get_saved_train_loader, get_saved_test_loader, get_saved_test_cross_sub_loader
 
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 BATCH_SIZE_TEST = 1024
 SEED = 33
 NUM_WORKERS = 2
