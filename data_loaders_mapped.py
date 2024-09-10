@@ -1,7 +1,7 @@
 from itertools import cycle
 from pathlib import Path
 import yaml
-
+import json
 import numpy as np
 import random
 import pickle
@@ -47,7 +47,7 @@ dataloaders_path = PATH_TO_SUBSET_TRAINING.joinpath("dataloaders-mapped")
 dataloaders_path.mkdir(parents=True, exist_ok=True)
 
 
-def get_subject_train_test_split():
+def get_subject_train_test_split(save_ids=False):
     path = PATH_TO_SUBSET / "ids.npy"
     if path.is_file():
         ids_arr = np.load(str(path))  # array to save the best subject ids
@@ -61,6 +61,12 @@ def get_subject_train_test_split():
         rng = random.Random(33)
         cross_sub_test_ids = rng.sample(ids, cross_sub_test_size)
         train_ids = [id for id in ids if id not in cross_sub_test_ids]
+
+        if save_ids:
+            split_dict = {"train_ids": train_ids, "cross_testing_ids": cross_sub_test_ids}
+            dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
+            with open(str(dict_path), "wb") as file:
+                json.dump(split_dict, file)
     else:
         cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
                               6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847,
@@ -485,7 +491,7 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
 
 def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, shuffle=True) \
         -> DataLoader:
-    train_ids, _ = get_subject_train_test_split()
+    train_ids, _ = get_subject_train_test_split(save_ids=True)
     dataset = MappedDataset(subject_ids=train_ids,
                             dataset_split="train",
                             transform=torch.from_numpy,

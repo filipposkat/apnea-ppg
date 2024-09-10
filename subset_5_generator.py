@@ -611,7 +611,7 @@ def create_arrays(ids: list[int]):
             save_arrays_combined(subject_arrs_path, X_train, y_train, X_test, y_test)
 
     plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
-    print(sub_seed_dict)
+
     with open(PATH_TO_SUBSET / "sub_seed_dict.plk", mode="wb") as file:
         pickle.dump(sub_seed_dict, file)
 

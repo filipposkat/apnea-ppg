@@ -627,7 +627,6 @@ def create_arrays(ids: list[int]):
 
     if COUNT_LABELS and not SKIP_EXISTING_IDS:
         plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, test_label_counts_cont)
-    print(sub_seed_dict)
 
 
 if __name__ == "__main__":
