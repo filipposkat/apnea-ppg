@@ -686,10 +686,12 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 extra_class = "normal+spo2_desat"
                 extra_probs = batch_output_probs[:, 0, :] + batch_output_probs[:, 4, :]
                 extra_labels = (batch_labels == 0) | (batch_labels == 4)
-                extra_roc = ROC(task="binary", thresholds=thresholds)
-                extra_auroc = AUROC(task="binary", thresholds=thresholds)
+
+                extra_roc = ROC(task="binary", thresholds=thresholds).to(device)
+                extra_auroc = AUROC(task="binary", thresholds=thresholds).to(device)
                 extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
                 extra_auc = extra_auroc(extra_probs, extra_labels)
+
                 fprs_by_class[extra_class].append(extra_fpr)
                 tprs_by_class[extra_class].append(extra_tpr)
                 aucs_by_class[extra_class].append(extra_auc)
