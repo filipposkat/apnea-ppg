@@ -580,7 +580,7 @@ def create_arrays(ids: list[int]):
 
         if save_split_i:
             # First time generating the subset
-            split_index_dict[id] = random.getstate()
+            split_index_dict[id] = train_test_split_i
             with open(str(split_index_pth), mode="wb") as file:
                 pickle.dump(split_index_dict, file)
 

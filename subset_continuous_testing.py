@@ -347,15 +347,15 @@ if __name__ == "__main__":
         for (id, sub) in get_subjects_by_ids_generator(subset_ids, progress_bar=True):
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
 
-            # Save metadata
-            metadata = sub.metadata
-            metadata_df = pd.Series(metadata)
-            metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
-
             if subject_arrs_path.joinpath("y_test.npy").exists() and SKIP_EXISTING_IDS:
                 continue
             else:
                 subject_arrs_path.mkdir(exist_ok=True)
+
+            # Save metadata
+            metadata = sub.metadata
+            metadata_df = pd.Series(metadata)
+            metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
             if id in train_ids:
                 split = True

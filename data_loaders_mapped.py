@@ -65,7 +65,7 @@ def get_subject_train_test_split(save_ids=False):
         if save_ids:
             split_dict = {"train_ids": train_ids, "cross_testing_ids": cross_sub_test_ids}
             dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
-            with open(str(dict_path), "wb") as file:
+            with open(str(dict_path), "w") as file:
                 json.dump(split_dict, file)
     else:
         cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,

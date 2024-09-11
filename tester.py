@@ -25,7 +25,7 @@ if __name__ == "__main__":
     from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
 
 # --- START OF CONSTANTS --- #
-EPOCHS = 50
+EPOCHS = 20
 BATCH_SIZE_TEST = "auto"
 BATCH_SIZE_CROSS_TEST = "auto"
 MAX_BATCHES = None  # Maximum number of test batches to use or None to use all of them

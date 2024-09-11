@@ -33,7 +33,7 @@ from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
 LOAD_CHECKPOINT: bool = True  # True or False
 LOAD_FROM_EPOCH: int | str = "last"  # epoch number or last or no
 LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
-EPOCHS = 50
+EPOCHS = 20
 BATCH_SIZE = "auto"  # 256
 BATCH_SIZE_TEST = "auto"  # 1024
 NUM_WORKERS = 2
