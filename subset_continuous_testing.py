@@ -624,6 +624,22 @@ if __name__ == "__main__":
                     tprs_by_class[class_name].append(tprs[c, :])
                     aucs_by_class[class_name].append(aucs[c])
 
+                if n_class == 5:
+                    extra_class = "normal+spo2_desat"
+                    extra_probs = per_window_probas[:, 0, :] + per_window_probas[:, 4, :]
+                    extra_probs = torch.tensor(extra_probs)
+                    extra_labels = (per_window_labels == 0) | (per_window_labels == 4)
+                    extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
+
+                    extra_roc = ROC(task="binary", thresholds=thresholds)
+                    extra_auroc = AUROC(task="binary", thresholds=thresholds)
+                    extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
+                    extra_auc = extra_auroc(extra_probs, extra_labels)
+
+                    fprs_by_class[extra_class].append(extra_fpr)
+                    tprs_by_class[extra_class].append(extra_tpr)
+                    aucs_by_class[extra_class].append(extra_auc)
+
                 # Confusion matrix for this subject
                 sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
                                            labels=np.arange(n_class))
@@ -662,7 +678,7 @@ if __name__ == "__main__":
             # Compute threshold average ROC for each class, across subjected:
             roc_info_by_class = {}
             average_auc_by_class = {}
-            for class_name in classes:
+            for class_name in fprs_by_class.keys():
                 fprs = torch.stack(fprs_by_class[class_name], dim=0)
                 average_fpr = torch.mean(fprs, dim=0, keepdim=False)
                 tprs = torch.stack(tprs_by_class[class_name], dim=0)

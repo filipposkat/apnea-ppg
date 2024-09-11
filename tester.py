@@ -657,8 +657,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 batch_inputs = batch_inputs[:, diff:, :]
 
             # Predictions:
-            batch_outputs = model(batch_inputs)
-            batch_output_probs = F.softmax(batch_outputs, dim=1)
+            batch_outputs = model(batch_inputs)  # (bs, classes, L)
+            batch_output_probs = F.softmax(batch_outputs, dim=1)  # (bs, classes, L)
             _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
 
             # Adjust labels in case of by window classification
@@ -671,8 +671,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 batch_labels = labels_by_window
 
             # Compute RoC:
-            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(device)
-            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(device)
+            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=len(classes)).to(device)
+            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=len(classes), average="none").to(device)
             fprs, tprs, _ = roc(batch_output_probs, batch_labels)
             aucs = auroc(batch_output_probs, batch_labels)
             for c in range(len(classes)):
@@ -680,6 +680,19 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 fprs_by_class[class_name].append(fprs[c, :])
                 tprs_by_class[class_name].append(tprs[c, :])
                 aucs_by_class[class_name].append(aucs[c])
+
+            # Add extra ROC curve:
+            if len(classes) == 5:
+                extra_class = "normal+spo2_desat"
+                extra_probs = batch_output_probs[:, 0, :] + batch_output_probs[:, 4, :]
+                extra_labels = (batch_labels == 0) | (batch_labels == 4)
+                extra_roc = ROC(task="binary", thresholds=thresholds)
+                extra_auroc = AUROC(task="binary", thresholds=thresholds)
+                extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
+                extra_auc = extra_auroc(extra_probs, extra_labels)
+                fprs_by_class[extra_class].append(extra_fpr)
+                tprs_by_class[extra_class].append(extra_tpr)
+                aucs_by_class[extra_class].append(extra_auc)
 
             # collect the correct predictions for each class
             if device == "cpu":
@@ -731,7 +744,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     # Compute threshold average ROC for each class:
     roc_info_by_class = {}
     average_auc_by_class = {}
-    for class_name in classes:
+    for class_name in fprs_by_class.keys():
         fprs = torch.stack(fprs_by_class[class_name], dim=0)
         average_fpr = torch.mean(fprs, dim=0, keepdim=False)
         tprs = torch.stack(tprs_by_class[class_name], dim=0)
