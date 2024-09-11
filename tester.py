@@ -148,10 +148,10 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
             target_labels = None
 
         if target_labels is None:
-            df_cm_abs = pd.DataFrame(cm)
+            df_cm_abs = pd.DataFrame(cm, copy=True)
         else:
             df_cm_abs = pd.DataFrame(cm, index=target_labels,
-                                     columns=target_labels)
+                                     columns=target_labels, copy=True)
 
         if normalize == "true":
             for r in range(cm.shape[0]):
@@ -166,12 +166,19 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
         elif normalize == "all":
             cm = cm / np.sum(cm)
 
+        if target_labels is None:
+            df_cm = pd.DataFrame(cm)
+        else:
+            df_cm = pd.DataFrame(cm, index=target_labels,
+                                     columns=target_labels)
+
         fig, ax = plt.subplots(figsize=(10, 7))
         ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
 
         sns.set_theme(font_scale=1)  # for label size
         if normalize is not None:
-            sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", ax=ax, cbar=True)
+            sns.heatmap(df_cm_abs, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
+            sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'bottom'}, fmt=".2f", cbar=True)
         else:
             sns.heatmap(df_cm_abs, annot=True, fmt="d", ax=ax, cbar=True)
         ax.set_xlabel("Predicted")

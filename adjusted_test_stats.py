@@ -187,10 +187,10 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
 
     if plot_confusion:
         if not target_labels:
-            df_cm_abs = pd.DataFrame(cm)
+            df_cm_abs = pd.DataFrame(cm, copy=True)
         else:
             df_cm_abs = pd.DataFrame(cm, index=target_labels,
-                                     columns=target_labels)
+                                     columns=target_labels, copy=True)
 
         if normalize == "true":
             for r in range(cm.shape[0]):
@@ -205,13 +205,19 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
         elif normalize == "all":
             cm = cm / np.sum(cm)
 
+        if not target_labels:
+            df_cm = pd.DataFrame(cm, copy=True)
+        else:
+            df_cm = pd.DataFrame(cm, index=target_labels,
+                                 columns=target_labels, copy=True)
+
         plt.figure(figsize=(10, 7))
         plt.title(f"Accuracy ({train_test}): {100 * accuracy:.2f}%. Macro F1: {100 * macro_f1:.2f}%")
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
-            sns.heatmap(df_cm_abs, annot=cm, fmt=".2f", cbar=True)
-            # sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'top'}, fmt=".2f", cbar=False)
+            sns.heatmap(df_cm_abs, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
+            sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'bottom'}, fmt=".2f", cbar=True)
         else:
             sns.heatmap(df_cm_abs, annot=True, fmt="d", cbar=True)
         plt.xlabel("Predicted")
