@@ -37,6 +37,7 @@ CROSS_SUBJECT_TESTING = True
 TEST_MODEL = True
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
+CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
 
 if BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto":
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
@@ -618,6 +619,12 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
 
+    if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
+        extra_class = "normal+spo2_desat"
+        tprs_by_class[extra_class] = []
+        fprs_by_class[extra_class] = []
+        aucs_by_class[extra_class] = []
+
     cm = torch.zeros((n_class, n_class), device=device)
     correct_pred = 0
     total_pred = 0
@@ -682,7 +689,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 aucs_by_class[class_name].append(aucs[c])
 
             # Add extra ROC curve:
-            if len(classes) == 5:
+            if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and len(classes) == 5:
                 extra_class = "normal+spo2_desat"
                 extra_probs = batch_output_probs[:, 0, :] + batch_output_probs[:, 4, :]
                 extra_labels = (batch_labels == 0) | (batch_labels == 4)

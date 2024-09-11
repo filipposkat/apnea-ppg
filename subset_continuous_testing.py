@@ -30,7 +30,7 @@ CREATE_ARRAYS = True
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
 PER_WINDOW_EVALUATION = True
-
+CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
 # CREATE ARRAYS PARAMS:
 WINDOW_SEC_SIZE = 16
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
@@ -596,6 +596,11 @@ if __name__ == "__main__":
                     tprs_by_class = {c: [] for c in classes}
                     fprs_by_class = {c: [] for c in classes}
                     aucs_by_class = {c: [] for c in classes}
+                    if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
+                        extra_class = "normal+spo2_desat"
+                        tprs_by_class[extra_class] = []
+                        fprs_by_class[extra_class] = []
+                        aucs_by_class[extra_class] = []
 
                 length = len(labels)
 
@@ -624,7 +629,7 @@ if __name__ == "__main__":
                     tprs_by_class[class_name].append(tprs[c, :])
                     aucs_by_class[class_name].append(aucs[c])
 
-                if n_class == 5:
+                if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
                     extra_class = "normal+spo2_desat"
                     extra_probs = per_window_probas[:, 0, :] + per_window_probas[:, 4, :]
                     extra_probs = torch.tensor(extra_probs)
