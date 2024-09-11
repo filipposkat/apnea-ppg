@@ -260,7 +260,8 @@ def load_metrics(net_type: str, identifier: str, epoch: int, batch: int, cross_s
         return None
 
 
-def load_metrics_by_epoch(net_type: str, identifier: str) -> tuple[list[float], list[dict[str: float]]]:
+def load_metrics_by_epoch(net_type: str, identifier: str, cross_subject=False) \
+        -> tuple[list[float], list[dict[str: float]]]:
     epoch_fractions = []
     metrics_by_fraction = []
     epochs = get_saved_epochs(net_type=net_type, identifier=identifier)
@@ -268,7 +269,8 @@ def load_metrics_by_epoch(net_type: str, identifier: str) -> tuple[list[float], 
         batches = get_saved_batches(net_type=net_type, identifier=identifier, epoch=e)
         last_batch = batches[-1]
         for b in batches:
-            metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b)
+            metrics = load_metrics(net_type=net_type, identifier=identifier, epoch=e, batch=b,
+                                   cross_subject=cross_subject)
             if metrics is not None:
                 epoch_fraction = (e - 1) + (b + 1) / (last_batch + 1)
                 epoch_fractions.append(epoch_fraction)
@@ -977,7 +979,8 @@ if __name__ == "__main__":
     #                                                  device=test_device)
     # plot_sample_prediction_sequence(model=net, test_dataloader=test_loader, device=test_device, n_batches=1)
 
-    epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER)
+    epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER,
+                                                cross_subject=CROSS_SUBJECT_TESTING)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
     train_running_losses = [m["train_running_loss"] for m in metrics if "train_running_loss" in m.keys()]
     train_running_accs = [m["train_running_accuracy"] for m in metrics if "train_running_accuracy" in m.keys()]
@@ -1022,5 +1025,10 @@ if __name__ == "__main__":
     plt.legend()
     plt.xlabel("Epoch")
     plt.ylabel("Metric")
-    plt.title(f"Model ({NET_TYPE}) test performance over epochs")
+    if CROSS_SUBJECT_TESTING:
+        plt.title(f"Model: {NET_TYPE}, Identifier: {IDENTIFIER}\n"
+                  f"Cross-test performance over epochs")
+    else:
+        plt.title(f"Model: {NET_TYPE}, Identifier: {IDENTIFIER}\n"
+                  f"Validation performance over epochs")
     plt.show()
