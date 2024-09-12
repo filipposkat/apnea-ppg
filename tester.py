@@ -177,7 +177,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
 
         sns.set_theme(font_scale=1)  # for label size
         if normalize is not None:
-            sns.heatmap(df_cm_abs, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
+            sns.heatmap(df_cm, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
             sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'bottom'}, fmt=".2f", cbar=True)
         else:
             sns.heatmap(df_cm_abs, annot=True, fmt="d", ax=ax, cbar=True)

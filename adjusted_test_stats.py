@@ -216,7 +216,7 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size
         if normalize:
-            sns.heatmap(df_cm_abs, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
+            sns.heatmap(df_cm, annot=df_cm_abs, annot_kws={'va': 'top'}, fmt=".0f", cbar=False)
             sns.heatmap(df_cm, annot=df_cm, annot_kws={'va': 'bottom'}, fmt=".2f", cbar=True)
         else:
             sns.heatmap(df_cm_abs, annot=True, fmt="d", cbar=True)
