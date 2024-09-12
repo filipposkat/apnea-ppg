@@ -771,7 +771,7 @@ if __name__ == "__main__":
 
                     for (k, v) in metrics1.items():
                         if isinstance(v, dict):
-                            if k not in cross_test_metrics_1:
+                            if k not in validation_metrics_1:
                                 validation_metrics_1[k] = {c: 0 for c in classes}
                                 validation_metrics_2[k] = {c: 0 for c in classes}
 
