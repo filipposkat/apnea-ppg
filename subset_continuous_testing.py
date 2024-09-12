@@ -25,12 +25,11 @@ from data_loaders_mapped import get_subject_train_test_split
 # --- START OF CONSTANTS --- #
 TESTING_SUBSET = "0-60s"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 10
+EPOCH = 6
 CREATE_ARRAYS = False
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
-PER_WINDOW_EVALUATION = True
-CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
+
 # CREATE ARRAYS PARAMS:
 WINDOW_SEC_SIZE = 60  # The window size
 SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
@@ -43,9 +42,11 @@ TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identic
 SAVE_PREDICTIONS = False  # Otherwise only probabilities are saved
 
 # Per window TESTING PARAMS:
+PER_WINDOW_EVALUATION = True
 PER_SAMPLE_TESTING = True
+CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
 AGGREGATION_WINDOW_SIZE_SECS = 1
-NORMALIZE: Literal["true", "pred", "all", "none"] = "none"
+NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 DERSIRED_MERGED_CLASSES = 2
 SEED = 33
 
@@ -531,6 +532,14 @@ if __name__ == "__main__":
 
         results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                             f"epoch-{EPOCH}")
+
+        if torch.cuda.is_available():
+            test_device = torch.device("cuda:0")
+        elif torch.backends.mps.is_available():
+            test_device = torch.device("mps")
+        else:
+            test_device = torch.device("cpu")
+
         if PER_SAMPLE_TESTING:
             agg_path = results_path / f"per_sample_testing"
         else:
@@ -654,6 +663,7 @@ if __name__ == "__main__":
 
                 n_class = prediction_probas.shape[1]
                 if classes is None:
+                    # Runs only once at the beggining:
                     classes = [all_classes[c] for c in range(n_class)]
                     validation_cm1 = np.zeros((n_class, n_class))
                     validation_cm2 = np.zeros((n_class, n_class))
@@ -700,10 +710,12 @@ if __name__ == "__main__":
                     per_window_labels = np.array([get_window_label(win)[0] for win in seg_labels])
 
                 # RoC curve for this subject:
-                roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class)
-                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none")
-                fprs, tprs, _ = roc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
-                aucs = auroc(torch.tensor(per_window_probas), torch.tensor(per_window_labels, dtype=torch.int64))
+                roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
+                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(test_device)
+                fprs, tprs, _ = roc(torch.tensor(per_window_probas).to(test_device),
+                                    torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+                aucs = auroc(torch.tensor(per_window_probas).to(test_device),
+                             torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
 
                 for c in range(n_class):
                     class_name = classes[c]
@@ -770,7 +782,7 @@ if __name__ == "__main__":
                                 validation_metrics_1[k][ks] += v1
                                 validation_metrics_2[k][ks] += v2
                         else:
-                            if k not in cross_test_metrics_1:
+                            if k not in validation_metrics_1:
                                 validation_metrics_1[k] = 0
                                 validation_metrics_2[k] = 0
 
