@@ -18,11 +18,11 @@ from common import Subject
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
-SUBSET = 0
-EPOCH = 5
+SUBSET = "0-60s"
+EPOCH = 6
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
-SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
 TEST_SIZE = 0.25
 SEED = 33
 COMPUTE_FOURIER_TRANSFORM = False
@@ -62,7 +62,7 @@ else:
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
 
-train_ids, _ = get_subject_train_test_split()
+
 # train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
 #              589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
 #              931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
@@ -312,6 +312,10 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
 
 
 if __name__ == "__main__":
+    print(f"Using the subject subset: {SUBSET}")
+    print(f"The compatibility was selected to be with the subset (set the models were trained on): {subset_id}")
+    print(f"Signals frequency: {SIGNALS_FREQUENCY}. If this is wrong delete dataframes and restart.")
+
     PATH_TO_META_MODEL = PATH_TO_SUBSET_CONT_TESTING.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
                                                               str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
     PATH_TO_META_MODEL.mkdir(exist_ok=True, parents=True)
@@ -325,6 +329,7 @@ if __name__ == "__main__":
         print(f"Subset-{SUBSET} has no ids generated yet")
         exit(1)
 
+    train_ids, _ = get_subject_train_test_split()
     ids_ex_train = [id for id in ids if id not in train_ids]
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
