@@ -476,8 +476,8 @@ if __name__ == "__main__":
                     saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, N_CLASSES).tolist())
                     saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
-            matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats),
-                           "predictions": np.array(saved_preds_for_stats),
+            matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats, dtype="float32"),
+                           "predictions": np.array(saved_preds_for_stats, dtype="uint8"),
                            "labels": np.array(saved_labels_for_stats, dtype="uint8"),
                            "trained_subject": sub_id in train_ids}
             scipy.io.savemat(matlab_file, matlab_dict)

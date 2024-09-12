@@ -163,7 +163,7 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
 
     est_sleep_hours = np.size(labels) / (60 * 60 * SIGNALS_FREQUENCY)
     mean_vector = preds_proba.mean(axis=0, keepdims=False)
-    std_vector = preds_proba.std(axis=0, keepdims=False)
+    std_vector = preds_proba.std(axis=0, keepdims=False, ddof=1)  # sample std is with ddof=1
     skewness_vector = scipy.stats.skew(preds_proba, axis=0, keepdims=False)
     kurtosis_vector = scipy.stats.kurtosis(preds_proba, axis=0, keepdims=False)
     first_quartile_vector = np.percentile(preds_proba, q=25, axis=0, keepdims=False)
@@ -198,7 +198,7 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     metadata_df = get_metadata(sub_id)
 
     mesaid = int(metadata_df["mesaid"])
-    gender = int(metadata_df["gender1"])
+    sex = int(metadata_df["gender1"])
     age = int(metadata_df["sleepage5c"])
     race = int(metadata_df["race1c"])
     height = float(metadata_df["htcm5"])
@@ -278,7 +278,8 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
         # Severe
         cat = 3
 
-    tmp_list = [gender, age, race, height, weight, bmi, smoker_status]
+    tmp_list = [sex, age, race, height, weight, bmi, smoker_status]
+    # tmp_list.append(est_sleep_hours)
     for l in range(n_classes):
         tmp_list.append(mean_vector[l])
         tmp_list.append(std_vector[l])
@@ -337,7 +338,8 @@ if __name__ == "__main__":
     if CREATE_DATA:
         mesaids = []
         data_list = []
-        columns = ["gender", "age", "race", "height", "weight", "bmi", "smoker_status"]
+        columns = ["sex", "age", "race", "height", "weight", "bmi", "smoker_status"]
+        # columns.append("total_hours")
         for l in range(N_CLASSES):
             columns.append(f"mean_proba_l{l}")
             columns.append(f"std_proba_l{l}")

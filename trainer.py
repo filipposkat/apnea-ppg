@@ -53,14 +53,16 @@ SAVE_MODEL_EVERY_EPOCH = True
 TESTING_EPOCH_INTERVAL = 1
 RUNNING_LOSS_PERIOD = 100
 
-if BATCH_SIZE == "auto" or BATCH_SIZE_TEST == "auto":
-    available_train_bs, available_test_bs, _ = get_available_batch_sizes()
-    if BATCH_SIZE == "auto":
-        BATCH_SIZE = min([bs for bs in available_train_bs])
-    if BATCH_SIZE_TEST == "auto":
-        BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
+if __name__ == "__main__":
+    if BATCH_SIZE == "auto" or BATCH_SIZE_TEST == "auto":
+        available_train_bs, available_test_bs, _ = get_available_batch_sizes()
+        if BATCH_SIZE == "auto":
+            BATCH_SIZE = min([bs for bs in available_train_bs])
+        if BATCH_SIZE_TEST == "auto":
+            BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
 
-LR = LR_TO_BATCH_RATIO * BATCH_SIZE
+    LR = LR_TO_BATCH_RATIO * BATCH_SIZE
+
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 

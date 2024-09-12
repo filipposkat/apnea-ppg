@@ -39,7 +39,7 @@ OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
 CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
 
-if BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto":
+if __name__ == "__main__" and (BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto"):
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
     if BATCH_SIZE_TEST == "auto":
         BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
