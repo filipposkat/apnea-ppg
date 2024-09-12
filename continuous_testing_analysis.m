@@ -2,10 +2,13 @@ clear;
 clc;
 
 config = ReadYaml("config.yml");
+COMPATIBLE_SUBSET_0 = "0-60s";
 TESTING_SUBSET = "mild";
-EPOCH = 5;
+FREQ = 32;
+EPOCH = 6;
+
 PATH_TO_SUBSET = config.("subset_" + string(TESTING_SUBSET) + "_directory");
-PATH_TO_SUBSET0_CONT_TESTING = config.("subset_0_continuous_testing_directory");
+PATH_TO_SUBSET0_CONT_TESTING = config.("subset_" + string(COMPATIBLE_SUBSET_0) + "_continuous_testing_directory");
 PATH_TO_SUBSET_CONT_TESTING = config.("subset_" + string(TESTING_SUBSET) + "_continuous_testing_directory");
 NET_TYPE = string(config.net_type);
 NET_IDENTIFIER = string(config.net_identifier);
@@ -67,11 +70,10 @@ end
 %%
 WINDOWS_SIZE_MIN=60;
 LABEL = 1;
-FREQ = 32;
+
 N_THREADS = 4;
 
 filt_sz=WINDOWS_SIZE_MIN*FREQ*60;
-
 probability_threshold=0.2;
 
 sub_info = zeros(length(ids), 2);
@@ -111,7 +113,13 @@ parfor i=1:length(ids)
     
     labels = cont_test_file.labels;
     prediction_probabilities = cont_test_file.prediction_probabilities;
-    predictions = cont_test_file.predictions;
+    if isKey(cont_test_file, "predictions")
+        predictions = cont_test_file.predictions;
+    else    
+        [~, predictions] = max(prediction_probabilities,[],2)
+        % Get predictions with 0 index format:
+        predictions = predictions - 1;
+    end
     
     % Get only the relevant label:
     if LABEL < 5

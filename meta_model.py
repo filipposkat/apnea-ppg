@@ -132,8 +132,15 @@ def get_predictions(sub_id: int) -> dict:
 def get_columns_of_subject(sub_id: int) -> (int, list):
     matlab_dict = get_predictions(sub_id)
     preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
-    preds: np.ndarray = matlab_dict["predictions"]
+    if "predictions" in matlab_dict:
+        preds: np.ndarray = matlab_dict["predictions"]
+        preds = np.squeeze(preds)
+    else:
+        preds: np.ndarray = np.argmax(preds_proba, axis=1, keepdims=False)
+    preds = np.squeeze(preds)
     labels: np.ndarray = matlab_dict["labels"]
+    labels = np.squeeze(labels)
+
     n_classes = preds_proba.shape[1]
     # def moving_average(a, n=SIGNALS_FREQUENCY*60):
     #     ret = np.cumsum(a, dtype=float)
@@ -172,7 +179,7 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     cv_vector = np.divide(std_vector, mean_vector + 0.000001)
 
     # Calculation of other metrics:
-    preds = np.squeeze(preds)
+
     n_pred_clinical_events = {e: 0 for e in (1, 2, 3)}
     pred_clinical_event_durations = {e: [] for e in (1, 2, 3)}
     i = 1
@@ -216,7 +223,6 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     # 4: Do not know
 
     # Output stats:
-    labels = np.squeeze(labels)
     n_clinical_events = {e: 0 for e in (1, 2, 3)}
     clinical_event_durations = {e: [] for e in (1, 2, 3)}
     i = 1
@@ -314,7 +320,7 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
 if __name__ == "__main__":
     print(f"Using the subject subset: {SUBSET}")
     print(f"The compatibility was selected to be with the subset (set the models were trained on): {subset_id}")
-    print(f"Signals frequency: {SIGNALS_FREQUENCY}. If this is wrong delete dataframes and restart.")
+    print(f"Signals frequency: {SIGNALS_FREQUENCY}. If this is wrong delete dataframe and restart.")
 
     PATH_TO_META_MODEL = PATH_TO_SUBSET_CONT_TESTING.joinpath("meta-model", f"trainedOn-subset-{subset_id}",
                                                               str(NET_TYPE), str(IDENTIFIER), f"epoch-{EPOCH}")
@@ -329,7 +335,6 @@ if __name__ == "__main__":
         print(f"Subset-{SUBSET} has no ids generated yet")
         exit(1)
 
-    TRAIN_IDS, _ = get_subject_train_test_split()
     ids_ex_train = [id for id in ids if id not in TRAIN_IDS]
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids

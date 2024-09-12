@@ -39,7 +39,11 @@ TEST_SEARCH_SAMPLE_STEP = 512  # Make sure to use the same as trainedOn subset
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
 TARGET_TRAIN_TEST_SIMILARITY = 0.975  # Desired train-test similarity. 1=Identical distributions, 0=Completely different
 
+# Continuous Predictions params:
+SAVE_PREDICTIONS = False  # Otherwise only probabilities are saved
+
 # Per window TESTING PARAMS:
+PER_SAMPLE_TESTING = True
 AGGREGATION_WINDOW_SIZE_SECS = 1
 NORMALIZE: Literal["true", "pred", "all", "none"] = "none"
 DERSIRED_MERGED_CLASSES = 2
@@ -202,9 +206,11 @@ def get_subject_continuous_test_data(subject: Subject, signals=("SpO2", "Pleth")
                 # Note: Continuity of train may break and dor this reason we want to keep the index of train intact
                 # in order to know later the point where continuity breaks. So ignore_index=False
                 train_df = pd.concat(
-                    [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)], sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
+                    [sub_df.iloc[:(i * TEST_SEARCH_SAMPLE_STEP)],
+                     sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP + test_size):]],
                     axis=0, ignore_index=False)
-                test_df = sub_df.iloc[(i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
+                test_df = sub_df.iloc[
+                          (i * TEST_SEARCH_SAMPLE_STEP):(i * TEST_SEARCH_SAMPLE_STEP + test_size)].reset_index(
                     drop=True)
 
                 # Find the JSD similarity of the train and test distributions:
@@ -270,7 +276,8 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
 
 if __name__ == "__main__":
     print(f"Using the subject subset: {TESTING_SUBSET}")
-    print(f"The compatibility was selected to be with the subset (set the models were trained on): {trainedOn_subset_id}")
+    print(
+        f"The compatibility was selected to be with the subset (set the models were trained on): {trainedOn_subset_id}")
     print(f"Signals frequency: {SIGNALS_FREQUENCY}. If this is wrong delete arrays and restart.")
     print(f"Window size in seconds: {WINDOW_SEC_SIZE}. If this is wrong delete arrays and restart.")
 
@@ -472,16 +479,22 @@ if __name__ == "__main__":
                     # Predictions:
                     batch_outputs = net(batch_inputs)
                     batch_output_probs = F.softmax(batch_outputs, dim=1)
-                    _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
+                    if SAVE_PREDICTIONS:
+                        _, batch_predictions = torch.max(batch_outputs, dim=1, keepdim=False)
+                        saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
 
-                    saved_preds_for_stats.extend(batch_predictions.ravel().tolist())
                     saved_probs_for_stats.extend(batch_output_probs.swapaxes(1, 2).reshape(-1, N_CLASSES).tolist())
                     saved_labels_for_stats.extend(batch_labels.ravel().tolist())
 
-            matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats, dtype="float32"),
-                           "predictions": np.array(saved_preds_for_stats, dtype="uint8"),
-                           "labels": np.array(saved_labels_for_stats, dtype="uint8"),
-                           "trained_subject": sub_id in train_ids}
+            if SAVE_PREDICTIONS:
+                matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats, dtype="float32"),
+                               "predictions": np.array(saved_preds_for_stats, dtype="uint8"),
+                               "labels": np.array(saved_labels_for_stats, dtype="uint8"),
+                               "trained_subject": sub_id in train_ids}
+            else:
+                matlab_dict = {"prediction_probabilities": np.array(saved_probs_for_stats, dtype="float32"),
+                               "labels": np.array(saved_labels_for_stats, dtype="uint8"),
+                               "trained_subject": sub_id in train_ids}
             scipy.io.savemat(matlab_file, matlab_dict)
 
             # plt.figure()
@@ -518,26 +531,65 @@ if __name__ == "__main__":
 
         results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                             f"epoch-{EPOCH}")
-        agg_path = results_path / f"aggregation_win_{AGGREGATION_WINDOW_SIZE_SECS}s"
+        if PER_SAMPLE_TESTING:
+            agg_path = results_path / f"per_sample_testing"
+        else:
+            agg_path = results_path / f"aggregation_win_{AGGREGATION_WINDOW_SIZE_SECS}s"
         agg_path.mkdir(exist_ok=True)
 
         # prepare to count predictions for each class
         all_classes = ("normal", "central_apnea", "obstructive_apnea", "hypopnea", "spO2_desat")
         classes = None
 
-        if agg_path.joinpath("agg_cm2.json").exists():
-            with open(agg_path / "agg_cm2.json", 'r') as file:
-                agg_cm2 = np.array(json.load(file))
-            with open(agg_path / "aggregate_roc_info.json", 'r') as file:
+        if PER_SAMPLE_TESTING and agg_path.joinpath("per_sample_cross_test_cm.json").exists():
+            with open(agg_path / "per_sample_cross_test_cm.json", 'r') as file:
+                cm = np.array(json.load(file))
+            with open(agg_path / "per_sample_cross_test_roc_info.json", 'r') as file:
                 roc_info_by_class = json.load(file)
 
-            n_class = agg_cm2.shape[0]
+            n_class = cm.shape[0]
             classes = all_classes[0:n_class]
-            classification_performance(cm=agg_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
-            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+            classification_performance(cm=cm, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            merged_metrics = merged_classes_assesment(cm, desired_classes=DERSIRED_MERGED_CLASSES,
                                                       normalize=NORMALIZE)
             # Save merged metrics
-            with open(agg_path / f"agg_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+            with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                json.dump(merged_metrics, file)
+
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            axs = axs.ravel()
+
+            # Save the ROC plot:
+            plot_path = agg_path.joinpath(f"per_sample_cross_test_roc.png")
+            for c, class_name in enumerate(roc_info_by_class.keys()):
+                average_fpr = roc_info_by_class[class_name]["average_fpr"]
+                average_tpr = roc_info_by_class[class_name]["average_tpr"]
+                average_auc = roc_info_by_class[class_name]["average_auc"]
+
+                ax = axs[c]
+                ax.plot(average_fpr, average_tpr)
+                ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+                ax.set_xlim([0, 1])
+                ax.set_ylim([0, 1])
+                ax.set_xlabel("FPR")
+                ax.set_ylabel("TPR")
+
+            fig.savefig(str(plot_path))
+            plt.show()
+            plt.close(fig)
+        elif agg_path.joinpath("agg_cross_test_cm2.json").exists():
+            with open(agg_path / "agg_cross_test_cm2.json", 'r') as file:
+                cross_test_cm2 = np.array(json.load(file))
+            with open(agg_path / "aggregate_cross_test_roc_info.json", 'r') as file:
+                roc_info_by_class = json.load(file)
+
+            n_class = cross_test_cm2.shape[0]
+            classes = all_classes[0:n_class]
+            classification_performance(cm=cross_test_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            merged_metrics = merged_classes_assesment(cross_test_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+                                                      normalize=NORMALIZE)
+            # Save merged metrics
+            with open(agg_path / f"agg_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
                 json.dump(merged_metrics, file)
 
             fig, axs = plt.subplots(3, 2, figsize=(15, 15))
@@ -562,15 +614,23 @@ if __name__ == "__main__":
             plt.show()
             plt.close(fig)
         else:
-            agg_cm1: np.ndarray
-            agg_cm2: np.ndarray
-            agg_metrics_1 = {}
-            agg_metrics_2 = {}
+            validation_cm1: np.ndarray
+            validation_cm2: np.ndarray
+            validation_metrics_1 = {}
+            validation_metrics_2 = {}
+
+            cross_test_cm1: np.ndarray
+            cross_test_cm2: np.ndarray
+            cross_test_metrics_1 = {}
+            cross_test_metrics_2 = {}
 
             thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100))
-            tprs_by_class = {}
-            fprs_by_class = {}
-            aucs_by_class = {}
+            validation_tprs_by_class = {}
+            validation_fprs_by_class = {}
+            validation_aucs_by_class = {}
+            cross_test_tprs_by_class = {}
+            cross_test_fprs_by_class = {}
+            cross_test_aucs_by_class = {}
 
             for sub_id in tqdm(sub_ids):
                 if sub_id in train_ids:
@@ -584,40 +644,60 @@ if __name__ == "__main__":
 
                 matlab_dict = scipy.io.loadmat(str(matlab_file))
                 prediction_probas: np.ndarray = matlab_dict["prediction_probabilities"]
-                predictions: np.ndarray = matlab_dict["predictions"]
+                if "predictions" in matlab_dict:
+                    predictions: np.ndarray = matlab_dict["predictions"]
+                    predictions = np.squeeze(predictions)
+                else:
+                    predictions: np.ndarray = np.argmax(prediction_probas, axis=1, keepdims=False)
                 labels: np.ndarray = matlab_dict["labels"]
-
-                predictions = np.squeeze(predictions)
                 labels = np.squeeze(labels)
 
                 n_class = prediction_probas.shape[1]
                 if classes is None:
                     classes = [all_classes[c] for c in range(n_class)]
-                    agg_cm1 = np.zeros((n_class, n_class))
-                    agg_cm2 = np.zeros((n_class, n_class))
-                    tprs_by_class = {c: [] for c in classes}
-                    fprs_by_class = {c: [] for c in classes}
-                    aucs_by_class = {c: [] for c in classes}
+                    validation_cm1 = np.zeros((n_class, n_class))
+                    validation_cm2 = np.zeros((n_class, n_class))
+                    validation_tprs_by_class = {c: [] for c in classes}
+                    validation_fprs_by_class = {c: [] for c in classes}
+                    validation_aucs_by_class = {c: [] for c in classes}
+
+                    cross_test_cm1 = np.zeros((n_class, n_class))
+                    cross_test_cm2 = np.zeros((n_class, n_class))
+                    cross_test_tprs_by_class = {c: [] for c in classes}
+                    cross_test_fprs_by_class = {c: [] for c in classes}
+                    cross_test_aucs_by_class = {c: [] for c in classes}
                     if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
                         extra_class = "normal+spo2_desat"
-                        tprs_by_class[extra_class] = []
-                        fprs_by_class[extra_class] = []
-                        aucs_by_class[extra_class] = []
+                        validation_tprs_by_class[extra_class] = []
+                        validation_fprs_by_class[extra_class] = []
+                        validation_aucs_by_class[extra_class] = []
+
+                        cross_test_tprs_by_class[extra_class] = []
+                        cross_test_fprs_by_class[extra_class] = []
+                        cross_test_aucs_by_class[extra_class] = []
 
                 length = len(labels)
 
-                aggregation_window_sample_size = AGGREGATION_WINDOW_SIZE_SECS * SIGNALS_FREQUENCY
-                n = length // aggregation_window_sample_size
-                remainder = length % aggregation_window_sample_size
+                if PER_SAMPLE_TESTING:
+                    # essentially no aggregation
+                    per_window_preds1 = predictions
+                    per_window_preds2 = predictions
+                    per_window_probas = prediction_probas
+                    per_window_labels = labels
+                else:
+                    aggregation_window_sample_size = AGGREGATION_WINDOW_SIZE_SECS * SIGNALS_FREQUENCY
+                    n = length // aggregation_window_sample_size
+                    remainder = length % aggregation_window_sample_size
 
-                seg_predictions = np.split(predictions[remainder:], indices_or_sections=n)
-                seg_prediction_probas = np.split(prediction_probas[remainder:, :], indices_or_sections=n, axis=0)
-                seg_labels = np.split(labels[remainder:], indices_or_sections=n)
+                    seg_predictions = np.split(predictions[remainder:], indices_or_sections=n)
+                    seg_prediction_probas = np.split(prediction_probas[remainder:, :], indices_or_sections=n, axis=0)
+                    seg_labels = np.split(labels[remainder:], indices_or_sections=n)
 
-                per_window_preds1 = np.array([get_window_label(win)[0] for win in seg_predictions])
-                per_window_preds2 = np.array([get_window_label_from_probas(win)[0] for win in seg_prediction_probas])
-                per_window_probas = np.array([np.mean(win, axis=0) for win in seg_prediction_probas])
-                per_window_labels = np.array([get_window_label(win)[0] for win in seg_labels])
+                    per_window_preds1 = np.array([get_window_label(win)[0] for win in seg_predictions])
+                    per_window_preds2 = np.array(
+                        [get_window_label_from_probas(win)[0] for win in seg_prediction_probas])
+                    per_window_probas = np.array([np.mean(win, axis=0) for win in seg_prediction_probas])
+                    per_window_labels = np.array([get_window_label(win)[0] for win in seg_labels])
 
                 # RoC curve for this subject:
                 roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class)
@@ -627,9 +707,14 @@ if __name__ == "__main__":
 
                 for c in range(n_class):
                     class_name = classes[c]
-                    fprs_by_class[class_name].append(fprs[c, :])
-                    tprs_by_class[class_name].append(tprs[c, :])
-                    aucs_by_class[class_name].append(aucs[c])
+                    if sub_id in train_ids:
+                        validation_fprs_by_class[class_name].append(fprs[c, :])
+                        validation_tprs_by_class[class_name].append(tprs[c, :])
+                        validation_aucs_by_class[class_name].append(aucs[c])
+                    else:
+                        cross_test_fprs_by_class[class_name].append(fprs[c, :])
+                        cross_test_tprs_by_class[class_name].append(tprs[c, :])
+                        cross_test_aucs_by_class[class_name].append(aucs[c])
 
                 if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
                     extra_class = "normal+spo2_desat"
@@ -643,59 +728,114 @@ if __name__ == "__main__":
                     extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
                     extra_auc = extra_auroc(extra_probs, extra_labels)
 
-                    fprs_by_class[extra_class].append(extra_fpr)
-                    tprs_by_class[extra_class].append(extra_tpr)
-                    aucs_by_class[extra_class].append(extra_auc)
+                    if sub_id in train_ids:
+                        validation_fprs_by_class[extra_class].append(extra_fpr)
+                        validation_tprs_by_class[extra_class].append(extra_tpr)
+                        validation_aucs_by_class[extra_class].append(extra_auc)
+                    else:
+                        cross_test_fprs_by_class[extra_class].append(extra_fpr)
+                        cross_test_tprs_by_class[extra_class].append(extra_tpr)
+                        cross_test_aucs_by_class[extra_class].append(extra_auc)
 
                 # Confusion matrix for this subject
                 sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
                                            labels=np.arange(n_class))
-                sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
-                                           labels=np.arange(n_class))
-                agg_cm1 += sub_cm1
-                agg_cm2 += sub_cm2
-
                 # Metrics from CM:
                 metrics1 = get_metrics_from_cm(cm=sub_cm1, classes=classes)
-                metrics2 = get_metrics_from_cm(cm=sub_cm2, classes=classes)
 
-                for (k, v) in metrics1.items():
-                    if isinstance(v, dict):
-                        if k not in agg_metrics_1:
-                            agg_metrics_1[k] = {c: 0 for c in classes}
-                            agg_metrics_2[k] = {c: 0 for c in classes}
+                if PER_SAMPLE_TESTING:
+                    sub_cm2 = sub_cm1
+                    # Metrics from CM:
+                    metrics2 = metrics1
+                else:
+                    sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
+                                               labels=np.arange(n_class))
+                    # Metrics from CM:
+                    metrics2 = get_metrics_from_cm(cm=sub_cm2, classes=classes)
 
-                        for (ks, vs) in v.items():
-                            v1 = 0 if vs == "nan" else vs
-                            v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
+                if sub_id in train_ids:
+                    validation_cm1 += sub_cm1
+                    validation_cm2 += sub_cm2
 
-                            agg_metrics_1[k][ks] += v1
-                            agg_metrics_2[k][ks] += v2
-                    else:
-                        if k not in agg_metrics_1:
-                            agg_metrics_1[k] = 0
-                            agg_metrics_2[k] = 0
+                    for (k, v) in metrics1.items():
+                        if isinstance(v, dict):
+                            if k not in cross_test_metrics_1:
+                                validation_metrics_1[k] = {c: 0 for c in classes}
+                                validation_metrics_2[k] = {c: 0 for c in classes}
 
-                        agg_metrics_1[k] += v
-                        agg_metrics_2[k] += metrics2[k]
+                            for ks in v.keys():
+                                v1 = 0 if metrics1[k][ks] == "nan" else metrics1[k][ks]
+                                v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
+
+                                validation_metrics_1[k][ks] += v1
+                                validation_metrics_2[k][ks] += v2
+                        else:
+                            if k not in cross_test_metrics_1:
+                                validation_metrics_1[k] = 0
+                                validation_metrics_2[k] = 0
+
+                            validation_metrics_1[k] += metrics1[k]
+                            validation_metrics_2[k] += metrics2[k]
+                else:
+                    cross_test_cm1 += sub_cm1
+                    cross_test_cm2 += sub_cm2
+
+                    for (k, v) in metrics1.items():
+                        if isinstance(v, dict):
+                            if k not in cross_test_metrics_1:
+                                cross_test_metrics_1[k] = {c: 0 for c in classes}
+                                cross_test_metrics_2[k] = {c: 0 for c in classes}
+
+                            for ks in v.keys():
+                                v1 = 0 if metrics1[k][ks] == "nan" else metrics1[k][ks]
+                                v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
+
+                                cross_test_metrics_1[k][ks] += v1
+                                cross_test_metrics_2[k][ks] += v2
+                        else:
+                            if k not in cross_test_metrics_1:
+                                cross_test_metrics_1[k] = 0
+                                cross_test_metrics_2[k] = 0
+
+                            cross_test_metrics_1[k] += metrics1[k]
+                            cross_test_metrics_2[k] += metrics2[k]
 
                 # classification_performance(cm=sub_cm1, plot_confusion=True, target_labels=classes)
                 # classification_performance(cm=sub_cm2, plot_confusion=True, target_labels=classes)
 
-            # Compute threshold average ROC for each class, across subjected:
-            roc_info_by_class = {}
-            average_auc_by_class = {}
-            for class_name in fprs_by_class.keys():
-                fprs = torch.stack(fprs_by_class[class_name], dim=0)
+            # Compute threshold average ROC for each class, across subjectes:
+            validation_roc_info_by_class = {}
+            validation_average_auc_by_class = {}
+            cross_test_roc_info_by_class = {}
+            cross_test_average_auc_by_class = {}
+            for class_name in cross_test_fprs_by_class.keys():
+                # For test:
+                fprs = torch.stack(cross_test_fprs_by_class[class_name], dim=0)
                 average_fpr = torch.mean(fprs, dim=0, keepdim=False)
-                tprs = torch.stack(tprs_by_class[class_name], dim=0)
+                tprs = torch.stack(cross_test_tprs_by_class[class_name], dim=0)
                 average_tpr = torch.mean(tprs, dim=0, keepdim=False)
-                aucs = torch.tensor(aucs_by_class[class_name])
+                aucs = torch.tensor(cross_test_aucs_by_class[class_name])
                 average_auc = torch.mean(aucs)
 
-                average_auc_by_class[class_name] = average_auc.item()
+                cross_test_average_auc_by_class[class_name] = average_auc.item()
 
-                roc_info_by_class[class_name] = {
+                cross_test_roc_info_by_class[class_name] = {
+                    "thresholds": thresholds.tolist(),
+                    "average_fpr": average_fpr.tolist(),
+                    "average_tpr": average_tpr.tolist(),
+                    "average_auc": average_auc.item()
+                }
+                # Now for validation
+                fprs = torch.stack(validation_fprs_by_class[class_name], dim=0)
+                average_fpr = torch.mean(fprs, dim=0, keepdim=False)
+                tprs = torch.stack(validation_tprs_by_class[class_name], dim=0)
+                average_tpr = torch.mean(tprs, dim=0, keepdim=False)
+                aucs = torch.tensor(validation_aucs_by_class[class_name])
+                average_auc = torch.mean(aucs)
+
+                validation_average_auc_by_class[class_name] = average_auc.item()
+
+                validation_roc_info_by_class[class_name] = {
                     "thresholds": thresholds.tolist(),
                     "average_fpr": average_fpr.tolist(),
                     "average_tpr": average_tpr.tolist(),
@@ -703,59 +843,105 @@ if __name__ == "__main__":
                 }
 
             # Save ROC info:
-            with open(agg_path / "aggregate_roc_info.json", 'w') as file:
-                json.dump(roc_info_by_class, file)
+            if PER_SAMPLE_TESTING:
+                with open(agg_path / "per_sample_validation_roc_info.json", 'w') as file:
+                    json.dump(validation_roc_info_by_class, file)
+                with open(agg_path / "per_sample_cross_test_roc_info.json", 'w') as file:
+                    json.dump(cross_test_roc_info_by_class, file)
+                validation_plot_path = agg_path.joinpath(f"per_sample_validation_roc.png")
+                cross_test_plot_path = agg_path.joinpath(f"per_sample_cross_test_roc.png")
+            else:
+                with open(agg_path / "aggregate_validation_roc_info.json", 'w') as file:
+                    json.dump(validation_roc_info_by_class, file)
+                with open(agg_path / "per_sample_cross_test_roc_info.json", 'w') as file:
+                    json.dump(cross_test_roc_info_by_class, file)
+                validation_plot_path = agg_path.joinpath(f"aggregate_validation_roc.png")
+                cross_test_plot_path = agg_path.joinpath(f"aggregate_cross_test_roc.png")
 
-            # Save the ROC plot:
-            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
-            axs = axs.ravel()
+            for (roc_info_by_class, plot_path) in ((validation_roc_info_by_class, validation_plot_path),
+                                              (cross_test_roc_info_by_class, cross_test_plot_path)):
+                # Save the ROC plot:
+                fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+                axs = axs.ravel()
 
-            plot_path = agg_path.joinpath(f"aggregate_roc.png")
-            for c, class_name in enumerate(roc_info_by_class.keys()):
-                average_fpr = roc_info_by_class[class_name]["average_fpr"]
-                average_tpr = roc_info_by_class[class_name]["average_tpr"]
-                average_auc = roc_info_by_class[class_name]["average_auc"]
+                for c, class_name in enumerate(roc_info_by_class.keys()):
+                    average_fpr = roc_info_by_class[class_name]["average_fpr"]
+                    average_tpr = roc_info_by_class[class_name]["average_tpr"]
+                    average_auc = roc_info_by_class[class_name]["average_auc"]
 
-                ax = axs[c]
-                ax.plot(average_fpr, average_tpr)
-                ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
-                ax.set_xlim([0, 1])
-                ax.set_ylim([0, 1])
-                ax.set_xlabel("FPR")
-                ax.set_ylabel("TPR")
-            fig.savefig(str(plot_path))
-            plt.close(fig)
+                    ax = axs[c]
+                    ax.plot(average_fpr, average_tpr)
+                    ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+                    ax.set_xlim([0, 1])
+                    ax.set_ylim([0, 1])
+                    ax.set_xlabel("FPR")
+                    ax.set_ylabel("TPR")
+                fig.savefig(str(plot_path))
+                plt.close(fig)
 
             # Average metrics across subjects
-            for (k, v) in agg_metrics_1.items():
+            train_len = len(train_ids)
+            test_len = len(sub_ids) - train_len
+            for (k, v) in cross_test_metrics_1.items():
                 if isinstance(v, dict):
                     for ks in v.keys():
-                        agg_metrics_1[k][ks] /= len(sub_ids)
-                        agg_metrics_2[k][ks] /= len(sub_ids)
+                        validation_metrics_1[k][ks] /= train_len
+                        validation_metrics_2[k][ks] /= train_len
+                        cross_test_metrics_1[k][ks] /= test_len
+                        cross_test_metrics_2[k][ks] /= test_len
                 else:
-                    agg_metrics_1[k] /= len(sub_ids)
-                    agg_metrics_2[k] /= len(sub_ids)
+                    validation_metrics_1[k] /= train_len
+                    validation_metrics_2[k] /= train_len
+                    cross_test_metrics_1[k] /= test_len
+                    cross_test_metrics_2[k] /= test_len
 
-            classification_performance(agg_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            classification_performance(cross_test_cm2, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
 
-            merged_metrics = merged_classes_assesment(agg_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+            validation_merged_metrics = merged_classes_assesment(validation_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
+                                                      normalize=NORMALIZE)
+            test_merged_metrics = merged_classes_assesment(cross_test_cm2, desired_classes=DERSIRED_MERGED_CLASSES,
                                                       normalize=NORMALIZE)
 
-            print(agg_metrics_1)
-            print(agg_metrics_2)
+            if PER_SAMPLE_TESTING:
+                with open(agg_path / "per_sample_validation_cm.json", 'w') as file:
+                    json.dump(validation_cm2.tolist(), file)
+                with open(agg_path / "per_sample_cross_test_cm.json", 'w') as file:
+                    json.dump(cross_test_cm2.tolist(), file)
 
-            with open(agg_path / "agg_cm1.json", 'w') as file:
-                json.dump(agg_cm1.tolist(), file)
+                with open(agg_path / "per_sample_validation_metrics.json", 'w') as file:
+                    json.dump(validation_metrics_2, file)
+                with open(agg_path / "per_sample_metrics.json", 'w') as file:
+                    json.dump(cross_test_metrics_2, file)
 
-            with open(agg_path / "agg_cm2.json", 'w') as file:
-                json.dump(agg_cm2.tolist(), file)
+                # Save merged metrics
+                with open(agg_path / f"per_sample_validation_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                    json.dump(validation_merged_metrics, file)
+                with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                    json.dump(test_merged_metrics, file)
 
-            with open(agg_path / "agg_metrics_1.json", 'w') as file:
-                json.dump(agg_metrics_1, file)
+            else:
+                with open(agg_path / "agg_validation_cm1.json", 'w') as file:
+                    json.dump(validation_cm1.tolist(), file)
+                with open(agg_path / "agg_cross_test_cm1.json", 'w') as file:
+                    json.dump(cross_test_cm1.tolist(), file)
 
-            with open(agg_path / "agg_metrics_2.json", 'w') as file:
-                json.dump(agg_metrics_2, file)
+                with open(agg_path / "agg_validation_cm2.json", 'w') as file:
+                    json.dump(validation_cm2.tolist(), file)
+                with open(agg_path / "agg_cross_test_cm2.json", 'w') as file:
+                    json.dump(cross_test_cm2.tolist(), file)
 
-            # Save merged metrics
-            with open(agg_path / f"agg_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
-                json.dump(merged_metrics, file)
+                with open(agg_path / "agg_validation_metrics_1.json", 'w') as file:
+                    json.dump(validation_metrics_1, file)
+                with open(agg_path / "agg_cross_test_metrics_1.json", 'w') as file:
+                    json.dump(cross_test_metrics_1, file)
+
+                with open(agg_path / "agg_validation_metrics_2.json", 'w') as file:
+                    json.dump(validation_metrics_2, file)
+                with open(agg_path / "agg_cross_test_metrics_2.json", 'w') as file:
+                    json.dump(cross_test_metrics_2, file)
+
+                # Save merged metrics
+                with open(agg_path / f"agg_validation_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                    json.dump(validation_merged_metrics, file)
+                with open(agg_path / f"agg_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                    json.dump(test_merged_metrics, file)
