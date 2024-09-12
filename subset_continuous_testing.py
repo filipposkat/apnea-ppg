@@ -26,14 +26,14 @@ from data_loaders_mapped import get_subject_train_test_split
 TESTING_SUBSET = "0-60s"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 10
-CREATE_ARRAYS = True
+CREATE_ARRAYS = False
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
 PER_WINDOW_EVALUATION = True
 CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
 # CREATE ARRAYS PARAMS:
-WINDOW_SEC_SIZE = 16
-SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
+WINDOW_SEC_SIZE = 60  # The window size
+SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512  # Make sure to use the same as trainedOn subset
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
@@ -271,6 +271,8 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
 if __name__ == "__main__":
     print(f"Using the subject subset: {TESTING_SUBSET}")
     print(f"The compatibility was selected to be with the subset (set the models were trained on): {trainedOn_subset_id}")
+    print(f"Signals frequency: {SIGNALS_FREQUENCY}. If this is wrong delete arrays and restart.")
+    print(f"Window size in seconds: {WINDOW_SEC_SIZE}. If this is wrong delete arrays and restart.")
 
     path = PATH_TO_SUBSET.joinpath("ids.npy")
     if path.is_file():
@@ -631,7 +633,7 @@ if __name__ == "__main__":
 
                 if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
                     extra_class = "normal+spo2_desat"
-                    extra_probs = per_window_probas[:, 0, :] + per_window_probas[:, 4, :]
+                    extra_probs = per_window_probas[:, 0] + per_window_probas[:, 4]
                     extra_probs = torch.tensor(extra_probs)
                     extra_labels = (per_window_labels == 0) | (per_window_labels == 4)
                     extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
