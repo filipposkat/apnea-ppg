@@ -171,7 +171,7 @@ def get_metrics_from_cm(cm: np.array, classes: list[str], verbose=False):
     return metrics
 
 
-def classification_performance(cm, test=True, plot_confusion=True, target_labels=None,
+def classification_performance(cm:np.ndarray, test=True, plot_confusion=True, target_labels=None,
                                normalize: Literal["true", "pred", "all", "none"] = "none"):
     """
     :param target_labels:
@@ -180,6 +180,8 @@ def classification_performance(cm, test=True, plot_confusion=True, target_labels
     :param test:
     :param normalize: {'true', 'pred', 'all'} or None
     """
+    cm = cm.copy()
+
     train_test = "test" if test else "train"
     metrics = get_metrics_from_cm(cm, classes=target_labels)
     accuracy = metrics["aggregate_accuracy"]

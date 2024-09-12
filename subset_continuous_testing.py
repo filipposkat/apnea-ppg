@@ -751,7 +751,7 @@ if __name__ == "__main__":
 
                 # Confusion matrix for this subject
                 sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
-                                           labels=np.arange(n_class))
+                                           labels=np.arange(n_class), normalize=None)
                 # Metrics from CM:
                 metrics1 = get_metrics_from_cm(cm=sub_cm1, classes=classes)
 
@@ -761,7 +761,7 @@ if __name__ == "__main__":
                     metrics2 = metrics1
                 else:
                     sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
-                                               labels=np.arange(n_class))
+                                               labels=np.arange(n_class), normalize=None)
                     # Metrics from CM:
                     metrics2 = get_metrics_from_cm(cm=sub_cm2, classes=classes)
 
@@ -922,7 +922,7 @@ if __name__ == "__main__":
 
                 with open(agg_path / "per_sample_validation_metrics.json", 'w') as file:
                     json.dump(validation_metrics_2, file)
-                with open(agg_path / "per_sample_metrics.json", 'w') as file:
+                with open(agg_path / "per_sample_cross_test_metrics.json", 'w') as file:
                     json.dump(cross_test_metrics_2, file)
 
                 # Save merged metrics
