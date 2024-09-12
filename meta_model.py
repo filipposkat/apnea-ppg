@@ -62,8 +62,8 @@ else:
     NET_TYPE = "UResIncNet"
     IDENTIFIER = "ks3-depth8-strided-0"
 
-
-# train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
+TRAIN_IDS, _ = get_subject_train_test_split()
+# TRAIN_IDS = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561, 571,
 #              589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
 #              931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263, 1266,
 #              1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623, 1626,
@@ -106,7 +106,7 @@ def get_predictions(sub_id: int) -> dict:
     if PATH_TO_SUBSET0_CONT_TESTING is not None:
         results_path = PATH_TO_SUBSET0_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                              f"epoch-{EPOCH}")
-        if sub_id in train_ids:
+        if sub_id in TRAIN_IDS:
             results_path = results_path.joinpath("validation-subjects")
         else:
             results_path = results_path.joinpath("cross-test-subjects")
@@ -119,7 +119,7 @@ def get_predictions(sub_id: int) -> dict:
     # Search in subset
     results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                         f"epoch-{EPOCH}")
-    if sub_id in train_ids:
+    if sub_id in TRAIN_IDS:
         results_path = results_path.joinpath("validation-subjects")
     else:
         results_path = results_path.joinpath("cross-test-subjects")
@@ -329,8 +329,8 @@ if __name__ == "__main__":
         print(f"Subset-{SUBSET} has no ids generated yet")
         exit(1)
 
-    train_ids, _ = get_subject_train_test_split()
-    ids_ex_train = [id for id in ids if id not in train_ids]
+    TRAIN_IDS, _ = get_subject_train_test_split()
+    ids_ex_train = [id for id in ids if id not in TRAIN_IDS]
     meta_ids = ids_ex_train
     # meta_test_ids = rng.sample(meta_ids, int(TEST_SIZE * len(meta_ids)))  # does not include any original train ids
     # meta_train_ids = [id for id in meta_ids if id not in meta_test_ids]  # # does not include any original train ids
