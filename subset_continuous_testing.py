@@ -23,7 +23,7 @@ from trainer import load_checkpoint, get_last_batch, get_last_epoch
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
-TESTING_SUBSET = "0-60s"
+TESTING_SUBSET = "0w60s"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 6
 CREATE_ARRAYS = False
@@ -607,7 +607,7 @@ if __name__ == "__main__":
             axs = axs.ravel()
 
             # Save the ROC plot:
-            plot_path = agg_path.joinpath(f"aggregate_roc.png")
+            plot_path = agg_path.joinpath(f"aggregate_cross_test_roc.png")
             for c, class_name in enumerate(roc_info_by_class.keys()):
                 average_fpr = roc_info_by_class[class_name]["average_fpr"]
                 average_tpr = roc_info_by_class[class_name]["average_tpr"]

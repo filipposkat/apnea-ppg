@@ -2,9 +2,9 @@ clear;
 clc;
 
 config = ReadYaml("config.yml");
-COMPATIBLE_SUBSET_0 = "0-60s";
+COMPATIBLE_SUBSET_0 = "0w60s";
 TESTING_SUBSET = "mild";
-FREQ = 32;
+FREQ = 64;
 EPOCH = 6;
 
 PATH_TO_SUBSET = config.("subset_" + string(TESTING_SUBSET) + "_directory");
@@ -67,7 +67,103 @@ for i=1:length(a)
     end    
     
 end
-%%
+%% ANALYSIS FOR SPECIFIC SUBJECT
+SUB_ID = 149 %2268 is good 
+WINDOWS_SIZE_MIN=60;
+LABEL = 1;
+
+filt_sz=WINDOWS_SIZE_MIN*FREQ*60;
+for i=1:length(ids)
+    s = strrep(a(i).name,"cont_test_signal_",'');
+    sub_id = str2num(strrep(s,".mat",''));
+    if sub_id == SUB_ID
+        cont_test_file = load(a(i).folder + "/" + a(i).name);
+
+        labels = cont_test_file.labels;
+        prediction_probabilities = cont_test_file.prediction_probabilities;
+        if isfield(cont_test_file, "predictions")
+            predictions = cont_test_file.predictions;
+        else    
+            [~, predictions] = max(prediction_probabilities,[],2);
+            % Get predictions with 0 index format:
+            predictions = predictions - 1;
+        end
+
+        % Get only the relevant label:
+        if LABEL < 5
+            rel_labels = labels==LABEL;
+        elseif LABEL == 123
+            rel_labels = labels==1 | labels==2 | labels==3;
+        end
+
+        % tmp1 is binary series, giving the the normalized total duration of
+        % the relevant events inside a rolling window preceeding a given
+        % number.
+        tmp1=filter(ones(1,filt_sz)/filt_sz,1,rel_labels);
+
+        % tmp1b is also a binary series, giving the number of relevant clinical
+        % events inside a rolling window preceeding a given moment.
+        tmp1b = zeros(1, length(rel_labels), 'logical');
+
+        % Rolling window determining clinical events in it:
+        for j=filt_sz:length(rel_labels)
+            % Get the window:
+            window = rel_labels(j-filt_sz+1:j);
+            clinical_events = 0;
+            total_events_duration = 0;
+            k = 1;
+
+            % Find start of events:
+            while k < filt_sz
+                if window(k) > 0
+                    d = 1;
+                    % Find how long event lasts:
+                    while k+d<=filt_sz && window(k + d) > 0
+                        d = d + 1;
+                    end
+                    % if event lasts 10s, count it towards clinical events
+                    if d >= FREQ * 10
+                        clinical_events = clinical_events + 1;
+                        total_events_duration = total_events_duration + d / FREQ;
+                    end
+                    % move one step after the event to search for others:
+                    k = k + d;
+                else
+                    % no event starts at k. Moving forward.
+                    k = k + 1;
+                end
+            end
+            tmp1b(1,j) = clinical_events;
+        end
+
+        % tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1)>=probability_threshold);
+        if LABEL < 5
+            tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1));
+        elseif LABEL == 123
+            tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
+                + prediction_probabilities(:,3) + prediction_probabilities(:,4));    
+        end
+
+
+        [R1,PValue1] = corr([tmp1' tmp2]);
+        fprintf("%d/%d, Subject: %d Probability and duration corr (pvalue): %.4f (%.4f)\n", ...
+            i, length(ids), sub_id, R1(1,2), PValue1(1,2));
+
+        [R2,PValue2] = corr([tmp1b' tmp2]);
+        fprintf("%d/%d, Subject: %d Probability and clinical events corr (pvalue): %.4f (%.4f)\n", ...
+            i, length(ids), sub_id, R2(1,2), PValue2(1,2));
+
+
+        figure;
+        title("Rolling Probability - Rolling labels. Subject: " + string(sub_id))
+        corrplot([tmp1' tmp2])
+        figure;
+        title("Rolling Probability - Rolling clinical events. Subject: " + string(sub_id))
+        corrplot([tmp1' tmp2])
+    end
+end
+
+%% ANALYSIS FOR ALL SUBJECTS
 WINDOWS_SIZE_MIN=60;
 LABEL = 1;
 
@@ -113,10 +209,10 @@ parfor i=1:length(ids)
     
     labels = cont_test_file.labels;
     prediction_probabilities = cont_test_file.prediction_probabilities;
-    if isKey(cont_test_file, "predictions")
+    if isfield(cont_test_file, "predictions")
         predictions = cont_test_file.predictions;
     else    
-        [~, predictions] = max(prediction_probabilities,[],2)
+        [~, predictions] = max(prediction_probabilities,[],2);
         % Get predictions with 0 index format:
         predictions = predictions - 1;
     end

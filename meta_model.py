@@ -18,7 +18,7 @@ from common import Subject
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
-SUBSET = "0-60s"
+SUBSET = "0w60s"
 EPOCH = 6
 CREATE_DATA = True
 SKIP_EXISTING_IDS = False
