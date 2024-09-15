@@ -481,7 +481,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         train_counts_cont = list(train_label_counts_cont.values())
         test_counts_cont = list(test_label_counts_cont.values())
 
-        fig_cont, ax = plt.subplots(nrows=1, ncols=2)
+        fig_cont, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
 
         ax[0].set_title("Train set label counts")
         ax[0].bar(X_axis, train_counts_cont, 0.4, label='Sample Labels')
@@ -498,7 +498,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         ax[1].legend()
         fig_cont.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_continuous_label.png"))
 
-        fig_win, ax = plt.subplots(nrows=1, ncols=2)
+        fig_win, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
         ax[0].set_title("Train set label counts")
         ax[0].bar(X_axis, train_counts, 0.4, label='Window Labels')
         ax[0].set_xticks(X_axis, [str(x) for x in labels])
@@ -514,7 +514,7 @@ def plot_dists(train_label_counts, test_label_counts, train_label_counts_cont, t
         ax[1].legend()
         fig_win.savefig(Path(PATH_TO_SUBSET).joinpath("histogram_window_label.png"))
     else:
-        fig, ax = plt.subplots(nrows=1, ncols=2)
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
 
         ax[0].set_title("Train set label counts")
         ax[0].bar(X_axis, train_counts, label='Window Labels')
