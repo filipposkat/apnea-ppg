@@ -44,7 +44,7 @@ SAVE_PREDICTIONS = False  # Otherwise only probabilities are saved
 # Per window TESTING PARAMS:
 PER_WINDOW_EVALUATION = True
 PER_SAMPLE_TESTING = True
-CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
+CALCULATE_ROC_FOR_MERGED_CLASSES = True
 AGGREGATION_WINDOW_SIZE_SECS = 60
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
 DERSIRED_MERGED_CLASSES = 2
@@ -553,6 +553,8 @@ if __name__ == "__main__":
         classes = None
 
         if PER_SAMPLE_TESTING and agg_path.joinpath("per_sample_cross_test_cm.json").exists():
+            with open(agg_path / "per_sample_validation_cm.json", 'r') as file:
+                val_cm = np.array(json.load(file))
             with open(agg_path / "per_sample_cross_test_cm.json", 'r') as file:
                 cm = np.array(json.load(file))
             with open(agg_path / "per_sample_cross_test_roc_info.json", 'r') as file:
@@ -560,9 +562,17 @@ if __name__ == "__main__":
 
             n_class = cm.shape[0]
             classes = all_classes[0:n_class]
-            classification_performance(cm=cm, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            val_metrics = get_metrics_from_cm(cm, classes=classes)
+            metrics = classification_performance(cm=cm, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
             merged_metrics = merged_classes_assesment(cm, desired_classes=DERSIRED_MERGED_CLASSES,
                                                       normalize=NORMALIZE)
+            # Save metrics
+            with open(agg_path / f"per_validation_test_metrics.json", 'w') as file:
+                json.dump(val_metrics, file)
+            # Save metrics
+            with open(agg_path / f"per_sample_cross_test_metrics.json", 'w') as file:
+                json.dump(metrics, file)
+
             # Save merged metrics
             with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
                 json.dump(merged_metrics, file)
@@ -596,9 +606,13 @@ if __name__ == "__main__":
 
             n_class = test_cm1.shape[0]
             classes = all_classes[0:n_class]
-            classification_performance(cm=test_cm1, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            metrics = classification_performance(cm=test_cm1, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
             merged_metrics = merged_classes_assesment(test_cm1, desired_classes=DERSIRED_MERGED_CLASSES,
                                                       normalize=NORMALIZE)
+
+            # Save metrics
+            with open(agg_path / f"agg_cross_test_metrics_1.json", 'w') as file:
+                json.dump(metrics, file)
             # Save merged metrics
             with open(agg_path / f"agg_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
                 json.dump(merged_metrics, file)
@@ -627,13 +641,9 @@ if __name__ == "__main__":
         else:
             validation_cm1: np.ndarray
             validation_cm2: np.ndarray
-            validation_metrics_1 = {}
-            validation_metrics_2 = {}
 
             test_cm1: np.ndarray
             test_cm2: np.ndarray
-            test_metrics_1 = {}
-            test_metrics_2 = {}
 
             thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100))
             validation_tprs_by_class = {}
@@ -678,15 +688,17 @@ if __name__ == "__main__":
                     test_tprs_by_class = {c: [] for c in classes}
                     test_fprs_by_class = {c: [] for c in classes}
                     test_aucs_by_class = {c: [] for c in classes}
-                    if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
-                        extra_class = "normal+spo2_desat"
-                        validation_tprs_by_class[extra_class] = []
-                        validation_fprs_by_class[extra_class] = []
-                        validation_aucs_by_class[extra_class] = []
+                    if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
+                        extra_class1 = "apnea"
+                        extra_class2 = "apnea-hypopnea"
+                        for extra_class in (extra_class1, extra_class2):
+                            validation_tprs_by_class[extra_class] = []
+                            validation_fprs_by_class[extra_class] = []
+                            validation_aucs_by_class[extra_class] = []
 
-                        test_tprs_by_class[extra_class] = []
-                        test_fprs_by_class[extra_class] = []
-                        test_aucs_by_class[extra_class] = []
+                            test_tprs_by_class[extra_class] = []
+                            test_fprs_by_class[extra_class] = []
+                            test_aucs_by_class[extra_class] = []
 
                 length = len(labels)
 
@@ -713,7 +725,8 @@ if __name__ == "__main__":
 
                 # RoC curve for this subject:
                 roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
-                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(test_device)
+                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(
+                    test_device)
                 fprs, tprs, _ = roc(torch.tensor(per_window_probas).to(test_device),
                                     torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
                 aucs = auroc(torch.tensor(per_window_probas).to(test_device),
@@ -730,94 +743,53 @@ if __name__ == "__main__":
                         test_tprs_by_class[class_name].append(tprs[c, :])
                         test_aucs_by_class[class_name].append(aucs[c])
 
-                if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
-                    extra_class = "normal+spo2_desat"
-                    extra_probs = per_window_probas[:, 0] + per_window_probas[:, 4]
-                    extra_probs = torch.tensor(extra_probs)
-                    extra_labels = (per_window_labels == 0) | (per_window_labels == 4)
-                    extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
+                if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
 
-                    extra_roc = ROC(task="binary", thresholds=thresholds)
-                    extra_auroc = AUROC(task="binary", thresholds=thresholds)
-                    extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
-                    extra_auc = extra_auroc(extra_probs, extra_labels)
+                    extra_class1 = "apnea"
+                    extra_probs1 = per_window_probas[:, 1] + per_window_probas[:, 2]
+                    extra_labels1 = (per_window_labels == 1) | (per_window_labels == 2)
 
-                    if sub_id in train_ids:
-                        validation_fprs_by_class[extra_class].append(extra_fpr)
-                        validation_tprs_by_class[extra_class].append(extra_tpr)
-                        validation_aucs_by_class[extra_class].append(extra_auc)
-                    else:
-                        test_fprs_by_class[extra_class].append(extra_fpr)
-                        test_tprs_by_class[extra_class].append(extra_tpr)
-                        test_aucs_by_class[extra_class].append(extra_auc)
+                    extra_class2 = "apnea-hypopnea"
+                    extra_probs2 = extra_probs1 + per_window_probas[:, 3]
+                    extra_labels2 = (per_window_labels == 1) | (per_window_labels == 2) | (per_window_labels == 3)
+
+                    for (extra_class, extra_probs, extra_labels) in ((extra_class1, extra_probs1, extra_labels1),
+                                                                     (extra_class2, extra_probs2, extra_labels2)):
+                        extra_probs = torch.tensor(extra_probs)
+                        extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
+
+                        extra_roc = ROC(task="binary", thresholds=thresholds)
+                        extra_auroc = AUROC(task="binary", thresholds=thresholds)
+                        extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
+                        extra_auc = extra_auroc(extra_probs, extra_labels)
+
+                        if sub_id in train_ids:
+                            validation_fprs_by_class[extra_class].append(extra_fpr)
+                            validation_tprs_by_class[extra_class].append(extra_tpr)
+                            validation_aucs_by_class[extra_class].append(extra_auc)
+                        else:
+                            test_fprs_by_class[extra_class].append(extra_fpr)
+                            test_tprs_by_class[extra_class].append(extra_tpr)
+                            test_aucs_by_class[extra_class].append(extra_auc)
 
                 # Confusion matrix for this subject
                 sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
                                            labels=np.arange(n_class), normalize=None)
-                # Metrics from CM:
-                metrics1 = get_metrics_from_cm(cm=sub_cm1, classes=classes)
 
                 if PER_SAMPLE_TESTING:
                     sub_cm2 = sub_cm1
-                    # Metrics from CM:
-                    metrics2 = metrics1
                 else:
                     sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
                                                labels=np.arange(n_class), normalize=None)
-                    # Metrics from CM:
-                    metrics2 = get_metrics_from_cm(cm=sub_cm2, classes=classes)
 
                 if sub_id in train_ids:
                     validation_cm1 += sub_cm1
                     validation_cm2 += sub_cm2
-
-                    for (k, v) in metrics1.items():
-                        if isinstance(v, dict):
-                            if k not in validation_metrics_1:
-                                validation_metrics_1[k] = {c: 0 for c in classes}
-                                validation_metrics_2[k] = {c: 0 for c in classes}
-
-                            for ks in v.keys():
-                                v1 = 0 if metrics1[k][ks] == "nan" else metrics1[k][ks]
-                                v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
-
-                                validation_metrics_1[k][ks] += v1
-                                validation_metrics_2[k][ks] += v2
-                        else:
-                            if k not in validation_metrics_1:
-                                validation_metrics_1[k] = 0
-                                validation_metrics_2[k] = 0
-
-                            validation_metrics_1[k] += metrics1[k]
-                            validation_metrics_2[k] += metrics2[k]
                 else:
                     test_cm1 += sub_cm1
                     test_cm2 += sub_cm2
 
-                    for (k, v) in metrics1.items():
-                        if isinstance(v, dict):
-                            if k not in test_metrics_1:
-                                test_metrics_1[k] = {c: 0 for c in classes}
-                                test_metrics_2[k] = {c: 0 for c in classes}
-
-                            for ks in v.keys():
-                                v1 = 0 if metrics1[k][ks] == "nan" else metrics1[k][ks]
-                                v2 = 0 if metrics2[k][ks] == "nan" else metrics2[k][ks]
-
-                                test_metrics_1[k][ks] += v1
-                                test_metrics_2[k][ks] += v2
-                        else:
-                            if k not in test_metrics_1:
-                                test_metrics_1[k] = 0
-                                test_metrics_2[k] = 0
-
-                            test_metrics_1[k] += metrics1[k]
-                            test_metrics_2[k] += metrics2[k]
-
-                # classification_performance(cm=sub_cm1, plot_confusion=True, target_labels=classes)
-                # classification_performance(cm=sub_cm2, plot_confusion=True, target_labels=classes)
-
-            # Compute threshold average ROC for each class, across subjectes:
+            # Compute threshold average ROC for each class, across subjects:
             validation_roc_info_by_class = {}
             validation_average_auc_by_class = {}
             cross_test_roc_info_by_class = {}
@@ -873,9 +845,12 @@ if __name__ == "__main__":
                 cross_test_plot_path = agg_path.joinpath(f"aggregate_cross_test_roc.png")
 
             for (roc_info_by_class, plot_path) in ((validation_roc_info_by_class, validation_plot_path),
-                                              (cross_test_roc_info_by_class, cross_test_plot_path)):
+                                                   (cross_test_roc_info_by_class, cross_test_plot_path)):
                 # Save the ROC plot:
-                fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+                if len(roc_info_by_class.keys()) <= 6:
+                    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+                else:
+                    fig, axs = plt.subplots(4, 2, figsize=(15, 20))
                 axs = axs.ravel()
 
                 for c, class_name in enumerate(roc_info_by_class.keys()):
@@ -893,47 +868,44 @@ if __name__ == "__main__":
                 fig.savefig(str(plot_path))
                 plt.close(fig)
 
-            # Average metrics across subjects
-            train_len = len(train_ids)
-            test_len = len(sub_ids) - train_len
-            for (k, v) in test_metrics_1.items():
-                if isinstance(v, dict):
-                    for ks in v.keys():
-                        validation_metrics_1[k][ks] /= train_len
-                        validation_metrics_2[k][ks] /= train_len
-                        test_metrics_1[k][ks] /= test_len
-                        test_metrics_2[k][ks] /= test_len
-                else:
-                    validation_metrics_1[k] /= train_len
-                    validation_metrics_2[k] /= train_len
-                    test_metrics_1[k] /= test_len
-                    test_metrics_2[k] /= test_len
-
             classification_performance(test_cm1, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
 
-            validation_merged_metrics = merged_classes_assesment(validation_cm1, desired_classes=DERSIRED_MERGED_CLASSES,
-                                                      normalize=NORMALIZE)
+            validation_merged_metrics = merged_classes_assesment(validation_cm1,
+                                                                 desired_classes=DERSIRED_MERGED_CLASSES,
+                                                                 normalize=NORMALIZE)
             test_merged_metrics = merged_classes_assesment(test_cm1, desired_classes=DERSIRED_MERGED_CLASSES,
                                                            normalize=NORMALIZE)
 
             if PER_SAMPLE_TESTING:
+                # Get metrics from aggregate cms:
+                validation_metrics = get_metrics_from_cm(cm=validation_cm1, classes=classes)
+                test_metrics = get_metrics_from_cm(cm=test_cm1, classes=classes)
+
                 with open(agg_path / "per_sample_validation_cm.json", 'w') as file:
-                    json.dump(validation_cm2.tolist(), file)
+                    json.dump(validation_cm1.tolist(), file)
                 with open(agg_path / "per_sample_cross_test_cm.json", 'w') as file:
-                    json.dump(test_cm2.tolist(), file)
+                    json.dump(test_cm1.tolist(), file)
 
                 with open(agg_path / "per_sample_validation_metrics.json", 'w') as file:
-                    json.dump(validation_metrics_2, file)
+                    json.dump(validation_metrics, file)
                 with open(agg_path / "per_sample_cross_test_metrics.json", 'w') as file:
-                    json.dump(test_metrics_2, file)
+                    json.dump(test_metrics, file)
 
                 # Save merged metrics
-                with open(agg_path / f"per_sample_validation_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                with open(agg_path / f"per_sample_validation_merged{DERSIRED_MERGED_CLASSES}_metrics.json",
+                          'w') as file:
                     json.dump(validation_merged_metrics, file)
-                with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
+                with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json",
+                          'w') as file:
                     json.dump(test_merged_metrics, file)
 
             else:
+                # Get metrics from aggregate cms:
+                validation_metrics_1 = get_metrics_from_cm(cm=validation_cm1, classes=classes)
+                test_metrics_1 = get_metrics_from_cm(cm=test_cm1, classes=classes)
+                validation_metrics_2 = get_metrics_from_cm(cm=validation_cm2, classes=classes)
+                test_metrics_2 = get_metrics_from_cm(cm=test_cm2, classes=classes)
+
                 with open(agg_path / "agg_validation_cm1.json", 'w') as file:
                     json.dump(validation_cm1.tolist(), file)
                 with open(agg_path / "agg_cross_test_cm1.json", 'w') as file:

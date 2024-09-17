@@ -37,7 +37,7 @@ CROSS_SUBJECT_TESTING = True
 TEST_MODEL = True
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
-CALCULATE_ROC_FOR_NORMAL_SPO2DESAT = True
+CALCULATE_ROC_FOR_MERGED_CLASSES = True
 
 if __name__ == "__main__" and (BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto"):
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
@@ -95,8 +95,12 @@ def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
     with open(roc_path, 'w') as file:
         json.dump(roc_info_by_class, file)
 
+    n_classes = len(roc_info_by_class.keys())
     if save_plot:
-        fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+        if n_classes <= 6:
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+        else:
+            fig, axs = plt.subplots(4, 2, figsize=(15, 20))
         axs = axs.ravel()
 
         if cross_subject:
@@ -628,11 +632,13 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
 
-    if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and n_class == 5:
-        extra_class = "normal+spo2_desat"
-        tprs_by_class[extra_class] = []
-        fprs_by_class[extra_class] = []
-        aucs_by_class[extra_class] = []
+    if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
+        extra_class1 = "apnea"
+        extra_class2 = "apnea-hypopnea"
+        for extra_class in (extra_class1, extra_class2):
+            tprs_by_class[extra_class] = []
+            fprs_by_class[extra_class] = []
+            aucs_by_class[extra_class] = []
 
     cm = torch.zeros((n_class, n_class), device=device)
     correct_pred = 0
@@ -698,19 +704,23 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 aucs_by_class[class_name].append(aucs[c])
 
             # Add extra ROC curve:
-            if CALCULATE_ROC_FOR_NORMAL_SPO2DESAT and len(classes) == 5:
-                extra_class = "normal+spo2_desat"
-                extra_probs = batch_output_probs[:, 0, :] + batch_output_probs[:, 4, :]
-                extra_labels = (batch_labels == 0) | (batch_labels == 4)
+            if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) == 5:
+                extra_class1 = "apnea"
+                extra_probs1 = batch_output_probs[:, 1, :] + batch_output_probs[:, 2, :]
+                extra_labels1 = (batch_labels == 1) | (batch_labels == 2)
+                extra_class2 = "apnea-hypopnea"
+                extra_probs2 = batch_output_probs[:, 1, :] + batch_output_probs[:, 2, :] + batch_output_probs[:, 3, :]
+                extra_labels2 = (batch_labels == 1) | (batch_labels == 2) | (batch_labels == 3)
+                for extra_class, extra_probs, extra_labels in ((extra_class1, extra_probs1, extra_labels1),
+                                                               (extra_class2, extra_probs2, extra_labels2)):
+                    extra_roc = ROC(task="binary", thresholds=thresholds).to(device)
+                    extra_auroc = AUROC(task="binary", thresholds=thresholds).to(device)
+                    extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
+                    extra_auc = extra_auroc(extra_probs, extra_labels)
 
-                extra_roc = ROC(task="binary", thresholds=thresholds).to(device)
-                extra_auroc = AUROC(task="binary", thresholds=thresholds).to(device)
-                extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
-                extra_auc = extra_auroc(extra_probs, extra_labels)
-
-                fprs_by_class[extra_class].append(extra_fpr)
-                tprs_by_class[extra_class].append(extra_tpr)
-                aucs_by_class[extra_class].append(extra_auc)
+                    fprs_by_class[extra_class].append(extra_fpr)
+                    tprs_by_class[extra_class].append(extra_tpr)
+                    aucs_by_class[extra_class].append(extra_auc)
 
             # collect the correct predictions for each class
             if device == "cpu":

@@ -1,2 +1,14 @@
 /scp.py
 /config.yml
+/parfor_progress.zip
+/.idea
+/.vscode
+/__pycache__
+/.venv
+/.venv_pytorch_113
+/continuous_testing_analysis.asv
+/matlab.mat
+/combined_df.csv
+/parfor_progress
+/parfor_progress.txt
+/meta_model_notebook - weighted - old.ipynb

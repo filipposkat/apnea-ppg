@@ -22,10 +22,10 @@ if __name__ == "__main__":
     from trainer import get_last_batch
 
 # --- START OF CONSTANTS --- #
-EPOCH = 4
-DESIRED_CLASSES = 4
+EPOCH = 6
+DESIRED_CLASSES = 5
 NORMALIZE: Literal["true", "pred", "all", "none"] = "true"
-CROSS_SUBJECT_TESTING = False
+CROSS_SUBJECT_TESTING = True
 
 with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
@@ -213,7 +213,7 @@ def classification_performance(cm:np.ndarray, test=True, plot_confusion=True, ta
             df_cm = pd.DataFrame(cm, index=target_labels,
                                  columns=target_labels, copy=True)
 
-        plt.figure(figsize=(10, 7))
+        plt.figure(figsize=(9, 7))
         plt.title(f"Accuracy ({train_test}): {100 * accuracy:.2f}%. \n Macro F1: {100 * macro_f1:.2f}%")
         print(f"Macro F1: {100 * macro_f1:.2f}%")
         sns.set_theme(font_scale=1)  # for label size

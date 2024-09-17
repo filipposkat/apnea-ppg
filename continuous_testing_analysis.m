@@ -2,10 +2,10 @@ clear;
 clc;
 
 config = ReadYaml("config.yml");
-COMPATIBLE_SUBSET_0 = "0w60s";
-TESTING_SUBSET = "mild";
-FREQ = 64;
-EPOCH = 6;
+COMPATIBLE_SUBSET_0 = "0w60s"
+TESTING_SUBSET = "mild"
+FREQ = 64
+EPOCH = 6
 
 PATH_TO_SUBSET = config.("subset_" + string(TESTING_SUBSET) + "_directory");
 PATH_TO_SUBSET0_CONT_TESTING = config.("subset_" + string(COMPATIBLE_SUBSET_0) + "_continuous_testing_directory");
@@ -74,171 +74,173 @@ for i=1:length(a)
     
 end
 %% ANALYSIS FOR SPECIFIC SUBJECT
-SUB_ID = 609 %2268 is good 
-WINDOWS_SIZE_MIN=30;
-LABEL = 123;
-probability_threshold = 0.6;
+if false
+    SUB_ID = 609 %2268 is good 
+    WINDOWS_SIZE_MIN=30;
+    LABEL = 123;
+    probability_threshold = 0.6;
 
-filt_sz=WINDOWS_SIZE_MIN*FREQ*60;
-for i=1:length(a)
-    s = strrep(a(i).name,"cont_test_signal_",'');
-    sub_id = str2num(strrep(s,".mat",''));
+    filt_sz=WINDOWS_SIZE_MIN*FREQ*60;
+    for i=1:length(a)
+        s = strrep(a(i).name,"cont_test_signal_",'');
+        sub_id = str2num(strrep(s,".mat",''));
 
-    if sub_id == SUB_ID
-        cont_test_file = load(a(i).folder + "/" + a(i).name);
+        if sub_id == SUB_ID
+            cont_test_file = load(a(i).folder + "/" + a(i).name);
 
-        labels = cont_test_file.labels;
-        prediction_probabilities = cont_test_file.prediction_probabilities;
-        
-        
-        if isfield(cont_test_file, "predictions")
-            predictions = cont_test_file.predictions;
-        else   
-            [~, predictions] = max(prediction_probabilities,[],2);
-            % Get predictions with 0 index format:
-            predictions = predictions - 1;
-        end
-        
-        % Get only the relevant label:
-        if LABEL < 5
-            rel_labels = labels==LABEL;
-        elseif LABEL == 123
-            rel_labels = labels==1 | labels==2 | labels==3;
-            rel_predictions = predictions==1 | predictions==2 | predictions==3;
-        end
-        
-        figure;
-        title("Predicted vs True Label. Label: "...,
-            +string(LABEL)+ " Subject: " + string(sub_id))
-        plot(rel_labels);
-        hold on;
-        plot(rel_predictions);
-        hold off
-        lbl1 = 'True Label '+ string(LABEL);
-        lbl2 = "Predicted Label";
-        legend(lbl1,lbl2);
-        
-        % tmp1 is binary series, giving the the normalized total duration of
-        % the relevant events inside a rolling window preceeding a given
-        % moment.
-        tmp1=filter(ones(1,filt_sz)/filt_sz,1,rel_labels);
+            labels = cont_test_file.labels;
+            prediction_probabilities = cont_test_file.prediction_probabilities;
 
-        % tmp1b is also a binary series, giving the number of relevant clinical
-        % events inside a rolling window preceeding a given moment.
-        tmp1b = zeros(1, length(rel_labels));
-        
-        % tmp1c is also a binary series, giving the total duration of 
-        % relevant clinical events inside a rolling window preceeding a 
-        %given moment.
-        tmp1c = zeros(1, length(rel_labels));
-        % Rolling window determining clinical events in it:
-        
-        for j=filt_sz:length(rel_labels)
-            % Get the window:
-            window = rel_labels(j-filt_sz+1:j);
-            clinical_events = 0;
-            total_events_duration = 0;
-            k = 1;
 
-            % Find start of events:
-            while k < filt_sz
-                if window(k) > 0
-                    d = 1;
-                    % Find how long event lasts:
-                    while k+d<=filt_sz && window(k + d) > 0
-                        d = d + 1;
-                    end
-                    % if event lasts 10s, count it towards clinical events
-                    if d >= FREQ * 10
-                        clinical_events = clinical_events + 1;
-                        total_events_duration = total_events_duration + d / FREQ;
-                    end
-                    % move one step after the event to search for others:
-                    k = k + d;
-                else
-                    % no event starts at k. Moving forward.
-                    k = k + 1;
-                end
+            if isfield(cont_test_file, "predictions")
+                predictions = cont_test_file.predictions;
+            else   
+                [~, predictions] = max(prediction_probabilities,[],2);
+                % Get predictions with 0 index format:
+                predictions = predictions - 1;
             end
-            tmp1b(1,j) = clinical_events;
-            tmp1c(1,j) = total_events_duration;
+
+            % Get only the relevant label:
+            if LABEL < 5
+                rel_labels = labels==LABEL;
+            elseif LABEL == 123
+                rel_labels = labels==1 | labels==2 | labels==3;
+                rel_predictions = predictions==1 | predictions==2 | predictions==3;
+            end
+
+            figure;
+            title("Predicted vs True Label. Label: "...,
+                +string(LABEL)+ " Subject: " + string(sub_id))
+            plot(rel_labels);
+            hold on;
+            plot(rel_predictions);
+            hold off
+            lbl1 = 'True Label '+ string(LABEL);
+            lbl2 = "Predicted Label";
+            legend(lbl1,lbl2);
+
+            % tmp1 is binary series, giving the the normalized total duration of
+            % the relevant events inside a rolling window preceeding a given
+            % moment.
+            tmp1=filter(ones(1,filt_sz)/filt_sz,1,rel_labels);
+
+            % tmp1b is also a binary series, giving the number of relevant clinical
+            % events inside a rolling window preceeding a given moment.
+            tmp1b = zeros(1, length(rel_labels));
+
+            % tmp1c is also a binary series, giving the total duration of 
+            % relevant clinical events inside a rolling window preceeding a 
+            %given moment.
+            tmp1c = zeros(1, length(rel_labels));
+            % Rolling window determining clinical events in it:
+
+            for j=filt_sz:length(rel_labels)
+                % Get the window:
+                window = rel_labels(j-filt_sz+1:j);
+                clinical_events = 0;
+                total_events_duration = 0;
+                k = 1;
+
+                % Find start of events:
+                while k < filt_sz
+                    if window(k) > 0
+                        d = 1;
+                        % Find how long event lasts:
+                        while k+d<=filt_sz && window(k + d) > 0
+                            d = d + 1;
+                        end
+                        % if event lasts 10s, count it towards clinical events
+                        if d >= FREQ * 10
+                            clinical_events = clinical_events + 1;
+                            total_events_duration = total_events_duration + d / FREQ;
+                        end
+                        % move one step after the event to search for others:
+                        k = k + d;
+                    else
+                        % no event starts at k. Moving forward.
+                        k = k + 1;
+                    end
+                end
+                tmp1b(1,j) = clinical_events;
+                tmp1c(1,j) = total_events_duration;
+            end
+
+            % tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1)>=probability_threshold);
+            if LABEL < 5
+                tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1));
+                tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1)>=probability_threshold);
+            elseif LABEL == 123
+                tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
+                    + prediction_probabilities(:,3) + prediction_probabilities(:,4));
+                tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1, (prediction_probabilities(:,2) ...
+                    + prediction_probabilities(:,3) + prediction_probabilities(:,4))>=probability_threshold);
+            end
+            % tmp2 should be double like the rest, but if probabilities are
+            % single it has to be cast:
+            tmp2 = double(tmp2);
+
+            [R1,PValue1] = corr([tmp1' tmp2]);
+            fprintf("%d/%d, Subject: %d Probability and duration corr (pvalue): %.4f (%.4f)\n", ...
+                i, length(ids), sub_id, R1(1,2), PValue1(1,2));
+
+            [R2,PValue2] = corr([tmp1b' tmp2]);
+            fprintf("%d/%d, Subject: %d Probability and clinical events corr (pvalue): %.4f (%.4f)\n", ...
+                i, length(ids), sub_id, R2(1,2), PValue2(1,2));
+
+            [R3,PValue3] = corr([tmp1c' tmp2]);
+            fprintf("%d/%d, Subject: %d Probability and clinical events duration corr (pvalue): %.4f (%.4f)\n", ...
+                i, length(ids), sub_id, R3(1,2), PValue3(1,2));
+
+            figure;
+            title("Rolling True vs Predicted Label Duration. Label: "...,
+                +string(LABEL)+ " Subject: " + string(sub_id))
+            plot(tmp1');
+            hold on;
+            plot(tmp2_thres);
+            hold off
+            lbl1 = "Rolling True Label Duration";
+            lbl2 = "Rolling Predicted Label Duration";
+            legend(lbl1,lbl2);
+
+            figure;
+            title("Corrplot: Rolling True Label Duration - Rolling Predicted Label Duration. Subject: " + string(sub_id))
+            corrplot([tmp1'./max(tmp1) tmp2./max(tmp2)])
+
+
+            figure;
+            title("Rolling Clinical Events - Rolling Predicted Probability. Label: " ...,
+                +string(LABEL)+ " Subject: " + string(sub_id))
+            plot(tmp1b' ./ max(tmp1b));
+            hold on;
+            plot(tmp2);
+            hold off
+            lbl1 = "Rolling Clinical Event Normalized Count";
+            lbl2 = "Rolling Average Predicted Probability" ;
+            legend(lbl1,lbl2);
+
+            figure;
+            title("Corrplot: Rolling Clinical Events - Rolling Predicted Probability. Subject: " + string(sub_id))
+            corrplot([tmp1b'./max(tmp1b) tmp2./max(tmp2)])
+
+
+            figure;
+            title("Rolling Clinical Event Duration - Rolling Predicted Label Duration. Label: "...
+                + string(LABEL)+ " Subject: " + string(sub_id));
+            plot(tmp1c' ./ max(tmp1c));
+            hold on;
+            plot(tmp2_thres);
+            hold off
+            lbl1 = "Rolling Clinical Event Normalized Duration";
+            lbl2 = "Rolling Predicted Label Duration";
+            legend(lbl1,lbl2);
+
+            figure;
+            title("Corrplot: Rolling Clinical Event Duration - Rolling Predicted Label Duration. Subject: " + string(sub_id))
+            corrplot([tmp1c'./max(tmp1c) tmp2./max(tmp2)])
+            %figure;
+            %title("Rolling Probability - Rolling clinical events. Subject: " + string(sub_id))
+            %corrplot([tmp1' tmp2])
         end
-
-        % tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1)>=probability_threshold);
-        if LABEL < 5
-            tmp2=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1));
-            tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1,prediction_probabilities(:,LABEL+1)>=probability_threshold);
-        elseif LABEL == 123
-            tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
-                + prediction_probabilities(:,3) + prediction_probabilities(:,4));
-            tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1, (prediction_probabilities(:,2) ...
-                + prediction_probabilities(:,3) + prediction_probabilities(:,4))>=probability_threshold);
-        end
-        % tmp2 should be double like the rest, but if probabilities are
-        % single it has to be cast:
-        tmp2 = double(tmp2);
-        
-        [R1,PValue1] = corr([tmp1' tmp2]);
-        fprintf("%d/%d, Subject: %d Probability and duration corr (pvalue): %.4f (%.4f)\n", ...
-            i, length(ids), sub_id, R1(1,2), PValue1(1,2));
-
-        [R2,PValue2] = corr([tmp1b' tmp2]);
-        fprintf("%d/%d, Subject: %d Probability and clinical events corr (pvalue): %.4f (%.4f)\n", ...
-            i, length(ids), sub_id, R2(1,2), PValue2(1,2));
-        
-        [R3,PValue3] = corr([tmp1c' tmp2]);
-        fprintf("%d/%d, Subject: %d Probability and clinical events duration corr (pvalue): %.4f (%.4f)\n", ...
-            i, length(ids), sub_id, R3(1,2), PValue3(1,2));
-        
-        figure;
-        title("Rolling True vs Predicted Label Duration. Label: "...,
-            +string(LABEL)+ " Subject: " + string(sub_id))
-        plot(tmp1');
-        hold on;
-        plot(tmp2_thres);
-        hold off
-        lbl1 = "Rolling True Label Duration";
-        lbl2 = "Rolling Predicted Label Duration";
-        legend(lbl1,lbl2);
-        
-        figure;
-        title("Corrplot: Rolling True Label Duration - Rolling Predicted Label Duration. Subject: " + string(sub_id))
-        corrplot([tmp1'./max(tmp1) tmp2./max(tmp2)])
-        
-
-        figure;
-        title("Rolling Clinical Events - Rolling Predicted Probability. Label: " ...,
-            +string(LABEL)+ " Subject: " + string(sub_id))
-        plot(tmp1b' ./ max(tmp1b));
-        hold on;
-        plot(tmp2);
-        hold off
-        lbl1 = "Rolling Clinical Event Normalized Count";
-        lbl2 = "Rolling Average Predicted Probability" ;
-        legend(lbl1,lbl2);
-        
-        figure;
-        title("Corrplot: Rolling Clinical Events - Rolling Predicted Probability. Subject: " + string(sub_id))
-        corrplot([tmp1b'./max(tmp1b) tmp2./max(tmp2)])
-        
-        
-        figure;
-        title("Rolling Clinical Event Duration - Rolling Predicted Label Duration. Label: "...
-            + string(LABEL)+ " Subject: " + string(sub_id));
-        plot(tmp1c' ./ max(tmp1c));
-        hold on;
-        plot(tmp2_thres);
-        hold off
-        lbl1 = "Rolling Clinical Event Normalized Duration";
-        lbl2 = "Rolling Predicted Label Duration";
-        legend(lbl1,lbl2);
-        
-        figure;
-        title("Corrplot: Rolling Clinical Event Duration - Rolling Predicted Label Duration. Subject: " + string(sub_id))
-        corrplot([tmp1c'./max(tmp1c) tmp2./max(tmp2)])
-        %figure;
-        %title("Rolling Probability - Rolling clinical events. Subject: " + string(sub_id))
-        %corrplot([tmp1' tmp2])
     end
 end
 
