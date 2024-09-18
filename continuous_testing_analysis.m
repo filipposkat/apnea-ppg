@@ -106,6 +106,9 @@ if false
             elseif LABEL == 123
                 rel_labels = labels==1 | labels==2 | labels==3;
                 rel_predictions = predictions==1 | predictions==2 | predictions==3;
+            elseif LABEL == 12
+                rel_labels = labels==1 | labels==2;
+                rel_predictions = predictions==1 | predictions==2;
             end
 
             figure;
@@ -174,6 +177,11 @@ if false
                     + prediction_probabilities(:,3) + prediction_probabilities(:,4));
                 tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1, (prediction_probabilities(:,2) ...
                     + prediction_probabilities(:,3) + prediction_probabilities(:,4))>=probability_threshold);
+            elseif LABEL == 12
+                tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
+                    + prediction_probabilities(:,3));
+                tmp2_thres=filter(ones(1,filt_sz)/filt_sz,1, (prediction_probabilities(:,2) ...
+                    + prediction_probabilities(:,3))>=probability_threshold);
             end
             % tmp2 should be double like the rest, but if probabilities are
             % single it has to be cast:
@@ -304,6 +312,8 @@ parfor i=1:length(ids)
         rel_labels = labels==LABEL;
     elseif LABEL == 123
         rel_labels = labels==1 | labels==2 | labels==3;
+    elseif LABEL == 12
+        rel_labels = labels==1 | labels==2;
     end
     
     % tmp1 is binary series, giving the the normalized total duration of
@@ -352,6 +362,9 @@ parfor i=1:length(ids)
     elseif LABEL == 123
         tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
             + prediction_probabilities(:,3) + prediction_probabilities(:,4));    
+    elseif LABEL == 12
+        tmp2=filter(ones(1,filt_sz)/filt_sz,1, prediction_probabilities(:,2) ...
+            + prediction_probabilities(:,3));    
     end
     % tmp2 should be double like the rest, but if probabilities are single it has to be cast
     tmp2 = double(tmp2); 

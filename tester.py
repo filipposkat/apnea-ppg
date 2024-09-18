@@ -176,7 +176,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
             df_cm = pd.DataFrame(cm, index=target_labels,
                                      columns=target_labels)
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        fig, ax = plt.subplots(figsize=(12, 7))
         ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
 
         sns.set_theme(font_scale=1)  # for label size

@@ -358,7 +358,12 @@ if __name__ == "__main__":
             subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(id).zfill(4))
 
             if subject_arrs_path.joinpath("y_test.npy").exists() and SKIP_EXISTING_IDS:
-                continue
+                X = np.load(str(subject_arrs_path.joinpath("X_test.npy")))
+                chans = X.shape[2]
+                if chans != N_INPUT_CHANNELS:
+                    print(f"SUbject {id} has invalid # channels. Recreating")
+                else:
+                    continue
             else:
                 subject_arrs_path.mkdir(exist_ok=True)
 
@@ -577,7 +582,10 @@ if __name__ == "__main__":
             with open(agg_path / f"per_sample_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
                 json.dump(merged_metrics, file)
 
-            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            if len(roc_info_by_class.keys()) <= 6:
+                fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            else:
+                fig, axs = plt.subplots(4, 2, figsize=(15, 20))
             axs = axs.ravel()
 
             # Save the ROC plot:
@@ -617,7 +625,10 @@ if __name__ == "__main__":
             with open(agg_path / f"agg_cross_test_merged{DERSIRED_MERGED_CLASSES}_metrics.json", 'w') as file:
                 json.dump(merged_metrics, file)
 
-            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            if len(roc_info_by_class.keys()) <= 6:
+                fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+            else:
+                fig, axs = plt.subplots(4, 2, figsize=(15, 20))
             axs = axs.ravel()
 
             # Save the ROC plot:
