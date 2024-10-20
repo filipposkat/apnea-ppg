@@ -3,7 +3,7 @@ clc;
 
 config = ReadYaml("config.yml");
 COMPATIBLE_SUBSET_0 = "0w60s"
-TESTING_SUBSET = "mild"
+TESTING_SUBSET = "moderate"
 FREQ = 64
 EPOCH = 6
 
@@ -75,9 +75,9 @@ for i=1:length(a)
 end
 %% ANALYSIS FOR SPECIFIC SUBJECT
 if false
-    SUB_ID = 609 %2268 is good 
+    SUB_ID = 784 %2268 is good 
     WINDOWS_SIZE_MIN=30;
-    LABEL = 123;
+    LABEL = 2;
     probability_threshold = 0.6;
 
     filt_sz=WINDOWS_SIZE_MIN*FREQ*60;
@@ -103,6 +103,7 @@ if false
             % Get only the relevant label:
             if LABEL < 5
                 rel_labels = labels==LABEL;
+                rel_predictions = predictions == LABEL;
             elseif LABEL == 123
                 rel_labels = labels==1 | labels==2 | labels==3;
                 rel_predictions = predictions==1 | predictions==2 | predictions==3;
@@ -253,7 +254,7 @@ if false
 end
 
 %% ANALYSIS FOR ALL SUBJECTS
-WINDOWS_SIZE_MIN=30;
+WINDOWS_SIZE_MIN=60;
 LABEL = 123;
 
 N_THREADS = 4;

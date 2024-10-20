@@ -5,13 +5,163 @@ from itertools import islice
 from pathlib import Path
 
 
+def detect_desaturations_profusion(spo2_values, sampling_rate, min_drop=3, max_fall_rate=4, max_plateau=60,
+                                   max_drop_threshold=50, min_event_duration=1, max_event_duration=None):
+    desaturation_events = 0
+    min_event_samples = min_event_duration * sampling_rate
+    max_event_samples = max_event_duration * sampling_rate if max_event_duration else len(spo2_values)
+    max_plateau_samples = max_plateau * sampling_rate
+    i = 0
+    while i < len(spo2_values) - 1:
+        # Look for a local zenith
+        while i < len(spo2_values) - 1 and (spo2_values[i + 1] >= spo2_values[i] or spo2_values[i] > 100):
+            i += 1
+        zenith = spo2_values[i]
+
+        # Start looking for a desaturation event
+        start = i
+        while i < len(spo2_values) - 1 and (spo2_values[i + 1] <= spo2_values[i] or spo2_values[i] < 50):
+            i += 1
+
+        nadir = spo2_values[i]
+        for j in range(i + 1, i + max_plateau_samples):
+            if j >= len(spo2_values):
+                break
+            val = spo2_values[j]
+            if 100 > val > zenith:
+                break
+            elif nadir >= val > 50:
+                nadir = val
+                i = j
+
+        event_length = i - start
+        if min_event_samples <= event_length <= max_event_samples:
+            drop = zenith - spo2_values[i]
+            duration_seconds = event_length / sampling_rate
+
+            # Calculate drop rate
+            drop_rate = drop / duration_seconds
+
+            # Check desaturation criteria
+            if min_drop <= drop <= max_drop_threshold and drop_rate <= max_fall_rate:
+                desaturation_events += 1
+
+    return desaturation_events
+
+
+def detect_desaturations_simple(spo2_values, min_length=3, max_duration_samples=120):
+    """
+    Calculate the number of 3% desaturations in a sequence of SpO2 values,
+    based on the local zenith (highest point) and a minimum event length.
+
+    Parameters:
+    - spo2_values: A 1D numpy array of SpO2 values.
+    - min_length: The minimum number of consecutive samples that the desaturation must last.
+
+    Returns:
+    - desaturation_count: The number of desaturation events that meet the criteria.
+    """
+
+    # Initialize variables
+    desaturation_count = 0
+    event_length = 0
+    plateu = 0
+    in_desaturation = False
+
+    # Start with the first value as the initial local zenith (highest point before desaturation)
+    local_zenith = spo2_values[0]
+
+    # Iterate through the SpO2 values
+    for i in range(1, len(spo2_values)):
+        current_value = spo2_values[i]
+
+        # if current_value < 50:
+        #     continue
+
+        # Check if the current value is part of a desaturation event (3% below local zenith)
+        if current_value <= local_zenith - 3:
+            event_length += 1
+            in_desaturation = True
+
+            if event_length > 1:
+                mean_over_event = np.mean(spo2_values[i - event_length:i])
+                if np.abs(current_value - mean_over_event) <= 1:
+                    plateu += 1
+
+            # Check if the maximum desaturation length is exceeded
+            if max_duration_samples is not None and event_length > max_duration_samples:
+                # Reset the event if it exceeds the maximum allowed length
+                in_desaturation = False
+                event_length = 0
+        else:
+            # If a desaturation event ends, check if it lasted long enough
+            if in_desaturation and event_length >= min_length:
+                desaturation_count += 1
+
+            # Reset event tracking
+            event_length = 0
+            in_desaturation = False
+
+            # Update the local zenith to the current value if it is higher than the previous local zenith
+            if current_value > local_zenith:
+                local_zenith = current_value
+
+    # Final check in case the desaturation event ends at the last value
+    if in_desaturation and event_length >= min_length:
+        desaturation_count += 1
+
+    return desaturation_count
+
+
+def detect_desaturations_legacy(spo2_values, sampling_rate=1, drop_threshold=3, window_seconds=120,
+                                min_duration_seconds=10, max_duration=120):
+    # Convert window and duration parameters from seconds to number of samples
+    window_samples = int(window_seconds * sampling_rate)
+    min_duration_samples = int(min_duration_seconds * sampling_rate)
+    max_duration_samples = int(max_duration * sampling_rate)
+    desaturation_count = 0
+    event_length = 0
+    in_desaturation = False
+
+    # Iterate through the SpO2 values, starting after the initial window
+    for i in range(window_samples, len(spo2_values)):
+        # Calculate the mean SpO2 over the last 'window_samples'
+        mean_spo2 = np.mean(spo2_values[i - window_samples:i])
+
+        # Check if the current value is at least 'drop_threshold' below the mean SpO2
+        if spo2_values[i] <= mean_spo2 - drop_threshold:
+            event_length += 1
+            in_desaturation = True
+
+            # Check if the maximum desaturation length is exceeded
+            if max_duration_samples is not None and event_length > max_duration_samples:
+                # Reset the event if it exceeds the maximum allowed length
+                desaturation_count += 1
+                in_desaturation = False
+                event_length = 0
+        else:
+            # If a desaturation event ends, check if it lasted long enough
+            if in_desaturation and event_length >= min_duration_samples:
+                desaturation_count += 1
+
+            # Reset event tracking
+            event_length = 0
+            in_desaturation = False
+
+    # Final check in case the desaturation event ends at the last value
+    if in_desaturation and event_length >= min_duration_samples:
+        desaturation_count += 1
+
+    return desaturation_count
+
+
 def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.ndarray:
     """Down-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
 
     :param sequence: Iterable
         Sequence to be down-sampled
     :param proportion: int
-        Desired proportion of the output sequence length to the input sequence length
+        Desired ratio of the output sequence length to the input sequence length
 
     :return: list
         The sequence down-sampled with length equal to (input sequence length * proportion)
@@ -62,7 +212,7 @@ def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     #     # Apply the filter to smooth the upsampled signal
     #     upsampled_signal = filtfilt(b, a, upsampled_signal)
 
-    N = int(32*proportion)+1
+    N = int(32 * proportion) + 1
     window = get_window(window="hamming", Nx=N, fftbins=False)
     upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
     # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")

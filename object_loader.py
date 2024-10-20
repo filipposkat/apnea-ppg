@@ -1,12 +1,19 @@
 import os
+
 from tqdm import tqdm
 import pickle
 import yaml
 from collections.abc import Generator
 from pathlib import Path
 import pandas as pd
+import numpy as np
 import math
 import matplotlib.pyplot as plt
+from pobm.obm.desat import DesaturationsMeasures
+from pobm.prep import dfilter, median_spo2
+from pobm._ResultsClasses import DesatMethodEnum
+
+import common
 # Local imports:
 from common import Subject
 
@@ -206,14 +213,57 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 
 if __name__ == "__main__":
-    (id, sub) = get_subject_by_id(4389)
+    (id, sub) = get_subject_by_id(989)  # 4389
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))
 
+    # df = sub.export_to_dataframe(signal_labels=["SpO2"], frequency=32, anti_aliasing=True, trim_signals=True)
+    # mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    # dfm = df.loc[mask, :]
+    # df.plot(x="time_secs", y="SpO2")
+    # plt.show()
+
+    spo2 = np.trim_zeros(sub.signals[1])
+    print(spo2.shape)
+    median_spo2_value = np.median(spo2)
+    # spo2[spo2 <= 50.0] = median_spo2_value
+    # plt.subplots()
+    # plt.plot(spo2)
+    spo2_d = np.array(dfilter(spo2))
+    spo2_md = median_spo2(spo2_d)
+    # plt.subplots()
+    # plt.plot(spo2)
+    # plt.show()
+
+    print(spo2.shape)
+    desat_tool = DesaturationsMeasures(threshold_method=DesatMethodEnum.Relative, ODI_Threshold=3,
+                                       desat_max_length=180)
+    desat3_pobm = desat_tool.compute(spo2_md)
+    desat3_pobm = len(desat3_pobm.begin)
+    desat3 = common.detect_desaturations_legacy(spo2, sampling_rate=1, drop_threshold=3,
+                                                min_duration_seconds=10, window_seconds=120, max_duration=120)
+
+    desat3_zenith = common.detect_desaturations_simple(spo2_d, min_length=10, max_duration_samples=180)
+    desat3_zenith_prof = common.detect_desaturations_profusion(spo2_d, sampling_rate=1, min_drop=3,
+                                                               max_fall_rate=4,
+                                                               max_plateau=60,
+                                                               max_drop_threshold=50,
+                                                               min_event_duration=1,
+                                                               max_event_duration=None)
+
+    print(f"Estimated desat3: {desat3}")
+    print(f"Estimated (zenith method) desat3: {desat3_zenith}")
+    print(f"Estimated (zenith method profusion est) desat3: {desat3_zenith_prof}")
+    print(f"Estimated (pobm method) desat3: {desat3_pobm}")
+    print(f"Actual desat3: {sub.metadata['ndes3ph5']}")
+
+    exit()
+
     # print(sub.metadata)
     print(math.isnan(sub.metadata["smkstat5"]))
-    # plt.plot(sub.signals[1][16840:16901])  # 1 Hz: sample=second
+
+    plt.plot(sub.signals[1][16840:16901])  # 1 Hz: sample=second
 
     # df = sub.export_to_dataframe(signal_labels=["SpO2", "Pleth"], frequency=32, anti_aliasing=False, trim_signals=True)
     # mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)

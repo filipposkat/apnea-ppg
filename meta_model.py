@@ -13,14 +13,17 @@ import random
 from sklearn.model_selection import train_test_split
 from scipy.fft import rfft, rfftfreq
 from torch.multiprocessing import Pool
+
+import common
 # Local imports:
-from common import Subject
+from common import Subject, detect_desaturations_profusion
+from object_loader import get_subject_by_id
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
 SUBSET = "0w60s"
 EPOCH = 6
-CREATE_DATA = True
+CREATE_DATA = False
 SKIP_EXISTING_IDS = False
 SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
 TEST_SIZE = 0.25
@@ -130,6 +133,9 @@ def get_predictions(sub_id: int) -> dict:
 
 
 def get_columns_of_subject(sub_id: int) -> (int, list):
+    _, sub = get_subject_by_id(sub_id)
+    spo2 = np.trim_zeros(sub.signals[1])
+
     matlab_dict = get_predictions(sub_id)
     preds_proba: np.ndarray = matlab_dict["prediction_probabilities"]
     if "predictions" in matlab_dict:
@@ -179,7 +185,6 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     cv_vector = np.divide(std_vector, mean_vector + 0.000001)
 
     # Calculation of other metrics:
-
     n_pred_clinical_events = {e: 0 for e in (1, 2, 3)}
     pred_clinical_event_durations = {e: [] for e in (1, 2, 3)}
     i = 1
@@ -221,6 +226,12 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     # 2: Former smoker quit less than 1 year ago
     # 3: Current smoker
     # 4: Do not know
+    odi3 = float(metadata_df["odi35"])
+    desat3_per_hour = float(metadata_df["ndes3ph5"]) / est_sleep_hours
+    desat3 = common.detect_desaturations_profusion(spo2, sampling_rate=1, min_drop=3, max_plateau=60,
+                                                           max_fall_rate=4, max_drop_threshold=50,
+                                                           min_event_duration=1, max_event_duration=None)
+    est_desat3_per_hour = desat3 / est_sleep_hours
 
     # Output stats:
     n_clinical_events = {e: 0 for e in (1, 2, 3)}
@@ -284,7 +295,7 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
         # Severe
         cat = 3
 
-    tmp_list = [sex, age, race, height, weight, bmi, smoker_status]
+    tmp_list = [sex, age, race, height, weight, bmi, smoker_status, odi3, desat3_per_hour, est_desat3_per_hour]
     # tmp_list.append(est_sleep_hours)
     for l in range(n_classes):
         tmp_list.append(mean_vector[l])
@@ -348,7 +359,8 @@ if __name__ == "__main__":
     if CREATE_DATA:
         mesaids = []
         data_list = []
-        columns = ["sex", "age", "race", "height", "weight", "bmi", "smoker_status"]
+        columns = ["sex", "age", "race", "height", "weight", "bmi", "smoker_status", "odi3", "desat3_per_hour",
+                   "est_desat3_per_hour"]
         # columns.append("total_hours")
         for l in range(N_CLASSES):
             columns.append(f"mean_proba_l{l}")
@@ -394,7 +406,42 @@ if __name__ == "__main__":
         # meta_test_df = pd.DataFrame(data=test_data_list, columns=columns)
         # meta_test_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"))
     else:
-        meta_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_df.csv"), index_col=0)
+        from pobm.obm.desat import DesaturationsMeasures
+        from pobm.prep import dfilter, median_spo2
+        from pobm._ResultsClasses import DesatMethodEnum
+
+        meta_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_df_my_est.csv"), index_col=0)
+        ids = []
+        extra_col = []
+        desat_tool = DesaturationsMeasures(threshold_method=DesatMethodEnum.Relative, ODI_Threshold=3,
+                                           desat_max_length=180)
+
+        for id in tqdm(meta_df.index):
+            matlab_dict = get_predictions(id)
+            labels: np.ndarray = matlab_dict["labels"]
+            est_sleep_hours = np.size(labels) / (60 * 60 * SIGNALS_FREQUENCY)
+
+            _, sub = get_subject_by_id(id)
+            spo2 = np.trim_zeros(sub.signals[1])
+            # spo2 = np.array(dfilter(spo2))
+            desat3 = detect_desaturations_profusion(spo2, sampling_rate=1, min_drop=3, max_plateau=60,
+                                                           max_fall_rate=4, max_drop_threshold=50,
+                                                           min_event_duration=1, max_event_duration=None)
+            # spo2_md = median_spo2(spo2)
+            # desat3_pobm = desat_tool.compute(spo2_md)
+            # desat3_pobm = len(desat3_pobm.begin)
+            desat3_per_hour = float(desat3) / est_sleep_hours
+            # metadata = get_metadata(id)
+            # desat3_per_hour = float(metadata["ndes3ph5"]) / est_sleep_hours
+            ids.append(id)
+            extra_col.append(desat3_per_hour)
+
+        extra_col = pd.DataFrame({"est2_desat3_per_hour": extra_col}, index=ids)
+        meta_df = meta_df.join(extra_col)
+        meta_df.to_csv(PATH_TO_META_MODEL.joinpath("meta_df_my_est.csv"))
+        print(np.corrcoef(meta_df["desat3_per_hour"].to_numpy(), meta_df["est_desat3_per_hour"].to_numpy()))
+
+        exit()
         # meta_train_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_train_df.csv"), index_col=0)
         # meta_test_df = pd.read_csv(PATH_TO_META_MODEL.joinpath("meta_test_df.csv"), index_col=0)
         meta_train_df, meta_test_df = train_test_split(meta_df, test_size=TEST_SIZE, random_state=33,

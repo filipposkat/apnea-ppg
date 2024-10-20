@@ -26,7 +26,7 @@ from data_loaders_mapped import get_subject_train_test_split
 TESTING_SUBSET = "0w60s"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
 EPOCH = 6
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
 
@@ -252,7 +252,7 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
     X_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, numOfSignals)
     The order of signals is Flow and then Pleth.
     y_train has shape (num of windows in train, WINDOW_SAMPLES_SIZE, 1)
-    X_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
+    X_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals)
     y_test has shape (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
 
     :param subject_arrs_path: Path to save subject's arrays
@@ -262,7 +262,7 @@ def save_arrays_combined(subject_arrs_path: Path, X_test, y_test):
     """
     # Transform to numpy arrays:
     X_test_arr = np.array(X_test,
-                          dtype="float32")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals+1)
+                          dtype="float32")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, numOfSignals)
     y_test_arr = np.array(y_test, dtype="uint8")  # shape= (num of windows in test, WINDOW_SAMPLES_SIZE, 1)
 
     # Create directory for subject:
