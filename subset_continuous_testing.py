@@ -325,8 +325,10 @@ if __name__ == "__main__":
                      6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755,
                      6781,
                      6804, 6807, 6811]
+        # By default, validation_ids are the same as train ids (different parts of the signals are used).
+        validation_ids = train_ids
     else:
-        train_ids, _ = get_subject_train_test_split()
+        train_ids, validation_ids, cross_test_ids = get_subject_train_test_split()
     print(train_ids)
 
     if CREATE_ARRAYS:
@@ -372,7 +374,7 @@ if __name__ == "__main__":
             metadata_df = pd.Series(metadata)
             metadata_df.to_csv(subject_arrs_path.joinpath("sub_metadata.csv"))
 
-            if id in train_ids:
+            if id in validation_ids:
                 split = True
             else:
                 split = False
@@ -408,17 +410,29 @@ if __name__ == "__main__":
         for sub_id in tqdm(sub_ids):
             results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                                 f"epoch-{EPOCH}")
-            if sub_id in train_ids:
+            if sub_id in validation_ids:
                 results_path = results_path.joinpath("validation-subjects")
-            else:
+            elif sub_id in cross_test_ids:
                 results_path = results_path.joinpath("cross-test-subjects")
+            else:
+                print(f"Skipping subject {sub_id}! ID neither in validation nor in cross-test set")
+                continue
 
             results_path.mkdir(parents=True, exist_ok=True)
             matlab_file = results_path.joinpath(f"cont_test_signal_{sub_id}.mat")
             if SKIP_EXISTING_IDS and matlab_file.exists():
                 continue
 
-            subject_arrs_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays", str(sub_id).zfill(4))
+            cont_arrays_dir = PATH_TO_SUBSET_CONT_TESTING / "cont-test-arrays"
+            if not cont_arrays_dir.exists():
+                print(f"Warning! Default path for cont-test-arrays does not exist")
+                if TESTING_SUBSET in (8):
+                    print(f"In testing subset={TESTING_SUBSET}, "
+                          f"using original subject arrays is permitted (due to continuity).")
+                    cont_arrays_dir = PATH_TO_SUBSET / "arrays"
+                    print(f"Setting cont-test-arrays path to: {str(cont_arrays_dir)}")
+
+            subject_arrs_path = cont_arrays_dir.joinpath(str(sub_id).zfill(4))
             X_path = subject_arrs_path.joinpath("X_test.npy")
             y_path = subject_arrs_path.joinpath("y_test.npy")
 

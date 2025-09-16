@@ -217,6 +217,10 @@ if __name__ == "__main__":
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))
+    print(np.mean(sub.signals[2]))
+    print(np.min(sub.signals[2]))
+    print(np.max(sub.signals[2]))
+    print(np.std(sub.signals[2]))
 
     # df = sub.export_to_dataframe(signal_labels=["SpO2"], frequency=32, anti_aliasing=True, trim_signals=True)
     # mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)

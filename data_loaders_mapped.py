@@ -61,60 +61,78 @@ def get_subject_train_test_split(save_ids=False):
         rng = random.Random(33)
         cross_sub_test_ids = rng.sample(ids, cross_sub_test_size)
         train_ids = [id for id in ids if id not in cross_sub_test_ids]
-
+        # By default, validation_ids are the same as train ids (different parts of the signals are used).
+        test_ids = train_ids
         if save_ids:
-            split_dict = {"train_ids": train_ids, "cross_testing_ids": cross_sub_test_ids}
+            split_dict = {"train_ids": train_ids,
+                          "cross_testing_ids": cross_sub_test_ids}
             dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
             with open(str(dict_path), "w") as file:
                 json.dump(split_dict, file)
     else:
-        cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
-                              6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847,
-                              3671,
-                              2408, 2771, 4671, 5907, 2147, 979, 620, 6215, 2434, 1863, 651, 3043, 1016, 5608, 6538,
-                              2126,
-                              4270, 2374, 6075, 107, 3013, 4341, 5695, 2651, 6193, 3332, 3314, 1589, 935, 386, 3042,
-                              5393,
-                              4794, 6037, 648, 1271, 811, 1010, 2750, 33, 626, 3469, 6756, 2961, 1756, 1650, 3294, 3913,
-                              5182, 4014, 3025, 5148, 4508, 3876, 2685, 4088, 675, 125, 6485, 3239, 5231, 3037, 5714,
-                              5986,
-                              155, 4515, 6424, 2747, 1356]
-        train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561,
-                     571,
-                     589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
-                     931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263,
-                     1266,
-                     1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623,
-                     1626,
-                     1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983,
-                     2003,
-                     2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292,
-                     2317,
-                     2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798,
-                     2800,
-                     2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149,
-                     3156,
-                     3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564,
-                     3575,
-                     3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867,
-                     3902,
-                     3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205,
-                     4228,
-                     4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554,
-                     4592,
-                     4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137,
-                     5155,
-                     5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433,
-                     5457,
-                     5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909,
-                     5954,
-                     5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280,
-                     6291,
-                     6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755,
-                     6781,
-                     6804, 6807, 6811]
+        dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
+        if dict_path.is_file():
+            with open(str(dict_path), "r") as file:
+                split_dict = json.load(file)
+            train_ids = split_dict["train_ids"]
+            cross_sub_test_ids = split_dict["cross_testing_ids"]
 
-    return train_ids, cross_sub_test_ids
+            if "test_ids" in split_dict.keys():
+                test_ids = split_dict["test_ids"]
+            elif "validation_ids" in split_dict.keys():
+                test_ids = split_dict["validation_ids"]
+            else:
+                # By default, validation_ids are the same as train ids (different parts of the signals are used).
+                test_ids = train_ids
+        else:
+            cross_sub_test_ids = [5002, 1453, 5396, 2030, 2394, 4047, 5582, 4478, 4437, 1604, 6726, 5311, 4229, 2780, 5957,
+                                  6697, 4057, 3823, 2421, 5801, 5451, 679, 2636, 3556, 2688, 4322, 4174, 572, 5261, 5847,
+                                  3671,
+                                  2408, 2771, 4671, 5907, 2147, 979, 620, 6215, 2434, 1863, 651, 3043, 1016, 5608, 6538,
+                                  2126,
+                                  4270, 2374, 6075, 107, 3013, 4341, 5695, 2651, 6193, 3332, 3314, 1589, 935, 386, 3042,
+                                  5393,
+                                  4794, 6037, 648, 1271, 811, 1010, 2750, 33, 626, 3469, 6756, 2961, 1756, 1650, 3294, 3913,
+                                  5182, 4014, 3025, 5148, 4508, 3876, 2685, 4088, 675, 125, 6485, 3239, 5231, 3037, 5714,
+                                  5986,
+                                  155, 4515, 6424, 2747, 1356]
+            train_ids = [27, 64, 133, 140, 183, 194, 196, 220, 303, 332, 346, 381, 405, 407, 435, 468, 490, 505, 527, 561,
+                         571,
+                         589, 628, 643, 658, 712, 713, 715, 718, 719, 725, 728, 743, 744, 796, 823, 860, 863, 892, 912, 917,
+                         931, 934, 937, 939, 951, 1013, 1017, 1019, 1087, 1089, 1128, 1133, 1161, 1212, 1224, 1236, 1263,
+                         1266,
+                         1278, 1281, 1291, 1301, 1328, 1342, 1376, 1464, 1478, 1497, 1501, 1502, 1552, 1562, 1573, 1623,
+                         1626,
+                         1656, 1693, 1733, 1738, 1790, 1797, 1809, 1833, 1838, 1874, 1879, 1906, 1913, 1914, 1924, 1983,
+                         2003,
+                         2024, 2039, 2105, 2106, 2118, 2204, 2208, 2216, 2227, 2239, 2246, 2251, 2264, 2276, 2291, 2292,
+                         2317,
+                         2345, 2375, 2397, 2451, 2452, 2467, 2468, 2523, 2539, 2572, 2614, 2665, 2701, 2735, 2781, 2798,
+                         2800,
+                         2802, 2819, 2834, 2848, 2877, 2879, 2881, 2897, 2915, 2934, 2995, 3012, 3024, 3028, 3106, 3149,
+                         3156,
+                         3204, 3223, 3236, 3275, 3280, 3293, 3324, 3337, 3347, 3352, 3419, 3439, 3452, 3468, 3555, 3564,
+                         3575,
+                         3591, 3603, 3604, 3652, 3690, 3702, 3711, 3734, 3743, 3770, 3781, 3803, 3833, 3852, 3854, 3867,
+                         3902,
+                         3933, 3934, 3967, 3974, 3980, 3987, 3992, 4029, 4038, 4085, 4099, 4123, 4128, 4157, 4163, 4205,
+                         4228,
+                         4250, 4252, 4254, 4256, 4295, 4296, 4330, 4332, 4428, 4462, 4496, 4497, 4511, 4541, 4544, 4554,
+                         4592,
+                         4624, 4661, 4734, 4820, 4826, 4878, 4912, 4948, 5029, 5053, 5063, 5075, 5096, 5101, 5118, 5137,
+                         5155,
+                         5162, 5163, 5179, 5203, 5214, 5232, 5276, 5283, 5308, 5339, 5357, 5358, 5365, 5387, 5395, 5433,
+                         5457,
+                         5472, 5480, 5491, 5503, 5565, 5580, 5662, 5686, 5697, 5703, 5753, 5788, 5798, 5845, 5897, 5909,
+                         5954,
+                         5982, 6009, 6022, 6047, 6050, 6052, 6074, 6077, 6117, 6174, 6180, 6244, 6261, 6274, 6279, 6280,
+                         6291,
+                         6316, 6318, 6322, 6351, 6366, 6390, 6417, 6422, 6492, 6528, 6549, 6616, 6682, 6695, 6704, 6755,
+                         6781,
+                         6804, 6807, 6811]
+            # By default, validation_ids are the same as train ids (different parts of the signals are used).
+            test_ids = train_ids
+    return train_ids, test_ids, cross_sub_test_ids
 
 
 class MappedDataset(Dataset):
@@ -491,7 +509,7 @@ class BatchFromSavedBatchIndices(Sampler[list[int]]):
 
 def get_new_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, shuffle=True) \
         -> DataLoader:
-    train_ids, _ = get_subject_train_test_split(save_ids=True)
+    train_ids, _, _ = get_subject_train_test_split(save_ids=True)
     dataset = MappedDataset(subject_ids=train_ids,
                             dataset_split="train",
                             transform=torch.from_numpy,
@@ -564,13 +582,13 @@ def save_batch_indices_train(batch_size=BATCH_SIZE):
 
 def get_new_test_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS, pre_fetch=PREFETCH_FACTOR, shuffle=False) \
         -> DataLoader:
-    train_ids, _ = get_subject_train_test_split()
-    dataset = MappedDataset(subject_ids=train_ids,
+    _, test_ids, _ = get_subject_train_test_split()
+    dataset = MappedDataset(subject_ids=test_ids,
                             dataset_split="test",
                             transform=torch.from_numpy,
                             target_transform=torch.from_numpy)
 
-    sampler = BatchSampler(subject_ids=train_ids, batch_size=batch_size, id_size_dict=dataset.id_size_dict,
+    sampler = BatchSampler(subject_ids=test_ids, batch_size=batch_size, id_size_dict=dataset.id_size_dict,
                            shuffle=shuffle, seed=SEED)
 
     # It is important to set batch_size=None which disables automatic batching,
@@ -635,7 +653,7 @@ def save_batch_indices_test(batch_size=BATCH_SIZE):
 
 def get_new_test_cross_sub_loader(batch_size=BATCH_SIZE_TEST, num_workers=NUM_WORKERS,
                                   pre_fetch=PREFETCH_FACTOR, shuffle=False) -> DataLoader:
-    _, cross_sub_test_ids = get_subject_train_test_split()
+    _, _, cross_sub_test_ids = get_subject_train_test_split()
     dataset = MappedDataset(subject_ids=cross_sub_test_ids,
                             dataset_split="cross_test",
                             transform=torch.from_numpy,
@@ -706,7 +724,7 @@ def save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE):
 
 
 if __name__ == "__main__":
-    train_ids, cross_sub_test_ids = get_subject_train_test_split()
+    train_ids, test_ids, cross_sub_test_ids = get_subject_train_test_split()
     print(train_ids)
     print(cross_sub_test_ids)
 

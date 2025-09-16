@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import butter, filtfilt, upfirdn, decimate, firwin, resample_poly, get_window
+from scipy.signal import butter, filtfilt, upfirdn, decimate, firwin, resample_poly, get_window, hilbert
 import pandas as pd
 from itertools import islice
 from pathlib import Path
@@ -219,6 +219,66 @@ def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     return upsampled_signal
 
 
+def get_detrended_ppg(ppg, fs):
+    # Remove very low frequencies
+    order = 2
+    cutoff = 0.05  # Hz
+    nyquist = fs / 2
+    b, a = butter(N=order, Wn=cutoff / nyquist, btype='high')
+    return filtfilt(b, a, ppg)
+
+
+def get_slow_ppg(ppg, fs, normalize=True):
+    # Keep only very low frequencies
+    order = 2
+    cutoff = 0.05  # Hz
+    nyquist = fs / 2
+    b, a = butter(N=order, Wn=cutoff / nyquist, btype='low')
+
+    ppg = filtfilt(b, a, ppg)
+    if normalize:
+        # normalize using 99% percentile (better for smoother/lower variance signals)
+        ppg = ppg / (np.percentile(ppg, 99) + 1e-8)
+    return ppg
+
+
+def get_kte(x, fs, smooth=True, normalize=True):
+    kte = np.empty_like(x)
+    kte[1:-1] = x[1:-1] ** 2 - x[:-2] * x[2:]
+    kte[0] = x[0] ** 2 - x[0] * x[1]
+    kte[-1] = x[-1] ** 2 - x[-2] * x[-1]
+    kte = np.where(kte < 0, 0.0, kte)
+
+    if smooth:
+        # lowpass (zero-phase) to smooth energy trace but keep beat-level shape
+        order = 2
+        cutoff = 1  # Hz
+        nyquist = fs / 2
+        b, a = butter(N=order, Wn=cutoff / nyquist, btype='low')
+        kte = filtfilt(b, a, kte)
+
+    if normalize:
+        # normalize using 95% percentile (better for noiser/high variance signals)
+        kte = kte / (np.percentile(kte, 95) + 1e-8)
+    return kte
+
+
+def get_envelope(x, fs: float, smooth=True, normalize=True):
+    env = np.abs(hilbert(x))
+
+    # smooth env with lowpass
+    if smooth:
+        order = 2
+        cutoff = 0.7  # Hz
+        nyquist = fs / 2
+        b_lp, a_lp = butter(order, cutoff / nyquist, btype='low')
+        env = filtfilt(b_lp, a_lp, env)
+    if normalize:
+        # normalize using 99% percentile (better for smoother/lower variance signals)
+        env = env / (np.percentile(env, 99) + 1e-8)
+    return env
+
+
 class Subject:
     id: int
     signals: list[np.ndarray]
@@ -376,10 +436,13 @@ class Subject:
 
     def export_to_dataframe(self, signal_labels: list[str] = None, frequency: float = None,
                             print_downsampling_details=True, anti_aliasing=True, trim_signals=True,
-                            median_to_low_spo2_values=True) -> pd.DataFrame:
+                            median_to_low_spo2_values=True, detrend_ppg=False, scale_ppg_signals=False) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
+        :param detrend_ppg: Applies a HPF IIR filter with cutoff=0.05Hz to remove slow trends
+        :param scale_ppg_signals: Normalized signals that are derived from PPG and PPG itself by dividing
+        by 95% percentile (for noisy signals e.g. PPG, KTE) or 99% percentile (for less noisy signals e.g. PPG envelope)
         :param frequency: Desired frequency. If all signals will be resampled to this frequency
         :param print_downsampling_details: Whether to print details about the down-sampling performed to match signal
         lengths
@@ -512,6 +575,21 @@ class Subject:
                 signal = downsample_to_proportion(retained_signals[i], proportion, lpf=anti_aliasing)
             else:
                 signal = upsample_to_proportion(retained_signals[i], proportion)
+
+            if label == "Pleth":
+                if detrend_ppg:
+                    signal = get_detrended_ppg(signal, fs=frequency)
+                if scale_ppg_signals:
+                    signal = signal / (np.percentile(signal, 99) + 1e-8)
+                if ("Slow_Pleth" in signal_labels) or ("Slow_PPG" in signal_labels):
+                    df["Slow_Pleth"] = get_slow_ppg(signal, fs=frequency, normalize=scale_ppg_signals)
+                    df["Slow_Pleth"] = df["Slow_Pleth"].astype("float32")
+                if ("Pleth_Envelope" in signal_labels) or ("PPG_Envelope" in signal_labels):
+                    df["Pleth_Envelope"] = get_envelope(signal, fs=frequency, smooth=True, normalize=scale_ppg_signals)
+                    df["Pleth_Envelope"] = df["Pleth_Envelope"].astype("float32")
+                if ("Pleth_KTE" in signal_labels) or ("PPG_KTE" in signal_labels):
+                    df["Pleth_KTE"] = get_kte(signal, fs=frequency, smooth=True, normalize=scale_ppg_signals)
+                    df["Pleth_KTE"] = df["Pleth_KTE"].astype("float32")
 
             df[label] = signal
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory
