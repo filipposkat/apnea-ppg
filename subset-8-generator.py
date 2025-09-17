@@ -32,8 +32,8 @@ EXCLUDE_LOW_SQI_SUBJECTS_FROM_TRAIN = True
 EXCLUDE_LOW_TST_SUBJECTS_FROM_TRAIN = True
 SUBSET = 8
 SUBSET_SIZE = "all"  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = True
-SKIP_EXISTING_IDS = False  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
+CREATE_ARRAYS = False
+SKIP_EXISTING_IDS = True  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
 WINDOW_SEC_SIZE = 60
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 ANTI_ALIASING = True
@@ -91,10 +91,10 @@ def get_ids():
     :return:
     """
     path = Path(PATH_TO_SUBSET).joinpath("ids.npy")
-    if path.is_file():
+    dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
+    if path.is_file() and dict_path.is_file():
         ids_arr = np.load(str(path))  # array to save the best subject ids
         ids = ids_arr.tolist()  # equivalent list
-        dict_path = PATH_TO_SUBSET_TRAINING / "train_cross_test_split_ids.json"
         with open(str(dict_path), "r") as file:
             split_dict = json.load(file)
     else:

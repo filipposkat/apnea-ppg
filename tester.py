@@ -33,7 +33,7 @@ LOAD_FROM_BATCH = 0
 NUM_WORKERS = 2
 NUM_PROCESSES_FOR_METRICS = 6
 PRE_FETCH = 2
-CROSS_SUBJECT_TESTING = True
+CROSS_SUBJECT_TESTING = False
 TEST_MODEL = True
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
@@ -174,7 +174,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
             df_cm = pd.DataFrame(cm)
         else:
             df_cm = pd.DataFrame(cm, index=target_labels,
-                                     columns=target_labels)
+                                 columns=target_labels)
 
         fig, ax = plt.subplots(figsize=(12, 7))
         ax.set_title(f"Net type: {net_type}, Identifier: {identifier}, Epoch: {epoch}")
@@ -384,6 +384,28 @@ def f1_by_class(tp: dict, fp: dict, fn: dict, print_f1s=False):
     return class_f1
 
 
+def mcc_by_class(tp: dict, tn: dict, fp: dict, fn: dict, print_mmcs=False):
+    # print MCC for each class:
+    mccs = {}
+    for c in tp.keys():
+        nom = tp[c] * tn[c] - fp[c] * fn[c]
+        den_parts = (tp[c] + fp[c]), (tp[c] + fn[c]), (tn[c] + fp[c]), (tn[c] + fn[c])
+        den = np.sqrt(den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3])
+
+        zero_parts = sum([den_part == 0.0 for den_part in den_parts])
+        if zero_parts == 1:
+            # Special case where MCC=0.0
+            mcc = 0.0
+        elif zero_parts > 1:
+            mcc = "nan"
+        else:
+            mcc = nom / den
+        mccs[c] = mcc
+        if print_mmcs:
+            print(f'MCC for class: {c} is {mcc:.2f}')
+    return mccs
+
+
 def micro_average_precision(tp: dict, fp: dict, print_precision=False) -> float:
     num = 0
     den = 0
@@ -436,6 +458,32 @@ def micro_average_specificity(tn: dict, fp: dict, print_specificity=False) -> fl
     if print_specificity:
         print(f'Micro Average Specificity: {100 * micro_spec:.2f} %')
     return micro_spec
+
+
+def micro_average_mcc(tp: dict, tn: dict, fp: dict, fn: dict, print_mmc=False) -> float:
+    # print precision for each class:
+    tps, tns, fps, fns = 0, 0, 0, 0
+    for c in tn.keys():
+        tps += tp[c]
+        tns += tn[c]
+        fps += fp[c]
+        fns += fn[c]
+
+    nom = tps * tns - fps * fns
+    den_parts = (tps + fps), (tps + fns), (tns + fps), (tns + fns)
+    den = np.sqrt(den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3])
+
+    zero_parts = sum([den_part == 0.0 for den_part in den_parts])
+    if zero_parts == 1:
+        # Special case where MCC=0.0
+        mcc = 0.0
+    elif zero_parts > 1:
+        mcc = "nan"
+    else:
+        mcc = nom / den
+    if print_mmc:
+        print(f'Micro Average MCC: {mcc:.2f}')
+    return mcc
 
 
 def micro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False) -> float:
@@ -497,6 +545,35 @@ def macro_average_f1(tp: dict, fp: dict, fn: dict, print_f1=False) -> float:
     if print_f1:
         print(f'Macro Average F1: {100 * macro_f1:.2f} %')
     return macro_f1
+
+
+def multiclass_mcc(cm: np.array):
+    """
+    Compute the Matthews Correlation Coefficient (MCC) for multiclass
+    classification given a confusion matrix.
+
+    Args:
+        cm (np.ndarray): square confusion matrix (rows = true, cols = predicted)
+
+    Returns:
+        float: MCC score
+    """
+    # totals
+    t_k = cm.sum(axis=1)  # true label counts
+    p_k = cm.sum(axis=0)  # predicted label counts
+    c = cm.trace()  # correctly classified
+    s = cm.sum()  # total samples
+
+    # numerator
+    sum_pk_tk = (p_k * t_k).sum()
+    numerator = (c * s) - sum_pk_tk
+
+    # denominator
+    denom = np.sqrt((s ** 2 - (p_k ** 2).sum()) * (s ** 2 - (t_k ** 2).sum()))
+
+    if denom == 0:
+        return "nan"  # convention if denominator is zero
+    return numerator / denom
 
 
 def get_window_stats(window_labels: torch.tensor, window_predictions: torch.tensor,
@@ -675,8 +752,12 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             if n_channels_found != N_INPUT_CHANNELS:
                 diff = n_channels_found - N_INPUT_CHANNELS
                 assert diff > 0
-                # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
-                batch_inputs = batch_inputs[:, diff:, :]
+                if subset_id == 0:
+                    # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                    batch_inputs = batch_inputs[:, diff:, :]
+                else:
+                    # Excees channels have been detected, keep the first n_channels
+                    batch_inputs = batch_inputs[:, :N_INPUT_CHANNELS, :]
 
             # Predictions:
             batch_outputs = model(batch_inputs)  # (bs, classes, L)
@@ -704,7 +785,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 aucs_by_class[class_name].append(aucs[c])
 
             # Add extra ROC curve:
-            if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) == 5:
+            if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
                 extra_class1 = "apnea"
                 extra_probs1 = batch_output_probs[:, 1, :] + batch_output_probs[:, 2, :]
                 extra_labels1 = (batch_labels == 1) | (batch_labels == 2)
@@ -790,6 +871,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
         }
 
     aggregate_acc = correct_pred / total_pred
+    agg_mcc = multiclass_mcc(cm.detach().to('cpu').numpy())
     if verbose:
         print(f"Intuitive aggregate accuracy: {100 * aggregate_acc:.2f}%")
 
@@ -798,6 +880,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     rec_by_class = recall_by_class(tp, fn, print_recalls=verbose)
     spec_by_class = specificity_by_class(tn, fp, print_specificity=verbose)
     f1_per_class = f1_by_class(tp, fp, fn, print_f1s=verbose)
+    mcc_per_class = mcc_by_class(tp, tn, fp, fn, print_mmcs=verbose)
 
     micro_acc = micro_average_accuracy(tp, tn, fp, fn, print_accuracy=verbose)
     micro_prec = micro_average_precision(tp, fp, print_precision=verbose)
@@ -815,6 +898,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     # Note: In multiclass classification with symmetric costs, the micro average precision, recall,
     # and aggregate accuracy scores are mathematically equivalent because the sum of fp and sum of fn are equal.
     metrics = {"aggregate_accuracy": aggregate_acc,
+               "aggregate_mcc": agg_mcc,
                "macro_accuracy": macro_acc,
                "macro_precision": macro_prec,
                "macro_recall": macro_rec,
@@ -831,6 +915,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                "recall_by_class": rec_by_class,
                "f1_by_class": f1_per_class,
                "specificity_by_class": spec_by_class,
+               "mcc_by_class": mcc_per_class,
                "average_auc_by_class": average_auc_by_class}
 
     if verbose:
@@ -947,6 +1032,7 @@ if __name__ == "__main__":
         # So for Windows, torch==2.4:
         # pip install pytorch_ocl-0.1.0+torch2.4-cp310-none-linux_x86_64.whl
         import pytorch_ocl
+
         test_device = "ocl:0"
     elif torch.cuda.is_available():
         test_device = torch.device("cuda:0")

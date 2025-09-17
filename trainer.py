@@ -1,21 +1,16 @@
 import random
 from typing import Tuple, Any
-
 import yaml
 from pathlib import Path
 import datetime, time
-import os
 import json
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchmetrics.functional import accuracy
 from torch.utils.data import DataLoader, IterableDataset
-
 from torchinfo import summary
-from ray import train
-
+import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
 # Local imports:
@@ -36,6 +31,10 @@ LOAD_FROM_BATCH: int | str = "last"  # batch number or last or no
 EPOCHS = 20
 BATCH_SIZE = "auto"  # 256
 BATCH_SIZE_TEST = "auto"  # 1024
+EARLY_STOPPING = True  # When loading from checkpoint, early stopping resets
+EARLY_STOPPING_METRIC = "aggregate_mcc"  # It should be one of the metrics computed by tester.test_loop()
+EARLY_STOPPING_PATIENCE = 5
+EARLY_STOPPING_DELTA = 0.01
 NUM_WORKERS = 2
 NUM_WORKERS_TEST = 4
 PRE_FETCH = 2
@@ -164,10 +163,37 @@ else:
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
-    # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
-    from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
-    from dice_loss import DiceLoss
+    if LOSS_FUNCTION == "gwdl" or LOSS_FUNCTION == "dl":
+        # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
+        from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
+        from dice_loss import DiceLoss
+    elif LOSS_FUNCTION == "focal_loss":
+        from kornia.losses import FocalLoss
+
+
 # --- END OF CONSTANTS --- #
+
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0, maximize=True, verbose=False):
+        self.patience = patience
+        self.delta = delta
+        self.maximize = maximize
+        self.verbose = verbose
+        self.best_metric = None
+        self.no_improvement_count = 0
+        self.stop_training = False
+
+    def check_early_stop(self, val_metric):
+        if self.best_metric is None or (self.maximize and (val_metric > self.best_metric + self.delta)) or (
+                not self.maximize and (val_metric < self.best_metric - self.delta)):
+            self.best_metric = val_metric
+            self.no_improvement_count = 0
+        else:
+            self.no_improvement_count += 1
+            if self.no_improvement_count >= self.patience:
+                self.stop_training = True
+                if self.verbose:
+                    print("Stopping early as no improvement has been observed.")
 
 
 def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int, batch_size: int,
@@ -229,7 +255,6 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                    f'Epoch: {epoch}\n',
                    f'{other_details}\n']
         file.writelines("% s\n" % line for line in details)
-
 
     if device != "infer":
         net = net.to(device)
@@ -498,8 +523,12 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
             if n_channels_found != N_INPUT_CHANNELS:
                 diff = n_channels_found - N_INPUT_CHANNELS
                 assert diff > 0
-                # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
-                inputs = inputs[:, diff:, :]
+                if subset_id == 0:
+                    # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                    inputs = inputs[:, diff:, :]
+                else:
+                    # Excees channels have been detected, keep the first n_channels
+                    inputs = inputs[:, :N_INPUT_CHANNELS, :]
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -586,6 +615,7 @@ if __name__ == "__main__":
         # So for Windows, torch==2.4
         # pip install pytorch_ocl-0.1.0+torch2.4-cp310-none-linux_x86_64.whl
         import pytorch_ocl
+
         device = "ocl:0"
     elif torch.cuda.is_available():
         device = torch.device("cuda:0")
@@ -722,7 +752,10 @@ if __name__ == "__main__":
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
                               lstm_dropout=LSTM_DROPOUT, lstm_bidirectional=True,
                               lstm_depth=1, custom_weight_init=CUSTOM_WEIGHT_INIT)
-            net_kwargs = net.get_kwargs()
+        # elif NET_TYPE == "UResIncNetAtt":
+        # Under developement
+
+        net_kwargs = net.get_kwargs()
         initial_running_losses = None
         lr_scheduler = None
         lr_scheduler_kwargs = None
@@ -757,6 +790,9 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
 
             loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
+        elif LOSS_FUNCTION == "focal_loss":
+            loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights}
+            loss = FocalLoss(**loss_kwargs)
         else:
             # cel
             if weights is not None:
@@ -804,6 +840,13 @@ if __name__ == "__main__":
                 starting_factor = 1 - last_completed_epoch * (1 - 0.3) / LR_WARMUP_DURATION
                 lr_scheduler_kwargs = {"start_factor": starting_factor, "end_factor": 0.3, "total_iters": warmup_iters}
                 lr_scheduler = optim.lr_scheduler.LinearLR(optimizer=optimizer, **lr_scheduler_kwargs)
+
+    if EARLY_STOPPING:
+        # Initialize early stopping
+        early_stopping = EarlyStopping(patience=EARLY_STOPPING_PATIENCE, delta=EARLY_STOPPING_DELTA, verbose=True)
+    else:
+        early_stopping = None
+
     # Train:
     print(datetime.datetime.now())
     unix_time_start = time.time()
@@ -862,11 +905,23 @@ if __name__ == "__main__":
                 metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_loader, n_class=N_CLASSES,
                                                   device=device, verbose=False,
                                                   progress_bar=True)
-                test_acc = metrics['aggregate_accuracy']
-                tqdm_epochs.set_postfix(epoch_test_acc=f"{test_acc:.5f}")
+                val_acc = metrics['aggregate_accuracy']
+                val_mcc = metrics["aggregate_mcc"]
+                tqdm_epochs.set_postfix(epoch_val_acc=f"{val_acc:.2f}")
+                tqdm_epochs.set_postfix(epoch_val_mcc=f"{val_mcc:.2f}")
+
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm, roc_info=roc_info,
                                 running_loss=last_running_loss, running_accuracy=last_running_acc, **checkpoint_kwargs)
+
+                if EARLY_STOPPING:
+                    # Check early stopping condition
+                    early_stopping.check_early_stop(metrics[EARLY_STOPPING_METRIC])
+
+                    if early_stopping.stop_training:
+                        print(f"Early stopping at epoch {epoch}")
+                        break
+
             elif SAVE_MODEL_EVERY_EPOCH:
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1,

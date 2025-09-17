@@ -14,7 +14,7 @@ from tqdm import tqdm
 GENERATE_TRAIN_TEST_SPLIT = False
 CROSS_SUBJECT_TEST_PROPORTION = 0.25
 BATCH_WINDOW_SAMPLING_RATIO = 0.1
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 BATCH_SIZE_TEST = 1024  # 8192
 SEED = 33
 NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
@@ -56,7 +56,7 @@ def get_subject_train_test_split(save_ids=False):
         print(f"Subset-{subset_id} has no ids generated yet")
         exit(1)
 
-    if GENERATE_TRAIN_TEST_SPLIT or len(ids) != 400:
+    if GENERATE_TRAIN_TEST_SPLIT and len(ids) != 400:
         cross_sub_test_size = int(len(ids) * CROSS_SUBJECT_TEST_PROPORTION)
         rng = random.Random(33)
         cross_sub_test_ids = rng.sample(ids, cross_sub_test_size)
@@ -726,6 +726,7 @@ def save_batch_indices_test_cross_sub(batch_size=BATCH_SIZE):
 if __name__ == "__main__":
     train_ids, test_ids, cross_sub_test_ids = get_subject_train_test_split()
     print(train_ids)
+    print(test_ids)
     print(cross_sub_test_ids)
 
     train_loader = get_saved_train_loader(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS,
