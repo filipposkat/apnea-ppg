@@ -389,8 +389,9 @@ def mcc_by_class(tp: dict, tn: dict, fp: dict, fn: dict, print_mmcs=False):
     mccs = {}
     for c in tp.keys():
         nom = tp[c] * tn[c] - fp[c] * fn[c]
-        den_parts = (tp[c] + fp[c]), (tp[c] + fn[c]), (tn[c] + fp[c]), (tn[c] + fn[c])
-        den = np.sqrt(den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3])
+        den_parts = ((tp[c] + fp[c]), (tp[c] + fn[c]), (tn[c] + fp[c]), (tn[c] + fn[c]))
+        den_2 = den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3]
+        den = np.sqrt(den_2)
 
         zero_parts = sum([den_part == 0.0 for den_part in den_parts])
         if zero_parts == 1:
