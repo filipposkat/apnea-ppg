@@ -43,7 +43,7 @@ if __name__ == "__main__" and (BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TES
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
     if BATCH_SIZE_TEST == "auto":
         BATCH_SIZE_TEST = max([bs for bs in available_test_bs])
-    if BATCH_SIZE_CROSS_TEST == "auto":
+    if BATCH_SIZE_CROSS_TEST == "auto" and CROSS_SUBJECT_TESTING:
         BATCH_SIZE_CROSS_TEST = max([bs for bs in available_cross_test_bs])
 
 with open("config.yml", 'r') as f:
@@ -388,7 +388,7 @@ def mcc_by_class(tp: dict, tn: dict, fp: dict, fn: dict, print_mmcs=False):
     # print MCC for each class:
     mccs = {}
     for c in tp.keys():
-        nom = tp[c] * tn[c] - fp[c] * fn[c]
+        nom = float(tp[c] * tn[c] - fp[c] * fn[c])
         den_parts = ((tp[c] + fp[c]), (tp[c] + fn[c]), (tn[c] + fp[c]), (tn[c] + fn[c]))
         den_2 = float(den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3])
         den = np.sqrt(den_2)
@@ -470,7 +470,7 @@ def micro_average_mcc(tp: dict, tn: dict, fp: dict, fn: dict, print_mmc=False) -
         fps += fp[c]
         fns += fn[c]
 
-    nom = tps * tns - fps * fns
+    nom = float(tps * tns - fps * fns)
     den_parts = ((tps + fps), (tps + fns), (tns + fps), (tns + fns))
     den = np.sqrt(float(den_parts[0] * den_parts[1] * den_parts[2] * den_parts[3]))
 
@@ -574,7 +574,7 @@ def multiclass_mcc(cm: np.array):
 
     if denom == 0:
         return "nan"  # convention if denominator is zero
-    return numerator / denom
+    return float(numerator / denom)
 
 
 def get_window_stats(window_labels: torch.tensor, window_predictions: torch.tensor,
@@ -710,7 +710,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     fprs_by_class = {c: [] for c in classes}
     aucs_by_class = {c: [] for c in classes}
 
-    if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
+    if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class >= 4:
         extra_class1 = "apnea"
         extra_class2 = "apnea-hypopnea"
         for extra_class in (extra_class1, extra_class2):
