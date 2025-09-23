@@ -32,14 +32,14 @@ EXCLUDE_LOW_SQI_SUBJECTS_FROM_TRAIN = True
 EXCLUDE_LOW_TST_SUBJECTS_FROM_TRAIN = True
 SUBSET = 8
 SUBSET_SIZE = "all"  # The number of subjects that will remain after screening down the whole dataset
-CREATE_ARRAYS = False
+CREATE_ARRAYS = True
 SKIP_EXISTING_IDS = True  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
 WINDOW_SEC_SIZE = 60
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 ANTI_ALIASING = True
 TRIM = True
 SCALE_SIGNALS = True  # Normalizes signal with percentile method
-STEP_SECS = int(0.25 * WINDOW_SEC_SIZE)  # The step between each window
+STEP_SECS = int(0.1 * WINDOW_SEC_SIZE)  # The step between each window
 CONTINUOUS_LABEL = True
 NO_EVENTS_TO_EVENTS_RATIO = 1
 INCLUDE_SPO2DESAT_IN_NOEVENT = True
@@ -99,7 +99,7 @@ def get_ids():
             split_dict = json.load(file)
     else:
         df: pd.DataFrame = pd.read_csv(PATH_TO_METADATA, sep=',')
-        df.dropna(subset=["slpprdp5", "qupleth5", "ahi_a0h3a", "gender1", "race1c", "sleepage5c"],
+        df.dropna(subset=["slpprdp5", "qupleth5", "ahi_a0h3a", "ahi_o0h3a", "ahi_c0h3a", "gender1", "race1c", "sleepage5c"],
                   inplace=True, ignore_index=True)
         df.set_index(keys="mesaid", drop=False, inplace=True)
         df.index.names = [None]
@@ -111,12 +111,16 @@ def get_ids():
         df["slpprdp5"] = df["slpprdp5"].astype("int64")
         df["qupleth5"] = df["qupleth5"].astype("int64")
         df["ahi_a0h3a"] = df["ahi_a0h3a"].astype(float)
+        df["ahi_o0h3a"] = df["ahi_o0h3a"].astype(float)
+        df["ahi_c0h3a"] = df["ahi_c0h3a"].astype(float)
         sqi_l3 = df[df["qupleth5"] < 3.0]["mesaid"].tolist()
         tst_l3 = df[df["slpprdp5"] < 3.0 * 60]["mesaid"].tolist()
         train_blacklist = [*sqi_l3, *tst_l3]
         df["ahi_cat"] = df["ahi_a0h3a"].map(ahi_to_category)
+        df["ahi_o_cat"] = df["ahi_o0h3a"].map(ahi_to_category)
+        df["ahi_c_cat"] = df["ahi_c0h3a"].map(ahi_to_category)
 
-        df = df.loc[:, ["mesaid", "gender1", "race1c", "ahi_cat"]]
+        df = df.loc[:, ["mesaid", "gender1", "race1c", "ahi_cat", "ahi_o_cat", "ahi_c_cat"]]
 
         # TrainVal-Test Split: We want to stratify based on Race, Sex, AHI
         df['race_sex_ahi'] = df['race1c'].astype(str) + "_" + df['gender1'].astype(str) + "_" + df['ahi_cat'].astype(
@@ -235,7 +239,7 @@ def get_subject_windows(subject: Subject, train=True) \
     sub_df = sub_df.loc[:, [*SIGNALS, "event_index"]]
 
     samples_to_exclude = []
-    if EXCLUDE_10s_AFTER_EVENT:
+    if train and EXCLUDE_10s_AFTER_EVENT:
         # 1. Drop no-event train samples within 10s (= 320 samples) after an event:
 
         # for every sample
@@ -317,8 +321,8 @@ def get_subject_windows(subject: Subject, train=True) \
                                 combined_xy))
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
-
-        X, y = window_dropping_continuous(X, y)
+        if train:
+            X, y = window_dropping_continuous(X, y)
     else:
         # One label per window / non-continuous
         y = [assign_window_label(window_df["event_index"]) for window_df in windows_dfs]
@@ -352,7 +356,8 @@ def get_subject_windows(subject: Subject, train=True) \
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
 
-        X, y = window_dropping(X, y)
+        if train:
+            X, y = window_dropping(X, y)
 
     return X, y
 

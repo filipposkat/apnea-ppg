@@ -37,7 +37,7 @@ variables:
     depth: 8
     layers: 2
     sampling_method: conv_stride
-    dropout:
+    dropout: 0.0
     lstm_max_features: 128
     lstm_layers: 2
     lstm_dropout: 0.1

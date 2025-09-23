@@ -10,7 +10,6 @@ import torch.optim as optim
 from torchmetrics.functional import accuracy
 from torch.utils.data import DataLoader, IterableDataset
 from torchinfo import summary
-import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
 # Local imports:
@@ -618,7 +617,10 @@ if __name__ == "__main__":
 
         device = "ocl:0"
     elif torch.cuda.is_available():
-        device = torch.device("cuda:0")
+        if "cuda:" in COMPUTE_PLATFORM:
+            device = torch.device(COMPUTE_PLATFORM)
+        else:
+            device = torch.device("cuda:0")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
