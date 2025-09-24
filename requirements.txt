@@ -10,8 +10,6 @@ paramiko~=2.8.1
 seaborn~=0.13.2
 scipy~=1.13.1
 torch==2.4.0
-torchaudio==2.4.0
-torchvision==0.19.0
 torchinfo~=1.8.0
 torchmetrics~=1.4.0.post0
 hyperopt>=0.2.5
@@ -20,3 +18,4 @@ ray[data,train,tune,serve]~=2.30.0
 setuptools~=72.1.0
 yaml~=0.2.5
 pobm~=1.2.0
+kornia~=0.7.1

@@ -40,7 +40,7 @@ PRE_FETCH = 2
 PRE_FETCH_TEST = 1
 CLASSIFY_PER_SAMPLE = True
 FIRST_OUT_CHANS = 4
-LR_TO_BATCH_RATIO = 1 / 25600  # If lr is defined in config then it will be omitted
+LR_TO_BATCH_RATIO = 1 / 25600  # If lr is defined in config then this will be omitted
 LR_WARMUP = False
 LR_WARMUP_ASCENDING = True
 LR_WARMUP_DURATION = 3
@@ -793,7 +793,7 @@ if __name__ == "__main__":
 
             loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
         elif LOSS_FUNCTION == "focal_loss":
-            loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights}
+            loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights, "reduction": "mean"}
             loss = FocalLoss(**loss_kwargs)
         else:
             # cel
@@ -934,7 +934,7 @@ if __name__ == "__main__":
     print('Finished Training')
     print(datetime.datetime.now())
 
-    checkpoint_kwargs["epoch"] = EPOCHS
+    checkpoint_kwargs["epoch"] = epoch
     if isinstance(train_loader.sampler.rng, torch.Generator):
         checkpoint_kwargs["dataloader_rng_state"] = train_loader.sampler.rng.get_state()
     else:
