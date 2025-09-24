@@ -1079,6 +1079,10 @@ if __name__ == "__main__":
     epoch_frac, metrics = load_metrics_by_epoch(net_type=NET_TYPE, identifier=IDENTIFIER,
                                                 cross_subject=CROSS_SUBJECT_TESTING)
     accuracies = [m["aggregate_accuracy"] for m in metrics]
+    if "aggregate_mcc" in metrics[0].keys():
+        mccs = [m["aggregate_mcc"] for m in metrics]
+    else:
+        mccs = None
     train_running_losses = [m["train_running_loss"] for m in metrics if "train_running_loss" in m.keys()]
     train_running_accs = [m["train_running_accuracy"] for m in metrics if "train_running_accuracy" in m.keys()]
     micro_accuracies = [m["micro_accuracy"] for m in metrics if "micro_accuracy" in m.keys()]
@@ -1093,6 +1097,7 @@ if __name__ == "__main__":
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")
+
 
     plt.plot(epoch_frac, macro_precisions, label="macro_precision")
     plt.plot(epoch_frac, macro_recalls, label="macro_recall")
@@ -1118,6 +1123,10 @@ if __name__ == "__main__":
         train_running_accs = [m["train_running_accuracy"] if "train_running_accuracy" in m.keys() else 0.0 for m in
                               metrics]
         plt.scatter(epoch_frac, train_running_accs, label="train_running_accuracy")
+
+    if mccs is not None:
+        plt.plot(epoch_frac, mccs, label="mcc")
+
 
     plt.legend()
     plt.xlabel("Epoch")

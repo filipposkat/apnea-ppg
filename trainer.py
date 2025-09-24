@@ -127,8 +127,7 @@ if config is not None:
         assert cw_tmp is not None
         if CONVERT_SPO2DESAT_TO_NORMAL:
             assert len(cw_tmp) == 4
-        else:
-            CLASS_WEIGHTS = cw_tmp
+        CLASS_WEIGHTS = cw_tmp
     else:
         CLASS_WEIGHTS = None
 
