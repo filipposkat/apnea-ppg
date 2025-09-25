@@ -1127,7 +1127,6 @@ if __name__ == "__main__":
     if mccs is not None:
         plt.plot(epoch_frac, mccs, label="mcc")
 
-
     plt.legend()
     plt.xlabel("Epoch")
     plt.ylabel("Metric")

@@ -161,10 +161,13 @@ else:
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
-    if LOSS_FUNCTION == "gwdl" or LOSS_FUNCTION == "dl":
+    if LOSS_FUNCTION == "gwdl":
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
         from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
-        from dice_loss import DiceLoss
+        # from dice_loss import DiceLoss
+        from kornia.losses import DiceLoss
+    elif LOSS_FUNCTION == "dl":
+        from kornia.losses import DiceLoss
     elif LOSS_FUNCTION == "focal_loss":
         from kornia.losses import FocalLoss
 
