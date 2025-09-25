@@ -165,9 +165,10 @@ if LOSS_FUNCTION != "cel":
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
         from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
         # from dice_loss import DiceLoss
-        from kornia.losses import DiceLoss
+        # from kornia.losses import DiceLoss
     elif LOSS_FUNCTION == "dl":
-        from kornia.losses import DiceLoss
+        from dice_loss import DiceLoss
+        # from kornia.losses import DiceLoss
     elif LOSS_FUNCTION == "focal_loss":
         from kornia.losses import FocalLoss
 
