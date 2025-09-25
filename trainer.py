@@ -2,7 +2,7 @@ import random
 from typing import Tuple, Any
 import yaml
 from pathlib import Path
-import datetime, time
+import datetime,time
 import json
 import torch
 import torch.nn as nn
@@ -167,8 +167,9 @@ if LOSS_FUNCTION != "cel":
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
     elif LOSS_FUNCTION == "dl":
-        from dice_loss import DiceLoss
+        # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
+        from monai.losses import DiceLoss
     elif LOSS_FUNCTION == "focal_loss":
         from kornia.losses import FocalLoss
 
@@ -770,7 +771,7 @@ if __name__ == "__main__":
         # Define loss:
         if LOSS_FUNCTION == "dl":
             if weights is not None:
-                loss_kwargs = {"weight": weights}
+                loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean"}
                 loss = DiceLoss(**loss_kwargs)
             else:
                 loss_kwargs = None
