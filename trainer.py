@@ -166,15 +166,30 @@ if LOSS_FUNCTION != "cel":
     if LOSS_FUNCTION == "gwdl":
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
         from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
-        # from dice_loss import DiceLoss
-        # from kornia.losses import DiceLoss
+        if use_weighted_loss:
+            print("WARNING: Loss function GWDL uses inherently weights which are calculated automatically. "
+                  "'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
+                  "(inversly proportional to class size)!")
+        else:
+            print("WARNING: Loss function GDL uses inherently weights which are calculated automatically."
+                  " Using default weighting scheme.")
     elif LOSS_FUNCTION == "dl":
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
         import monai
         from monai.losses import DiceLoss
-    elif LOSS_FUNCTION == "focal_loss":
-        from kornia.losses import FocalLoss
+    elif LOSS_FUNCTION == "gdl":
+        import monai
+        from monai.losses import GeneralizedDiceLoss
+        if use_weighted_loss:
+            print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given class "
+                  "weights!")
+        else:
+            print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
+    elif LOSS_FUNCTION == "fl":
+        import monai
+        from monai.losses import FocalLoss
+        # from kornia.losses import FocalLoss
 
 
 # --- END OF CONSTANTS --- #
@@ -553,7 +568,9 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                 if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
                     batch_labels = torch.ravel(labels_by_window)
             else:
-                if isinstance(criterion, monai.losses.DiceLoss):
+                if isinstance(criterion, (monai.losses.DiceLoss,
+                                          monai.losses.GeneralizedDiceLoss,
+                                          monai.losses.FocalLoss)):
                     batch_loss = criterion(outputs, labels.view(labels.shape[0], 1, labels.shape[1]))
                 else:
                     batch_loss = criterion(outputs, labels)
@@ -782,6 +799,9 @@ if __name__ == "__main__":
             else:
                 loss_kwargs = None
                 loss = nn.CrossEntropyLoss()
+        elif LOSS_FUNCTION == "gdl":
+            loss_kwargs = {"softmax": True, "reduction": "mean", "to_onehot_y": True}
+            loss = GeneralizedDiceLoss(**loss_kwargs)
         elif LOSS_FUNCTION == "gwdl":
             # Generalized-Wasserstein-Dice-Loss
             if N_CLASSES == 5:
@@ -802,8 +822,14 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
 
             loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
-        elif LOSS_FUNCTION == "focal_loss":
-            loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights, "reduction": "mean"}
+        elif LOSS_FUNCTION == "fl":
+            if weights is not None:
+                loss_kwargs = {"alpha": 1/max(weights), "gamma": 2.0, "weight": weights, "reduction": "mean",
+                               "to_onehot_y": True,
+                               "use_softmax": True}
+            else:
+                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "reduction": "mean",  "to_onehot_y": True,
+                               "use_softmax": True}
             loss = FocalLoss(**loss_kwargs)
         else:
             # cel
@@ -920,7 +946,7 @@ if __name__ == "__main__":
                 val_acc = metrics['aggregate_accuracy']
                 val_mcc = metrics["aggregate_mcc"]
                 tqdm_epochs.set_postfix(epoch_val_acc=f"{val_acc:.2f}")
-                tqdm_epochs.set_postfix(epoch_val_mcc=f"{val_mcc:.2f}")
+                tqdm_epochs.set_postfix(epoch_val_mcc=f"{float(val_mcc):.2f}")
 
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm, roc_info=roc_info,
