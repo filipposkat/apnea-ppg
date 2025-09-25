@@ -771,7 +771,7 @@ if __name__ == "__main__":
         # Define loss:
         if LOSS_FUNCTION == "dl":
             if weights is not None:
-                loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean"}
+                loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean", "to_onehot_y": True}
                 loss = DiceLoss(**loss_kwargs)
             else:
                 loss_kwargs = None
