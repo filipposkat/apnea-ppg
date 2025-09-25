@@ -1,5 +1,7 @@
 import random
 from typing import Tuple, Any
+
+import monai.losses
 import yaml
 from pathlib import Path
 import datetime,time
@@ -169,6 +171,7 @@ if LOSS_FUNCTION != "cel":
     elif LOSS_FUNCTION == "dl":
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
+        import monai
         from monai.losses import DiceLoss
     elif LOSS_FUNCTION == "focal_loss":
         from kornia.losses import FocalLoss
@@ -550,7 +553,10 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                 if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
                     batch_labels = torch.ravel(labels_by_window)
             else:
-                batch_loss = criterion(outputs, labels)
+                if isinstance(criterion, monai.losses.DiceLoss):
+                    batch_loss = criterion(outputs, labels.view(labels.shape[0], 1, labels.shape[1]))
+                else:
+                    batch_loss = criterion(outputs, labels)
                 if running_acc or (i + RUNNING_LOSS_PERIOD) >= batches:
                     batch_labels = torch.ravel(labels)
 
