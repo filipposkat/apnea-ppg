@@ -163,9 +163,11 @@ else:
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
+    import monai
     if LOSS_FUNCTION == "gwdl":
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
-        from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
+        # from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
+        from monai.losses import GeneralizedWassersteinDiceLoss
         if use_weighted_loss:
             print("WARNING: Loss function GWDL uses inherently weights which are calculated automatically. "
                   "'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
@@ -176,10 +178,8 @@ if LOSS_FUNCTION != "cel":
     elif LOSS_FUNCTION == "dl":
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
-        import monai
         from monai.losses import DiceLoss
     elif LOSS_FUNCTION == "gdl":
-        import monai
         from monai.losses import GeneralizedDiceLoss
         if use_weighted_loss:
             print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given class "
@@ -187,7 +187,6 @@ if LOSS_FUNCTION != "cel":
         else:
             print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
     elif LOSS_FUNCTION == "fl":
-        import monai
         from monai.losses import FocalLoss
         # from kornia.losses import FocalLoss
 
