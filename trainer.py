@@ -804,17 +804,17 @@ if __name__ == "__main__":
         elif LOSS_FUNCTION == "gwdl":
             # Generalized-Wasserstein-Dice-Loss
             if N_CLASSES == 5:
-                M = torch.tensor([[0.0, 1.0, 1.0, 0.7, 0.3],
-                                  [1.0, 0.0, 0.3, 0.5, 1.0],
-                                  [1.0, 0.3, 0.0, 0.5, 1.0],
-                                  [0.7, 0.5, 0.5, 0.0, 0.7],
-                                  [0.3, 1.0, 1.0, 0.7, 0.0]], dtype=torch.float32).to(device)
+                M = torch.tensor([[0.0, 2.0, 2.0, 1.7, 0.3],
+                                  [2.0, 0.0, 0.3, 0.5, 2.0],
+                                  [2.0, 0.3, 0.0, 0.5, 2.0],
+                                  [1.7, 0.5, 0.5, 0.0, 1.5],
+                                  [0.3, 2.0, 2.0, 1.5, 0.0]], dtype=torch.float32).to(device)
             else:
                 assert N_CLASSES == 4
-                M = torch.tensor([[0.0, 1.0, 1.0, 0.7],
-                                  [1.0, 0.0, 0.3, 0.5],
-                                  [1.0, 0.3, 0.0, 0.5],
-                                  [0.7, 0.5, 0.5, 0.0]], dtype=torch.float32).to(device)
+                M = torch.tensor([[0.0, 2.0, 2.0, 1.7],
+                                  [2.0, 0.0, 0.3, 0.5],
+                                  [2.0, 0.3, 0.0, 0.5],
+                                  [1.7, 0.5, 0.5, 0.0]], dtype=torch.float32).to(device)
             if use_weighted_loss:
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
             else:
