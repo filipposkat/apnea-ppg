@@ -955,7 +955,7 @@ if __name__ == "__main__":
                     # Check early stopping condition
                     es_metric = metrics[EARLY_STOPPING_METRIC]
                     es_metric = 0 if es_metric == "nan" else es_metric
-                    early_stopping.check_early_stop(metrics[EARLY_STOPPING_METRIC])
+                    early_stopping.check_early_stop(es_metric)
 
                     if early_stopping.stop_training:
                         print(f"Early stopping at epoch {epoch}")
