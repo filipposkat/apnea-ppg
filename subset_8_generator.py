@@ -490,8 +490,6 @@ def create_arrays(ids: list[int], split_dict):
 
     sub_seed_dict = {}
     rng_seed_pth = PATH_TO_SUBSET / "sub_seed_dict.plk"
-    split_index_dict = {}
-    split_index_pth = PATH_TO_SUBSET / "train_test_split_index_dict.plk"
 
     if rng_seed_pth.is_file():
         # Not first time generating the subset
