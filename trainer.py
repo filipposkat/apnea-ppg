@@ -385,9 +385,13 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
                 criterion_kwargs[k] = v.to(device)
         criterion = criterion_class(**criterion_kwargs)
     else:
+        print("WARNING: No criterion kwargs found in checkpoint. Using default criterion init values.")
         criterion_kwargs = None
         criterion = criterion_class()
-    criterion.load_state_dict(criterion_state_dict)
+    if isinstance(criterion, torch.nn.modules.loss._Loss):
+        criterion.load_state_dict(criterion_state_dict)
+    else:
+        print("INFO: Checkpoint criterion is not from the stock pytorch losses. Skipping loading state_dict.")
 
     lr_scheduler = None
     lr_scheduler_kwargs = None

@@ -929,8 +929,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
         apr_by_class[class_name] = apr
 
         pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
-                                        "average_precision": prec,
-                                        "average_recall": rec,
+                                        "average_precision": list(prec),
+                                        "average_recall": list(rec),
                                         "apr": apr}
 
     if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
