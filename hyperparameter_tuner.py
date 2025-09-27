@@ -199,7 +199,7 @@ def full_train_loop(train_config: dict):
                 lr_scheduler.step()
 
         if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
-            metrics, _, roc_info = test_loop(model=net, test_dataloader=test_loader, device=device,
+            metrics, _, roc_info, _ = test_loop(model=net, test_dataloader=test_loader, device=device,
                                              verbose=False,
                                              progress_bar=False)
             test_acc = float(metrics['aggregate_accuracy'])

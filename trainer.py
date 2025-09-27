@@ -4,7 +4,7 @@ from typing import Tuple, Any
 import monai.losses
 import yaml
 from pathlib import Path
-import datetime,time
+import datetime, time
 import json
 import torch
 import torch.nn as nn
@@ -22,7 +22,7 @@ from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched
 from UNet import UNet, ConvNet
 from UResIncNet import UResIncNet, ResIncNet
 from CombinedNet import CombinedNet
-from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs
+from tester import test_loop, save_metrics, save_confusion_matrix, save_rocs, save_prcs
 
 # --- START OF CONSTANTS --- #
 
@@ -164,10 +164,12 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
     import monai
+
     if LOSS_FUNCTION == "gwdl":
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
         # from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
         from monai.losses import GeneralizedWassersteinDiceLoss
+
         if use_weighted_loss:
             print("WARNING: Loss function GWDL uses inherently weights which are calculated automatically. "
                   "'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
@@ -181,6 +183,7 @@ if LOSS_FUNCTION != "cel":
         from monai.losses import DiceLoss
     elif LOSS_FUNCTION == "gdl":
         from monai.losses import GeneralizedDiceLoss
+
         if use_weighted_loss:
             print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given class "
                   "weights!")
@@ -225,6 +228,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
                     running_losses: list[float] = None, running_loss: float = None, running_accuracy: float = None,
                     test_metrics: dict = None, test_cm: list[list[float]] = None,
                     roc_info: dict[str: dict[str: list | float]] = None,
+                    pr_info: dict[str: dict[str: list | float]] = None,
                     device: str = "infer",
                     other_details: str = ""):
     """
@@ -247,6 +251,7 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
     :param test_metrics: A dictionary containing all relevant test metrics
     :param test_cm: Confusion matrix
     :param roc_info: dict with the test ROC curve data
+    :param pr_info: dict with the test PR curve data
     :param running_losses: The running period losses of the train loop
     :param running_loss: The last running loss in the epoch
     :param running_accuracy: The last running accuracy in the epoch
@@ -314,6 +319,9 @@ def save_checkpoint(net_type: str, identifier: str | int, epoch: int, batch: int
 
     if roc_info is not None:
         save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch, save_plot=True)
+
+    if pr_info is not None:
+        save_prcs(pr_info, net_type=net_type, identifier=identifier, epoch=epoch, batch=batch, save_plot=True)
 
     if running_losses is not None:
         running_loss = sum(running_losses) / len(running_losses)
@@ -827,7 +835,7 @@ if __name__ == "__main__":
                                "to_onehot_y": True,
                                "use_softmax": True}
             else:
-                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "reduction": "mean",  "to_onehot_y": True,
+                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "reduction": "mean", "to_onehot_y": True,
                                "use_softmax": True}
             loss = FocalLoss(**loss_kwargs)
         else:
@@ -939,9 +947,9 @@ if __name__ == "__main__":
 
             if TESTING_EPOCH_INTERVAL is not None and epoch % TESTING_EPOCH_INTERVAL == 0:
                 # print(f"Testing epoch: {epoch}")
-                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_loader, n_class=N_CLASSES,
-                                                  device=device, verbose=False,
-                                                  progress_bar=True)
+                metrics, cm, roc_info, pr_info = test_loop(model=net, test_dataloader=test_loader, n_class=N_CLASSES,
+                                                           device=device, verbose=False,
+                                                           progress_bar=True)
                 val_acc = metrics['aggregate_accuracy']
                 val_mcc = metrics["aggregate_mcc"]
                 tqdm_epochs.set_postfix(epoch_val_acc=f"{val_acc:.2f}")

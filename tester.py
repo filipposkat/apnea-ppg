@@ -1,3 +1,5 @@
+from typing import Tuple, Dict, Any
+
 import matplotlib.pyplot as plt
 import yaml
 from pathlib import Path
@@ -8,11 +10,11 @@ import seaborn as sns
 import json
 import os
 from tqdm import tqdm
-
+from sklearn.metrics import auc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchmetrics import ROC, AUROC
+from torchmetrics import ROC, AUROC, PrecisionRecallCurve
 from torchmetrics.functional import confusion_matrix, accuracy
 from torch.utils.data import DataLoader
 from torch.multiprocessing import Pool
@@ -85,6 +87,45 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 
 # --- END OF CONSTANTS --- #
+def save_prcs(pr_info_by_class: dict[str: dict[str: list | float]],
+              net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False, save_plot=True):
+    if cross_subject:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                        f"batch-{batch}-cross_test_prc.json")
+    else:
+        roc_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_prc.json")
+    with open(roc_path, 'w') as file:
+        json.dump(pr_info_by_class, file)
+
+    n_classes = len(pr_info_by_class.keys())
+    if save_plot:
+        if n_classes <= 6:
+            fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+        else:
+            fig, axs = plt.subplots(4, 2, figsize=(15, 20))
+        axs = axs.ravel()
+
+        if cross_subject:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
+                                             f"batch-{batch}-cross_test_prc.png")
+        else:
+            plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}-test_prc.png")
+        for c, class_name in enumerate(pr_info_by_class.keys()):
+            average_fpr = pr_info_by_class[class_name]["average_recall"]
+            average_tpr = pr_info_by_class[class_name]["average_precision"]
+            apr = pr_info_by_class[class_name]["apr"]
+
+            ax = axs[c]
+            ax.plot(average_fpr, average_tpr)
+            ax.set_title(f"Average PR curve for class: {class_name} with AUC: {apr:.2f}")
+            ax.set_xlim([0, 1])
+            ax.set_ylim([0, 1])
+            ax.set_xlabel("Recall")
+            ax.set_ylabel("Precision")
+        fig.savefig(str(plot_path))
+        plt.close(fig)
+
+
 def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
               net_type: str, identifier: str, epoch: int, batch: int, cross_subject=False, save_plot=True):
     if cross_subject:
@@ -688,7 +729,8 @@ def get_window_stats_new(window_labels: torch.tensor, window_predictions: torch.
 
 def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="cpu", max_batches=None,
               progress_bar=True, verbose=False, first_batch=0) \
-        -> tuple[dict[str: float], list[list[float]], dict[str: dict[str: list | float]]]:
+        -> tuple[dict[str | Any, float | Any], Any, dict[Any, dict[str, Any] | dict[str, Any]], dict[
+            Any, dict[str, float | Any] | dict[str, float | Any]]]:
     if verbose:
         print(datetime.datetime.now())
     loader = test_dataloader
@@ -706,17 +748,23 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     classes = [all_classes[c] for c in range(n_class)]
 
     thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100), device=device)
-    tprs_by_class = {c: [] for c in classes}
-    fprs_by_class = {c: [] for c in classes}
-    aucs_by_class = {c: [] for c in classes}
+
+    # ROC modules
+    roc = ROC(task="multiclass", thresholds=thresholds, num_classes=len(classes)).to(device)
+    auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=len(classes), average="none").to(device)
+
+    # PR curve modules:
+    pr = PrecisionRecallCurve(task="multiclass", thresholds=thresholds, num_classes=len(classes)).to(device)
 
     if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class >= 4:
         extra_class1 = "apnea"
         extra_class2 = "apnea-hypopnea"
-        for extra_class in (extra_class1, extra_class2):
-            tprs_by_class[extra_class] = []
-            fprs_by_class[extra_class] = []
-            aucs_by_class[extra_class] = []
+        extra_roc1 = ROC(task="binary", thresholds=thresholds).to(device)
+        extra_roc2 = ROC(task="binary", thresholds=thresholds).to(device)
+        extra_auroc1 = AUROC(task="binary", thresholds=thresholds).to(device)
+        extra_auroc2 = AUROC(task="binary", thresholds=thresholds).to(device)
+        extra_pr1 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(device)
+        extra_pr2 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(device)
 
     cm = torch.zeros((n_class, n_class), device=device)
     correct_pred = 0
@@ -775,15 +823,11 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 batch_labels = labels_by_window
 
             # Compute RoC:
-            roc = ROC(task="multiclass", thresholds=thresholds, num_classes=len(classes)).to(device)
-            auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=len(classes), average="none").to(device)
-            fprs, tprs, _ = roc(batch_output_probs, batch_labels)
-            aucs = auroc(batch_output_probs, batch_labels)
-            for c in range(len(classes)):
-                class_name = classes[c]
-                fprs_by_class[class_name].append(fprs[c, :])
-                tprs_by_class[class_name].append(tprs[c, :])
-                aucs_by_class[class_name].append(aucs[c])
+            roc.update(batch_output_probs, batch_labels)
+            auroc.update(batch_output_probs, batch_labels)
+
+            # Compute PR:
+            pr.update(batch_output_probs, batch_labels)
 
             # Add extra ROC curve:
             if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
@@ -793,16 +837,16 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 extra_class2 = "apnea-hypopnea"
                 extra_probs2 = batch_output_probs[:, 1, :] + batch_output_probs[:, 2, :] + batch_output_probs[:, 3, :]
                 extra_labels2 = (batch_labels == 1) | (batch_labels == 2) | (batch_labels == 3)
-                for extra_class, extra_probs, extra_labels in ((extra_class1, extra_probs1, extra_labels1),
-                                                               (extra_class2, extra_probs2, extra_labels2)):
-                    extra_roc = ROC(task="binary", thresholds=thresholds).to(device)
-                    extra_auroc = AUROC(task="binary", thresholds=thresholds).to(device)
-                    extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
-                    extra_auc = extra_auroc(extra_probs, extra_labels)
 
-                    fprs_by_class[extra_class].append(extra_fpr)
-                    tprs_by_class[extra_class].append(extra_tpr)
-                    aucs_by_class[extra_class].append(extra_auc)
+                # Compute extra ROCs:
+                extra_roc1.update(extra_probs1, extra_labels1)
+                extra_roc2.update(extra_probs2, extra_labels2)
+                extra_auroc1.update(extra_probs1, extra_labels1)
+                extra_auroc2.update(extra_probs2, extra_labels2)
+
+                # Compute extra PRs:
+                extra_pr1.update(extra_probs1, extra_labels1)
+                extra_pr2.update(extra_probs2, extra_labels2)
 
             # collect the correct predictions for each class
             if device == "cpu":
@@ -853,23 +897,65 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
 
     # Compute threshold average ROC for each class:
     roc_info_by_class = {}
-    average_auc_by_class = {}
-    for class_name in fprs_by_class.keys():
-        fprs = torch.stack(fprs_by_class[class_name], dim=0)
-        average_fpr = torch.mean(fprs, dim=0, keepdim=False)
-        tprs = torch.stack(tprs_by_class[class_name], dim=0)
-        average_tpr = torch.mean(tprs, dim=0, keepdim=False)
-        aucs = torch.tensor(aucs_by_class[class_name])
-        average_auc = torch.mean(aucs)
+    auroc_by_class = {}
+    fprs, tprs, _ = roc.compute()
+    agg_auroc = auroc.compute()
 
-        average_auc_by_class[class_name] = average_auc.item()
+    # Compute threshold average APR for each class:
+    pr_info_by_class = {}
+    apr_by_class = {}
+    precs, recs, _ = pr.compute()
+
+    # Gather in dictionaries:
+    for c in range(len(classes)):
+        class_name = classes[c]
+
+        # ROC
+        average_fpr = fprs[c, :]
+        average_tpr = tprs[c, :]
+        auroc_by_class[class_name] = agg_auroc[c].item()
 
         roc_info_by_class[class_name] = {
             "thresholds": thresholds.tolist(),
             "average_fpr": average_fpr.tolist(),
             "average_tpr": average_tpr.tolist(),
-            "average_auc": average_auc.item()
+            "average_auc": agg_auroc[c].item()
         }
+
+        # PR
+        prec = precs[c, :].detach().to('cpu').numpy()
+        rec = recs[c, :].detach().to('cpu').numpy()
+        apr = auc(rec, prec)
+        apr_by_class[class_name] = apr
+
+        pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                        "average_precision": prec,
+                                        "average_recall": rec,
+                                        "apr": apr}
+
+    if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
+        for (class_name, extra_roc, extra_auroc, extra_pr) in (("apnea", extra_roc1, extra_auroc1, extra_pr1),
+                                                               ("apnea-hypopnea", extra_roc2, extra_auroc2, extra_pr2)):
+            # Compute ROC for each class:
+            fprs, tprs, _ = extra_roc.compute()
+            agg_auroc = extra_auroc.compute()
+            auroc_by_class[class_name] = agg_auroc.item()
+
+            roc_info_by_class[class_name] = {
+                "thresholds": thresholds.tolist(),
+                "average_fpr": fprs.tolist(),
+                "average_tpr": tprs.tolist(),
+                "average_auc": agg_auroc.item()
+            }
+
+            # Compute APR for each class:
+            precs, recs, _ = pr.compute()
+            apr = auc(recs.detach().to('cpu').numpy(), precs.detach().to('cpu').numpy())
+            pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                            "average_precision": precs.tolist(),
+                                            "average_recall": recs.tolist(),
+                                            "apr": apr}
+            apr_by_class[class_name] = apr
 
     aggregate_acc = correct_pred / total_pred
     agg_mcc = multiclass_mcc(cm.detach().to('cpu').numpy())
@@ -894,7 +980,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     macro_rec = macro_average_recall(tp, fn, print_recall=verbose)
     macro_spec = macro_average_specificity(tn, fp, print_specificity=verbose)
     macro_f1 = macro_average_f1(tp, fp, fn, print_f1=verbose)
-    macro_auc = np.mean(list(average_auc_by_class.values()))
+    macro_auroc = np.mean(list(auroc_by_class.values()))
+    macro_apr = np.mean(list(apr_by_class.values()))
 
     # Note: In multiclass classification with symmetric costs, the micro average precision, recall,
     # and aggregate accuracy scores are mathematically equivalent because the sum of fp and sum of fn are equal.
@@ -905,7 +992,8 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                "macro_recall": macro_rec,
                "macro_spec": macro_spec,
                "macro_f1": macro_f1,
-               "macro_auc": macro_auc,
+               "macro_auroc": macro_auroc,
+               "macro_apr": macro_apr,
                "micro_accuracy": micro_acc,
                "micro_precision": micro_prec,
                "micro_recall": micro_rec,
@@ -917,13 +1005,14 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                "f1_by_class": f1_per_class,
                "specificity_by_class": spec_by_class,
                "mcc_by_class": mcc_per_class,
-               "average_auc_by_class": average_auc_by_class}
+               "auroc_by_class": auroc_by_class,
+               "apr_by_class": apr_by_class}
 
     if verbose:
         print('Finished Testing')
         print(datetime.datetime.now())
 
-    return metrics, cm.tolist(), roc_info_by_class
+    return metrics, cm.tolist(), roc_info_by_class, pr_info_by_class
 
 
 def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLoader, device=COMPUTE_PLATFORM,
@@ -948,13 +1037,14 @@ def test_all_checkpoints(net_type: str, identifier: str, test_dataloader: DataLo
                 net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e,
                                                                  batch=b,
                                                                  device=device)
-                metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                                  max_batches=max_batches, n_class=N_CLASSES,
-                                                  progress_bar=progress_bar, verbose=False)
+                metrics, cm, roc_info, pr_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                                           max_batches=max_batches, n_class=N_CLASSES,
+                                                           progress_bar=progress_bar, verbose=False)
                 save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
                 save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                                       batch=b)
                 save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
+                save_prcs(pr_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
 
             if pbar2 is not None:
                 pbar2.update(1)
@@ -984,15 +1074,17 @@ def test_all_epochs(net_type: str, identifier: str, test_dataloader: DataLoader,
             net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                              device=device)
 
-            metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                              max_batches=max_batches, n_class=N_CLASSES,
-                                              progress_bar=progress_bar, verbose=False)
+            metrics, cm, roc_info, pr_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                                       max_batches=max_batches, n_class=N_CLASSES,
+                                                       progress_bar=progress_bar, verbose=False)
 
             save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e,
                          batch=b, cross_subject=cross_subject)
             save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                                   batch=b, cross_subject=cross_subject)
             save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True,
+                      cross_subject=cross_subject)
+            save_prcs(pr_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True,
                       cross_subject=cross_subject)
         if progress_bar:
             pbar1.update(1)
@@ -1009,13 +1101,14 @@ def test_last_checkpoint(net_type: str, identifier: str, test_dataloader: DataLo
     if metrics is None:
         net, _, _, _, _, _, _, _, _, _ = load_checkpoint(net_type=net_type, identifier=identifier, epoch=e, batch=b,
                                                          device=device)
-        metrics, cm, roc_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
-                                          first_batch=first_batch, max_batches=max_batches, n_class=N_CLASSES,
-                                          progress_bar=progress_bar, verbose=False)
+        metrics, cm, roc_info, pr_info = test_loop(model=net, test_dataloader=test_dataloader, device=device,
+                                                   first_batch=first_batch, max_batches=max_batches, n_class=N_CLASSES,
+                                                   progress_bar=progress_bar, verbose=False)
         save_metrics(metrics=metrics, net_type=net_type, identifier=identifier, epoch=e, batch=b)
         save_confusion_matrix(confusion_matrix=cm, net_type=net_type, identifier=identifier, epoch=e,
                               batch=b)
         save_rocs(roc_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
+        save_prcs(pr_info, net_type=net_type, identifier=identifier, epoch=e, batch=b, save_plot=True)
 
 
 if __name__ == "__main__":
@@ -1094,10 +1187,15 @@ if __name__ == "__main__":
         macro_auc = [m["macro_auc"] for m in metrics]
     else:
         macro_auc = [np.mean(list(m["average_auc_by_class"].values())) for m in metrics]
+
+    if "macro_apr" in metrics[0].keys():
+        macro_apr = [m["macro_apr"] for m in metrics]
+    else:
+        macro_apr = None
+
     # fig, axis = plt.subplots(4, 2)
     plt.figure()
     plt.plot(epoch_frac, accuracies, label="accuracy")
-
 
     plt.plot(epoch_frac, macro_precisions, label="macro_precision")
     plt.plot(epoch_frac, macro_recalls, label="macro_recall")
@@ -1126,6 +1224,9 @@ if __name__ == "__main__":
 
     if mccs is not None:
         plt.plot(epoch_frac, mccs, label="mcc")
+
+    if macro_apr is not None:
+        plt.plot(epoch_frac, macro_apr, label="macro_APR")
 
     plt.legend()
     plt.xlabel("Epoch")

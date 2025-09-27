@@ -56,6 +56,7 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
+    COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     trainedOn_subset_id = int(config["variables"]["dataset"]["subset"])
     if "convert_spo2desat_to_normal" in config["variables"]["dataset"]:
         CONVERT_SPO2DESAT_TO_NORMAL = config["variables"]["dataset"]["convert_spo2desat_to_normal"]
@@ -81,6 +82,7 @@ if config is not None:
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
 else:
+    COMPUTE_PLATFORM = "cpu"
     trainedOn_subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
     N_INPUT_CHANNELS = 1
@@ -457,7 +459,10 @@ if __name__ == "__main__":
                 N_CLASSES = 4
 
             if torch.cuda.is_available():
-                test_device = torch.device("cuda:0")
+                if "cuda:" in COMPUTE_PLATFORM:
+                    test_device = torch.device(COMPUTE_PLATFORM)
+                else:
+                    test_device = torch.device("cuda:0")
             elif torch.backends.mps.is_available():
                 test_device = torch.device("mps")
             else:
@@ -553,7 +558,10 @@ if __name__ == "__main__":
                                                             f"epoch-{EPOCH}")
 
         if torch.cuda.is_available():
-            test_device = torch.device("cuda:0")
+            if "cuda:" in COMPUTE_PLATFORM:
+                test_device = torch.device(COMPUTE_PLATFORM)
+            else:
+                test_device = torch.device("cuda:0")
         elif torch.backends.mps.is_available():
             test_device = torch.device("mps")
         else:
@@ -578,6 +586,10 @@ if __name__ == "__main__":
                 cm = np.array(json.load(file))
             with open(agg_path / "per_sample_cross_test_roc_info.json", 'r') as file:
                 roc_info_by_class = json.load(file)
+            pr_info_by_class = None
+            if agg_path.joinpath("per_sample_cross_test_pr_info.json").exists():
+                with open(agg_path / "per_sample_cross_test_roc_info.json", 'r') as file:
+                    pr_info_by_class = json.load(file)
 
             n_class = cm.shape[0]
             classes = all_classes[0:n_class]
@@ -700,7 +712,7 @@ if __name__ == "__main__":
 
                 n_class = prediction_probas.shape[1]
                 if classes is None:
-                    # Runs only once at the beggining:
+                    # Runs only once at the beginning:
                     classes = [all_classes[c] for c in range(n_class)]
                     validation_cm1 = np.zeros((n_class, n_class))
                     validation_cm2 = np.zeros((n_class, n_class))
