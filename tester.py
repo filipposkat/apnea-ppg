@@ -1191,7 +1191,10 @@ if __name__ == "__main__":
     macro_f1s = [m["macro_f1"] for m in metrics]
     if "macro_auc" in metrics[0].keys():
         macro_auc = [m["macro_auc"] for m in metrics]
+    elif "average_auroc_by_class" in metrics[0].keys():
+        macro_auc = [np.mean(list(m["average_auroc_by_class"].values())) for m in metrics]
     else:
+        # Depreciated naming
         macro_auc = [np.mean(list(m["average_auc_by_class"].values())) for m in metrics]
 
     if "macro_apr" in metrics[0].keys():
