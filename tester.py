@@ -931,7 +931,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
         pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
                                         "average_precision": list(prec),
                                         "average_recall": list(rec),
-                                        "apr": apr}
+                                        "apr": float(apr)}
 
     if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
         for (class_name, extra_roc, extra_auroc, extra_pr) in (("apnea", extra_roc1, extra_auroc1, extra_pr1),
@@ -954,7 +954,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
                                             "average_precision": precs.tolist(),
                                             "average_recall": recs.tolist(),
-                                            "apr": apr}
+                                            "apr": float(apr)}
             apr_by_class[class_name] = apr
 
     aggregate_acc = correct_pred / total_pred
