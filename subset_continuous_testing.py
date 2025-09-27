@@ -540,8 +540,8 @@ if __name__ == "__main__":
             # plt.show()
             # plt.close()
     else:
-        from sklearn.metrics import confusion_matrix
-        from torchmetrics import ROC, AUROC
+        from sklearn.metrics import confusion_matrix, auc
+        from torchmetrics import ROC, AUROC, PrecisionRecallCurve
         from adjusted_test_stats import get_stats_from_cm, get_metrics_from_cm, classification_performance, \
             merged_classes_assesment, merge_sum_columns
 
@@ -640,7 +640,8 @@ if __name__ == "__main__":
 
             n_class = test_cm1.shape[0]
             classes = all_classes[0:n_class]
-            metrics = classification_performance(cm=test_cm1, plot_confusion=True, target_labels=classes, normalize=NORMALIZE)
+            metrics = classification_performance(cm=test_cm1, plot_confusion=True, target_labels=classes,
+                                                 normalize=NORMALIZE)
             merged_metrics = merged_classes_assesment(test_cm1, desired_classes=DERSIRED_MERGED_CLASSES,
                                                       normalize=NORMALIZE)
 
@@ -682,16 +683,21 @@ if __name__ == "__main__":
             test_cm1: np.ndarray
             test_cm2: np.ndarray
 
+            # Thresholds for ROC and PRC computation:
             thresholds = torch.tensor(np.linspace(start=0, stop=1, num=100))
-            validation_tprs_by_class = {}
-            validation_fprs_by_class = {}
-            validation_aucs_by_class = {}
-            test_tprs_by_class = {}
-            test_fprs_by_class = {}
-            test_aucs_by_class = {}
+            val_roc, val_pr, val_extra_roc1, val_extra_pr1, val_extra_roc2, val_extra_pr2 = (None, None, None,
+                                                                                             None, None, None)
+            test_roc, test_pr, test_extra_roc1, test_extra_pr1, test_extra_roc2, test_extra_pr2 = (None, None, None,
+                                                                                                   None, None, None)
+            # validation_tprs_by_class = {}
+            # validation_fprs_by_class = {}
+            # validation_aucs_by_class = {}
+            # test_tprs_by_class = {}
+            # test_fprs_by_class = {}
+            # test_aucs_by_class = {}
 
             for sub_id in tqdm(sub_ids):
-                if sub_id in train_ids:
+                if sub_id in validation_ids:
                     sub_path = results_path.joinpath("validation-subjects")
                 else:
                     sub_path = results_path.joinpath("cross-test-subjects")
@@ -714,28 +720,47 @@ if __name__ == "__main__":
                 if classes is None:
                     # Runs only once at the beginning:
                     classes = [all_classes[c] for c in range(n_class)]
+
+                    # ROC modules:
+                    val_roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
+                    test_roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
+
+                    # PR curve modules:
+                    val_pr = (PrecisionRecallCurve(task="multiclass", thresholds=thresholds, num_classes=n_class)
+                              .to(test_device))
+                    test_pr = (PrecisionRecallCurve(task="multiclass", thresholds=thresholds, num_classes=n_class)
+                               .to(test_device))
+
                     validation_cm1 = np.zeros((n_class, n_class))
                     validation_cm2 = np.zeros((n_class, n_class))
-                    validation_tprs_by_class = {c: [] for c in classes}
-                    validation_fprs_by_class = {c: [] for c in classes}
-                    validation_aucs_by_class = {c: [] for c in classes}
+                    # validation_tprs_by_class = {c: [] for c in classes}
+                    # validation_fprs_by_class = {c: [] for c in classes}
+                    # validation_aucs_by_class = {c: [] for c in classes}
 
                     test_cm1 = np.zeros((n_class, n_class))
                     test_cm2 = np.zeros((n_class, n_class))
-                    test_tprs_by_class = {c: [] for c in classes}
-                    test_fprs_by_class = {c: [] for c in classes}
-                    test_aucs_by_class = {c: [] for c in classes}
+                    # test_tprs_by_class = {c: [] for c in classes}
+                    # test_fprs_by_class = {c: [] for c in classes}
+                    # test_aucs_by_class = {c: [] for c in classes}
                     if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
                         extra_class1 = "apnea"
                         extra_class2 = "apnea-hypopnea"
-                        for extra_class in (extra_class1, extra_class2):
-                            validation_tprs_by_class[extra_class] = []
-                            validation_fprs_by_class[extra_class] = []
-                            validation_aucs_by_class[extra_class] = []
-
-                            test_tprs_by_class[extra_class] = []
-                            test_fprs_by_class[extra_class] = []
-                            test_aucs_by_class[extra_class] = []
+                        val_extra_roc1 = ROC(task="binary", thresholds=thresholds).to(test_device)
+                        val_extra_roc2 = ROC(task="binary", thresholds=thresholds).to(test_device)
+                        val_extra_pr1 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(test_device)
+                        val_extra_pr2 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(test_device)
+                        test_extra_roc1 = ROC(task="binary", thresholds=thresholds).to(test_device)
+                        test_extra_roc2 = ROC(task="binary", thresholds=thresholds).to(test_device)
+                        test_extra_pr1 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(test_device)
+                        test_extra_pr2 = PrecisionRecallCurve(task="binary", thresholds=thresholds).to(test_device)
+                        # for extra_class in (extra_class1, extra_class2):
+                        #     validation_tprs_by_class[extra_class] = []
+                        #     validation_fprs_by_class[extra_class] = []
+                        #     validation_aucs_by_class[extra_class] = []
+                        #
+                        #     test_tprs_by_class[extra_class] = []
+                        #     test_fprs_by_class[extra_class] = []
+                        #     test_aucs_by_class[extra_class] = []
 
                 length = len(labels)
 
@@ -760,25 +785,41 @@ if __name__ == "__main__":
                     per_window_probas = np.array([np.mean(win, axis=0) for win in seg_prediction_probas])
                     per_window_labels = np.array([get_window_label(win)[0] for win in seg_labels])
 
-                # RoC curve for this subject:
-                roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
-                auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(
-                    test_device)
-                fprs, tprs, _ = roc(torch.tensor(per_window_probas).to(test_device),
-                                    torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
-                aucs = auroc(torch.tensor(per_window_probas).to(test_device),
-                             torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+                if sub_id in validation_ids:
+                    # RoC curve for this subject:
+                    val_roc.update(torch.tensor(per_window_probas).to(test_device),
+                                   torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
 
-                for c in range(n_class):
-                    class_name = classes[c]
-                    if sub_id in train_ids:
-                        validation_fprs_by_class[class_name].append(fprs[c, :])
-                        validation_tprs_by_class[class_name].append(tprs[c, :])
-                        validation_aucs_by_class[class_name].append(aucs[c])
-                    else:
-                        test_fprs_by_class[class_name].append(fprs[c, :])
-                        test_tprs_by_class[class_name].append(tprs[c, :])
-                        test_aucs_by_class[class_name].append(aucs[c])
+                    # PR curve for this subject:
+                    val_pr.update(torch.tensor(per_window_probas).to(test_device),
+                                  torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+                else:
+                    # RoC curve for this subject:
+                    test_roc.update(torch.tensor(per_window_probas).to(test_device),
+                                    torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+
+                    # PR curve for this subject:
+                    test_pr.update(torch.tensor(per_window_probas).to(test_device),
+                                   torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+
+                # roc = ROC(task="multiclass", thresholds=thresholds, num_classes=n_class).to(test_device)
+                # auroc = AUROC(task="multiclass", thresholds=thresholds, num_classes=n_class, average="none").to(
+                #     test_device)
+                # fprs, tprs, _ = roc(torch.tensor(per_window_probas).to(test_device),
+                #                     torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+                # aucs = auroc(torch.tensor(per_window_probas).to(test_device),
+                #              torch.tensor(per_window_labels, dtype=torch.int64).to(test_device))
+                #
+                # for c in range(n_class):
+                #     class_name = classes[c]
+                #     if sub_id in validation_ids:
+                #         validation_fprs_by_class[class_name].append(fprs[c, :])
+                #         validation_tprs_by_class[class_name].append(tprs[c, :])
+                #         validation_aucs_by_class[class_name].append(aucs[c])
+                #     else:
+                #         test_fprs_by_class[class_name].append(fprs[c, :])
+                #         test_tprs_by_class[class_name].append(tprs[c, :])
+                #         test_aucs_by_class[class_name].append(aucs[c])
 
                 if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class == 5:
 
@@ -789,25 +830,41 @@ if __name__ == "__main__":
                     extra_class2 = "apnea-hypopnea"
                     extra_probs2 = extra_probs1 + per_window_probas[:, 3]
                     extra_labels2 = (per_window_labels == 1) | (per_window_labels == 2) | (per_window_labels == 3)
+                    if sub_id in validation_ids:
+                        val_extra_roc1.update(torch.tensor(extra_probs1),
+                                              torch.tensor(extra_labels1, dtype=torch.int64))
+                        val_extra_pr1.update(torch.tensor(extra_probs1), torch.tensor(extra_labels1, dtype=torch.int64))
+                        val_extra_roc2.update(torch.tensor(extra_probs2),
+                                              torch.tensor(extra_labels2, dtype=torch.int64))
+                        val_extra_pr2.update(torch.tensor(extra_probs2), torch.tensor(extra_labels2, dtype=torch.int64))
+                    else:
+                        test_extra_roc1.update(torch.tensor(extra_probs1),
+                                               torch.tensor(extra_labels1, dtype=torch.int64))
+                        test_extra_pr1.update(torch.tensor(extra_probs1),
+                                              torch.tensor(extra_labels1, dtype=torch.int64))
+                        test_extra_roc2.update(torch.tensor(extra_probs2),
+                                               torch.tensor(extra_labels2, dtype=torch.int64))
+                        test_extra_pr2.update(torch.tensor(extra_probs2),
+                                              torch.tensor(extra_labels2, dtype=torch.int64))
 
-                    for (extra_class, extra_probs, extra_labels) in ((extra_class1, extra_probs1, extra_labels1),
-                                                                     (extra_class2, extra_probs2, extra_labels2)):
-                        extra_probs = torch.tensor(extra_probs)
-                        extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
-
-                        extra_roc = ROC(task="binary", thresholds=thresholds)
-                        extra_auroc = AUROC(task="binary", thresholds=thresholds)
-                        extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
-                        extra_auc = extra_auroc(extra_probs, extra_labels)
-
-                        if sub_id in train_ids:
-                            validation_fprs_by_class[extra_class].append(extra_fpr)
-                            validation_tprs_by_class[extra_class].append(extra_tpr)
-                            validation_aucs_by_class[extra_class].append(extra_auc)
-                        else:
-                            test_fprs_by_class[extra_class].append(extra_fpr)
-                            test_tprs_by_class[extra_class].append(extra_tpr)
-                            test_aucs_by_class[extra_class].append(extra_auc)
+                    # for (extra_class, extra_probs, extra_labels) in ((extra_class1, extra_probs1, extra_labels1),
+                    #                                                  (extra_class2, extra_probs2, extra_labels2)):
+                    #     extra_probs = torch.tensor(extra_probs)
+                    #     extra_labels = torch.tensor(extra_labels, dtype=torch.int64)
+                    #
+                    #     extra_roc = ROC(task="binary", thresholds=thresholds)
+                    #     extra_auroc = AUROC(task="binary", thresholds=thresholds)
+                    #     extra_fpr, extra_tpr, _ = extra_roc(extra_probs, extra_labels)
+                    #     extra_auc = extra_auroc(extra_probs, extra_labels)
+                    #
+                    #     if sub_id in validation_ids:
+                    #         validation_fprs_by_class[extra_class].append(extra_fpr)
+                    #         validation_tprs_by_class[extra_class].append(extra_tpr)
+                    #         validation_aucs_by_class[extra_class].append(extra_auc)
+                    #     else:
+                    #         test_fprs_by_class[extra_class].append(extra_fpr)
+                    #         test_tprs_by_class[extra_class].append(extra_tpr)
+                    #         test_aucs_by_class[extra_class].append(extra_auc)
 
                 # Confusion matrix for this subject
                 sub_cm1 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds1,
@@ -819,68 +876,142 @@ if __name__ == "__main__":
                     sub_cm2 = confusion_matrix(y_true=per_window_labels, y_pred=per_window_preds2,
                                                labels=np.arange(n_class), normalize=None)
 
-                if sub_id in train_ids:
+                if sub_id in validation_ids:
                     validation_cm1 += sub_cm1
                     validation_cm2 += sub_cm2
                 else:
                     test_cm1 += sub_cm1
                     test_cm2 += sub_cm2
 
-            # Compute threshold average ROC for each class, across subjects:
+            # Compute threshold average ROC for each class:
             validation_roc_info_by_class = {}
-            validation_average_auc_by_class = {}
+            val_fprs, val_tprs, _ = val_roc.compute()
             cross_test_roc_info_by_class = {}
-            cross_test_average_auc_by_class = {}
-            for class_name in test_fprs_by_class.keys():
-                # For test:
-                fprs = torch.stack(test_fprs_by_class[class_name], dim=0)
-                average_fpr = torch.mean(fprs, dim=0, keepdim=False)
-                tprs = torch.stack(test_tprs_by_class[class_name], dim=0)
-                average_tpr = torch.mean(tprs, dim=0, keepdim=False)
-                aucs = torch.tensor(test_aucs_by_class[class_name])
-                average_auc = torch.mean(aucs)
+            cross_test_auroc_by_class = {}
+            test_fprs, test_tprs, _ = test_roc.compute()
 
-                cross_test_average_auc_by_class[class_name] = average_auc.item()
-
-                cross_test_roc_info_by_class[class_name] = {
-                    "thresholds": thresholds.tolist(),
-                    "average_fpr": average_fpr.tolist(),
-                    "average_tpr": average_tpr.tolist(),
-                    "average_auc": average_auc.item()
-                }
-                # Now for validation
-                fprs = torch.stack(validation_fprs_by_class[class_name], dim=0)
-                average_fpr = torch.mean(fprs, dim=0, keepdim=False)
-                tprs = torch.stack(validation_tprs_by_class[class_name], dim=0)
-                average_tpr = torch.mean(tprs, dim=0, keepdim=False)
-                aucs = torch.tensor(validation_aucs_by_class[class_name])
-                average_auc = torch.mean(aucs)
-
-                validation_average_auc_by_class[class_name] = average_auc.item()
-
+            # Compute threshold average APR for each class:
+            validation_pr_info_by_class = {}
+            val_precs, val_recs, _ = val_pr.compute()
+            cross_test_pr_info_by_class = {}
+            cross_test_apr_by_class = {}
+            test_precs, test_recs, _ = test_pr.compute()
+            # Gather in dictionaries:
+            for c in range(len(classes)):
+                class_name = classes[c]
+                # Validation:
+                # ROC
+                average_fpr = val_fprs[c, :].detach().to('cpu').numpy()
+                average_tpr = val_tprs[c, :].detach().to('cpu').numpy()
+                auroc = auc(average_fpr, average_tpr)
                 validation_roc_info_by_class[class_name] = {
                     "thresholds": thresholds.tolist(),
                     "average_fpr": average_fpr.tolist(),
                     "average_tpr": average_tpr.tolist(),
-                    "average_auc": average_auc.item()
+                    "average_auc": float(auroc)
                 }
+
+                # PR
+                prec = val_precs[c, :].detach().to('cpu').numpy()
+                rec = val_recs[c, :].detach().to('cpu').numpy()
+                apr = auc(rec, prec)
+                validation_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                                           "average_precision": prec.tolist(),
+                                                           "average_recall": rec.tolist(),
+                                                           "apr": float(apr)}
+                # Now for test:
+                # ROC
+                average_fpr = test_fprs[c, :].detach().to('cpu').numpy()
+                average_tpr = test_tprs[c, :].detach().to('cpu').numpy()
+                auroc = auc(average_fpr, average_tpr)
+                cross_test_roc_info_by_class[class_name] = {
+                    "thresholds": thresholds.tolist(),
+                    "average_fpr": average_fpr.tolist(),
+                    "average_tpr": average_tpr.tolist(),
+                    "average_auc": float(auroc)
+                }
+
+                # PR
+                prec = test_precs[c, :].detach().to('cpu').numpy()
+                rec = test_recs[c, :].detach().to('cpu').numpy()
+                apr = auc(rec, prec)
+                cross_test_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                                           "average_precision": prec.tolist(),
+                                                           "average_recall": rec.tolist(),
+                                                           "apr": float(apr)}
+
+            # # Compute threshold average ROC for each class, across subjects:
+            # validation_roc_info_by_class = {}
+            # validation_average_auc_by_class = {}
+            # cross_test_roc_info_by_class = {}
+            # cross_test_average_auc_by_class = {}
+            # for class_name in test_fprs_by_class.keys():
+            #     # For test:
+            #     fprs = torch.stack(test_fprs_by_class[class_name], dim=0)
+            #     average_fpr = torch.mean(fprs, dim=0, keepdim=False)
+            #     tprs = torch.stack(test_tprs_by_class[class_name], dim=0)
+            #     average_tpr = torch.mean(tprs, dim=0, keepdim=False)
+            #     aucs = torch.tensor(test_aucs_by_class[class_name])
+            #     average_auc = torch.mean(aucs)
+            #
+            #     cross_test_average_auc_by_class[class_name] = average_auc.item()
+            #
+            #     cross_test_roc_info_by_class[class_name] = {
+            #         "thresholds": thresholds.tolist(),
+            #         "average_fpr": average_fpr.tolist(),
+            #         "average_tpr": average_tpr.tolist(),
+            #         "average_auc": average_auc.item()
+            #     }
+            #     # Now for validation
+            #     fprs = torch.stack(validation_fprs_by_class[class_name], dim=0)
+            #     average_fpr = torch.mean(fprs, dim=0, keepdim=False)
+            #     tprs = torch.stack(validation_tprs_by_class[class_name], dim=0)
+            #     average_tpr = torch.mean(tprs, dim=0, keepdim=False)
+            #     aucs = torch.tensor(validation_aucs_by_class[class_name])
+            #     average_auc = torch.mean(aucs)
+            #
+            #     validation_average_auc_by_class[class_name] = average_auc.item()
+            #
+            #     validation_roc_info_by_class[class_name] = {
+            #         "thresholds": thresholds.tolist(),
+            #         "average_fpr": average_fpr.tolist(),
+            #         "average_tpr": average_tpr.tolist(),
+            #         "average_auc": average_auc.item()
+            #     }
 
             # Save ROC info:
             if PER_SAMPLE_TESTING:
+                # ROC
                 with open(agg_path / "per_sample_validation_roc_info.json", 'w') as file:
                     json.dump(validation_roc_info_by_class, file)
                 with open(agg_path / "per_sample_cross_test_roc_info.json", 'w') as file:
                     json.dump(cross_test_roc_info_by_class, file)
                 validation_plot_path = agg_path.joinpath(f"per_sample_validation_roc.png")
                 cross_test_plot_path = agg_path.joinpath(f"per_sample_cross_test_roc.png")
+                # PR
+                with open(agg_path / "per_sample_validation_pr_info.json", 'w') as file:
+                    json.dump(validation_pr_info_by_class, file)
+                with open(agg_path / "per_sample_cross_test_pr_info.json", 'w') as file:
+                    json.dump(cross_test_pr_info_by_class, file)
+                validation_pr_plot_path = agg_path.joinpath(f"per_sample_validation_pr.png")
+                cross_test_pr_plot_path = agg_path.joinpath(f"per_sample_cross_test_pr.png")
             else:
+                # ROC
                 with open(agg_path / "aggregate_validation_roc_info.json", 'w') as file:
                     json.dump(validation_roc_info_by_class, file)
                 with open(agg_path / "aggregate_cross_test_roc_info.json", 'w') as file:
                     json.dump(cross_test_roc_info_by_class, file)
                 validation_plot_path = agg_path.joinpath(f"aggregate_validation_roc.png")
                 cross_test_plot_path = agg_path.joinpath(f"aggregate_cross_test_roc.png")
+                # PR
+                with open(agg_path / "aggregate_validation_pr_info.json", 'w') as file:
+                    json.dump(validation_pr_info_by_class, file)
+                with open(agg_path / "aggregate_cross_test_pr_info.json", 'w') as file:
+                    json.dump(cross_test_pr_info_by_class, file)
+                validation_pr_plot_path = agg_path.joinpath(f"aggregate_validation_pr.png")
+                cross_test_pr_plot_path = agg_path.joinpath(f"aggregate_cross_test_pr.png")
 
+            # Save info and plots
             for (roc_info_by_class, plot_path) in ((validation_roc_info_by_class, validation_plot_path),
                                                    (cross_test_roc_info_by_class, cross_test_plot_path)):
                 # Save the ROC plot:
@@ -902,6 +1033,30 @@ if __name__ == "__main__":
                     ax.set_ylim([0, 1])
                     ax.set_xlabel("FPR")
                     ax.set_ylabel("TPR")
+                fig.savefig(str(plot_path))
+                plt.close(fig)
+
+            for (pr_info_by_class, plot_path) in ((validation_pr_info_by_class, validation_pr_plot_path),
+                                                  (cross_test_pr_info_by_class, cross_test_pr_plot_path)):
+                # Save the ROC plot:
+                if len(pr_info_by_class.keys()) <= 6:
+                    fig, axs = plt.subplots(3, 2, figsize=(15, 15))
+                else:
+                    fig, axs = plt.subplots(4, 2, figsize=(15, 20))
+                axs = axs.ravel()
+
+                for c, class_name in enumerate(pr_info_by_class.keys()):
+                    average_recall = pr_info_by_class[class_name]["average_recall"]
+                    average_precision = pr_info_by_class[class_name]["average_precision"]
+                    apr = pr_info_by_class[class_name]["apr"]
+
+                    ax = axs[c]
+                    ax.plot(average_recall, average_precision)
+                    ax.set_title(f"Average PR curve for class: {class_name} with AUC: {apr:.2f}")
+                    ax.set_xlim([0, 1])
+                    ax.set_ylim([0, 1])
+                    ax.set_xlabel("Recall")
+                    ax.set_ylabel("Precision")
                 fig.savefig(str(plot_path))
                 plt.close(fig)
 

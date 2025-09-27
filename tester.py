@@ -39,7 +39,7 @@ CROSS_SUBJECT_TESTING = False
 TEST_MODEL = True
 OVERWRITE_METRICS = False
 START_FROM_LAST_EPOCH = False
-CALCULATE_ROC_FOR_MERGED_CLASSES = True
+CALCULATE_CURVES_FOR_MERGED_CLASSES = True
 
 if __name__ == "__main__" and (BATCH_SIZE_TEST == "auto" or BATCH_SIZE_CROSS_TEST == "auto"):
     _, available_test_bs, available_cross_test_bs = get_available_batch_sizes()
@@ -156,7 +156,7 @@ def save_rocs(roc_info_by_class: dict[str: dict[str: list | float]],
 
             ax = axs[c]
             ax.plot(average_fpr, average_tpr)
-            ax.set_title(f"Average ROC for class: {class_name} with average AUC: {average_auc:.2f}")
+            ax.set_title(f"Average ROC for class: {class_name} with AUC: {average_auc:.2f}")
             ax.set_xlim([0, 1])
             ax.set_ylim([0, 1])
             ax.set_xlabel("FPR")
@@ -756,7 +756,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
     # PR curve modules:
     pr = PrecisionRecallCurve(task="multiclass", thresholds=thresholds, num_classes=len(classes)).to(device)
 
-    if CALCULATE_ROC_FOR_MERGED_CLASSES and n_class >= 4:
+    if CALCULATE_CURVES_FOR_MERGED_CLASSES and n_class >= 4:
         extra_class1 = "apnea"
         extra_class2 = "apnea-hypopnea"
         extra_roc1 = ROC(task="binary", thresholds=thresholds).to(device)
@@ -830,7 +830,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             pr.update(batch_output_probs, batch_labels)
 
             # Add extra ROC curve:
-            if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
+            if CALCULATE_CURVES_FOR_MERGED_CLASSES and len(classes) >= 4:
                 extra_class1 = "apnea"
                 extra_probs1 = batch_output_probs[:, 1, :] + batch_output_probs[:, 2, :]
                 extra_labels1 = (batch_labels == 1) | (batch_labels == 2)
@@ -933,7 +933,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                                         "average_recall": rec.tolist(),
                                         "apr": float(apr)}
 
-    if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
+    if CALCULATE_CURVES_FOR_MERGED_CLASSES and len(classes) >= 4:
         for (class_name, extra_roc, extra_auroc, extra_pr) in (("apnea", extra_roc1, extra_auroc1, extra_pr1),
                                                                ("apnea-hypopnea", extra_roc2, extra_auroc2, extra_pr2)):
             # Compute ROC for each class:
