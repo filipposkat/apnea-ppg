@@ -395,7 +395,7 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
         try:
             criterion.load_state_dict(criterion_state_dict)
         except RuntimeError:
-            print("INFO: Checkpoint criterion may not support state_dict loading. Skipping loading.")
+            # print("INFO: Checkpoint criterion may not support state_dict loading. Skipping loading.")
 
     lr_scheduler = None
     lr_scheduler_kwargs = None
