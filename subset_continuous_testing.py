@@ -989,12 +989,12 @@ if __name__ == "__main__":
                 validation_plot_path = agg_path.joinpath(f"per_sample_validation_roc.png")
                 cross_test_plot_path = agg_path.joinpath(f"per_sample_cross_test_roc.png")
                 # PR
-                with open(agg_path / "per_sample_validation_pr_info.json", 'w') as file:
+                with open(agg_path / "per_sample_validation_prc_info.json", 'w') as file:
                     json.dump(validation_pr_info_by_class, file)
-                with open(agg_path / "per_sample_cross_test_pr_info.json", 'w') as file:
+                with open(agg_path / "per_sample_cross_test_prc_info.json", 'w') as file:
                     json.dump(cross_test_pr_info_by_class, file)
-                validation_pr_plot_path = agg_path.joinpath(f"per_sample_validation_pr.png")
-                cross_test_pr_plot_path = agg_path.joinpath(f"per_sample_cross_test_pr.png")
+                validation_pr_plot_path = agg_path.joinpath(f"per_sample_validation_prc.png")
+                cross_test_pr_plot_path = agg_path.joinpath(f"per_sample_cross_test_prc.png")
             else:
                 # ROC
                 with open(agg_path / "aggregate_validation_roc_info.json", 'w') as file:
@@ -1004,12 +1004,12 @@ if __name__ == "__main__":
                 validation_plot_path = agg_path.joinpath(f"aggregate_validation_roc.png")
                 cross_test_plot_path = agg_path.joinpath(f"aggregate_cross_test_roc.png")
                 # PR
-                with open(agg_path / "aggregate_validation_pr_info.json", 'w') as file:
+                with open(agg_path / "aggregate_validation_prc_info.json", 'w') as file:
                     json.dump(validation_pr_info_by_class, file)
-                with open(agg_path / "aggregate_cross_test_pr_info.json", 'w') as file:
+                with open(agg_path / "aggregate_cross_test_prc_info.json", 'w') as file:
                     json.dump(cross_test_pr_info_by_class, file)
-                validation_pr_plot_path = agg_path.joinpath(f"aggregate_validation_pr.png")
-                cross_test_pr_plot_path = agg_path.joinpath(f"aggregate_cross_test_pr.png")
+                validation_pr_plot_path = agg_path.joinpath(f"aggregate_validation_prc.png")
+                cross_test_pr_plot_path = agg_path.joinpath(f"aggregate_cross_test_prc.png")
 
             # Save info and plots
             for (roc_info_by_class, plot_path) in ((validation_roc_info_by_class, validation_plot_path),
