@@ -887,14 +887,12 @@ if __name__ == "__main__":
             validation_roc_info_by_class = {}
             val_fprs, val_tprs, _ = val_roc.compute()
             cross_test_roc_info_by_class = {}
-            cross_test_auroc_by_class = {}
             test_fprs, test_tprs, _ = test_roc.compute()
 
             # Compute threshold average APR for each class:
             validation_pr_info_by_class = {}
             val_precs, val_recs, _ = val_pr.compute()
             cross_test_pr_info_by_class = {}
-            cross_test_apr_by_class = {}
             test_precs, test_recs, _ = test_pr.compute()
             # Gather in dictionaries:
             for c in range(len(classes)):
@@ -912,12 +910,14 @@ if __name__ == "__main__":
                 }
 
                 # PR
-                prec = val_precs[c, :].detach().to('cpu').numpy()
-                rec = val_recs[c, :].detach().to('cpu').numpy()
-                apr = auc(rec, prec)
+                precs = val_precs[c, :].detach().to('cpu').numpy()
+                recs = val_recs[c, :].detach().to('cpu').numpy()
+                # Remove NaNs
+                valid = ~(np.isnan(precs) | np.isnan(recs))
+                apr = auc(recs[valid], precs[valid])
                 validation_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
-                                                           "average_precision": prec.tolist(),
-                                                           "average_recall": rec.tolist(),
+                                                           "average_precision": precs.tolist(),
+                                                           "average_recall": recs.tolist(),
                                                            "apr": float(apr)}
                 # Now for test:
                 # ROC
@@ -932,14 +932,68 @@ if __name__ == "__main__":
                 }
 
                 # PR
-                prec = test_precs[c, :].detach().to('cpu').numpy()
-                rec = test_recs[c, :].detach().to('cpu').numpy()
-                apr = auc(rec, prec)
+                precs = test_precs[c, :].detach().to('cpu').numpy()
+                recs = test_recs[c, :].detach().to('cpu').numpy()
+                # Remove NaNs
+                valid = ~(np.isnan(precs) | np.isnan(recs))
+                apr = auc(recs[valid], precs[valid])
                 cross_test_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
-                                                           "average_precision": prec.tolist(),
-                                                           "average_recall": rec.tolist(),
+                                                           "average_precision": precs.tolist(),
+                                                           "average_recall": recs.tolist(),
                                                            "apr": float(apr)}
+            if CALCULATE_ROC_FOR_MERGED_CLASSES and len(classes) >= 4:
+                for (class_name, val_extra_roc, val_extra_pr, test_extra_roc, test_extra_pr) in \
+                        (("apnea", val_extra_roc1, val_extra_pr1, test_extra_roc1, test_extra_pr1),
+                         ("apnea-hypopnea", val_extra_roc1, val_extra_pr1, test_extra_roc1, test_extra_pr1)):
+                    # Validation:
+                    # Compute threshold average ROC for each class:
+                    # ROC
+                    val_fprs, val_tprs, _ = val_extra_roc.compute()
+                    average_fpr = val_fprs.detach().to('cpu').numpy()
+                    average_tpr = val_tprs.detach().to('cpu').numpy()
+                    auroc = auc(average_fpr, average_tpr)
+                    validation_roc_info_by_class[class_name] = {
+                        "thresholds": thresholds.tolist(),
+                        "average_fpr": average_fpr.tolist(),
+                        "average_tpr": average_tpr.tolist(),
+                        "average_auc": float(auroc)
+                    }
 
+                    # PR
+                    val_precs, val_recs, _ = val_extra_pr.compute()
+                    precs = val_precs.detach().to('cpu').numpy()
+                    recs = val_recs.detach().to('cpu').numpy()
+                    # Remove NaNs
+                    valid = ~(np.isnan(precs) | np.isnan(recs))
+                    apr = auc(recs[valid], precs[valid])
+                    validation_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                                               "average_precision": precs.tolist(),
+                                                               "average_recall": recs.tolist(),
+                                                               "apr": float(apr)}
+                    # Now for test:
+                    # ROC
+                    test_fprs, test_tprs, _ = test_extra_roc.compute()
+                    average_fpr = test_fprs.detach().to('cpu').numpy()
+                    average_tpr = test_tprs.detach().to('cpu').numpy()
+                    auroc = auc(average_fpr, average_tpr)
+                    cross_test_roc_info_by_class[class_name] = {
+                        "thresholds": thresholds.tolist(),
+                        "average_fpr": average_fpr.tolist(),
+                        "average_tpr": average_tpr.tolist(),
+                        "average_auc": float(auroc)
+                    }
+
+                    # PR
+                    test_precs, test_recs, _ = test_extra_pr.compute()
+                    precs = test_precs.detach().to('cpu').numpy()
+                    recs = test_recs.detach().to('cpu').numpy()
+                    # Remove NaNs
+                    valid = ~(np.isnan(precs) | np.isnan(recs))
+                    apr = auc(recs[valid], precs[valid])
+                    cross_test_pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
+                                                               "average_precision": precs.tolist(),
+                                                               "average_recall": recs.tolist(),
+                                                               "apr": float(apr)}
             # # Compute threshold average ROC for each class, across subjects:
             # validation_roc_info_by_class = {}
             # validation_average_auc_by_class = {}

@@ -925,7 +925,9 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
         # PR
         prec = precs[c, :].detach().to('cpu').numpy()
         rec = recs[c, :].detach().to('cpu').numpy()
-        apr = auc(rec, prec)
+        # Remove NaNs
+        valid = ~(np.isnan(prec) | np.isnan(rec))
+        apr = auc(rec[valid], prec[valid])
         apr_by_class[class_name] = apr
 
         pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
@@ -950,7 +952,11 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
 
             # Compute APR for each class:
             precs, recs, _ = extra_pr.compute()
-            apr = auc(recs.detach().to('cpu').numpy(), precs.detach().to('cpu').numpy())
+            recs = recs.detach().to('cpu').numpy()
+            precs = precs.detach().to('cpu').numpy()
+            # Remove NaNs
+            valid = ~(np.isnan(precs) | np.isnan(recs))
+            apr = auc(recs[valid], precs[valid])
             pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
                                             "average_precision": precs.tolist(),
                                             "average_recall": recs.tolist(),
