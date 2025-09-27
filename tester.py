@@ -949,7 +949,7 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
             }
 
             # Compute APR for each class:
-            precs, recs, _ = pr.compute()
+            precs, recs, _ = extra_pr.compute()
             apr = auc(recs.detach().to('cpu').numpy(), precs.detach().to('cpu').numpy())
             pr_info_by_class[class_name] = {"thresholds": thresholds.tolist(),
                                             "average_precision": precs.tolist(),
