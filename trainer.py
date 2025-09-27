@@ -823,7 +823,7 @@ if __name__ == "__main__":
             loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
         elif LOSS_FUNCTION == "fl":
             if weights is not None:
-                loss_kwargs = {"alpha": 1/max(weights), "gamma": 2.0, "weight": weights, "reduction": "mean",
+                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights, "reduction": "mean",
                                "to_onehot_y": True,
                                "use_softmax": True}
             else:

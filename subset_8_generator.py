@@ -26,7 +26,7 @@ from common import Subject
 from object_loader import all_subjects_generator, get_subjects_by_ids_generator, get_subject_by_id, get_all_ids
 
 # --- START OF CONSTANTS --- #
-SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE"]
+SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE", "SpO2"]
 REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN = True
 EXCLUDE_LOW_SQI_SUBJECTS_FROM_TRAIN = True
 EXCLUDE_LOW_TST_SUBJECTS_FROM_TRAIN = True
