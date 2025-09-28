@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import butter, filtfilt, upfirdn, decimate, firwin, resample_poly, get_window, hilbert
+from scipy.signal import butter, filtfilt, upfirdn, decimate, firwin, resample_poly, get_window, hilbert, medfilt
 import pandas as pd
 from itertools import islice
 from pathlib import Path
@@ -188,9 +188,10 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
         return list(islice(sequence, 0, len(sequence), int(1 / proportion)))
 
 
-def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
+def upsample_to_proportion(sequence, proportion: int, extra_smoothing=False) -> np.ndarray:
     """Up-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
 
+    :param extra_smoothing: Extra LPF is used after upsampling with fc=foriginal
     :param sequence: Iterable
         Sequence to be up-sampled
     :param proportion: int
@@ -216,7 +217,39 @@ def upsample_to_proportion(sequence, proportion: int) -> np.ndarray:
     window = get_window(window="hamming", Nx=N, fftbins=False)
     upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
     # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")
+
+    if extra_smoothing:
+        # prop = fs / fc
+        # 1 / prop = fc / fs
+        # 2 / prop = fc / (fs/2)
+        b, a = butter(N=4, Wn=2*proportion, btype='low')
+        upsampled_signal = filtfilt(b, a, upsampled_signal)
     return upsampled_signal
+
+
+def clean_spo2_with_median(spo2, min_val=60, max_val=100, kernel_size=3):
+    """
+    Clean SpO2 by replacing out-of-range values and median filtering.
+    spo2: 1D numpy array sampled at 1 Hz
+    """
+    x = np.asarray(spo2, dtype=float).copy()
+
+    # Mark out-of-range as NaN
+    mask_bad = (x < min_val) | (x > max_val) | np.isnan(x)
+    x[mask_bad] = np.nan
+
+    # Fill short NaN gaps (≤5 s) with linear interpolation
+    n = len(x)
+    idx = np.arange(n)
+    good = ~np.isnan(x)
+    x[np.isnan(x)] = np.interp(idx[np.isnan(x)], idx[good], x[good])
+
+    # Median filter (kernel must be odd)
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    x_clean = medfilt(x, kernel_size=kernel_size)
+
+    return x_clean
 
 
 def get_detrended_ppg(ppg, fs):
@@ -436,22 +469,26 @@ class Subject:
 
     def export_to_dataframe(self, signal_labels: list[str] = None, frequency: float = None,
                             print_downsampling_details=True, anti_aliasing=True, trim_signals=True,
-                            median_to_low_spo2_values=True, detrend_ppg=False, scale_ppg_signals=False) -> pd.DataFrame:
+                            median_to_low_spo2_values=True, clean_spo2=False, detrend_ppg=False,
+                            scale_ppg_signals=False) -> pd.DataFrame:
         """
         Exports object to dataframe keeping only the specified signals.
 
         :param detrend_ppg: Applies a HPF IIR filter with cutoff=0.05Hz to remove slow trends
         :param scale_ppg_signals: Normalized signals that are derived from PPG and PPG itself by dividing
         by 95% percentile (for noisy signals e.g. PPG, KTE) or 99% percentile (for less noisy signals e.g. PPG envelope)
+        scale_ppg_signals: Normalizing SpO2 by dividing itself by the 99% percentile.
         :param frequency: Desired frequency. If all signals will be resampled to this frequency
         :param print_downsampling_details: Whether to print details about the down-sampling performed to match signal
         lengths
         :param signal_labels: list with the names of the signals that will be exported. If None then all signals are
-        exported.
+        exported. Possible labels: ("Flow", "Pleth", "SpO2", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE").
         :param anti_aliasing: if True anti-aliasing LPF filter will be used when downsampling (for upsampling lpf will always be used).
         :param trim_signals: if True Min frequency signal will be zero trimmed and all other signals will be adjusted
         accordingly.
         :param median_to_low_spo2_values: After trimming, Values in SpO2 below 60, are replaced with the median of all SpO2 values
+        :param clean_spo2: After trimming, Values in SpO2 below 60, are linearly interpolated,
+         then median filter removes spikes. After upsampling extra filtering is also used.
         :return: Pandas dataframe
         """
         df = pd.DataFrame()
@@ -539,7 +576,7 @@ class Subject:
         #                 retained_signals[i] = retained_signals[i][front_zeros_to_drop:-back_zeros_to_drop]
         #             assert proportion == len(retained_signals[i]) / len(spo2)
 
-        if median_to_low_spo2_values:
+        if median_to_low_spo2_values or clean_spo2:
             threshold = 60
             spo2_i = -1
             for i in range(len(retained_signals)):
@@ -549,8 +586,12 @@ class Subject:
                     break
             if spo2_i != -1:
                 spo2 = retained_signals[spo2_i]
-                median_spo2_value = np.median(spo2)
-                retained_signals[spo2_i][spo2 <= threshold] = median_spo2_value
+                if clean_spo2:
+                    retained_signals[spo2_i] = clean_spo2_with_median(spo2, min_val=threshold, max_val=100,
+                                                                      kernel_size=3)
+                elif median_to_low_spo2_values:
+                    median_spo2_value = np.median(spo2)
+                    retained_signals[spo2_i][spo2 <= threshold] = median_spo2_value
 
         if frequency is not None:
             if print_downsampling_details:
@@ -574,7 +615,7 @@ class Subject:
             elif proportion < 1.0:
                 signal = downsample_to_proportion(retained_signals[i], proportion, lpf=anti_aliasing)
             else:
-                signal = upsample_to_proportion(retained_signals[i], proportion)
+                signal = upsample_to_proportion(retained_signals[i], proportion, extra_smoothing=clean_spo2)
 
             if label == "Pleth":
                 if detrend_ppg:
