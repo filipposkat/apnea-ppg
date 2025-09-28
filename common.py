@@ -222,7 +222,7 @@ def upsample_to_proportion(sequence, proportion: int, extra_smoothing=False) -> 
         # prop = fs / fc
         # 1 / prop = fc / fs
         # 2 / prop = fc / (fs/2)
-        b, a = butter(N=4, Wn=2*proportion, btype='low')
+        b, a = butter(N=4, Wn=2/proportion, btype='low')
         upsampled_signal = filtfilt(b, a, upsampled_signal)
     return upsampled_signal
 
