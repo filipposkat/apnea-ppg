@@ -155,9 +155,16 @@ def detect_desaturations_legacy(spo2_values, sampling_rate=1, drop_threshold=3, 
     return desaturation_count
 
 
-def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.ndarray:
+def symmetric_extension(signal, ext_len):
+    """Apply symmetric extension to signal."""
+    return np.concatenate([signal[ext_len - 1::-1], signal, signal[:-ext_len - 1:-1]])
+
+
+def downsample_to_proportion(sequence, proportion: int, lpf=True, handle_edge_effects=False) -> list | np.ndarray:
     """Down-samples the given sequence so that the returned sequence length is a proportion of the given sequence length
 
+    :param lpf: Enables anti-aliasing. Recommended
+    :param handle_edge_effects: Uses symmetrical zero padding to address edge effects
     :param sequence: Iterable
         Sequence to be down-sampled
     :param proportion: int
@@ -168,21 +175,27 @@ def downsample_to_proportion(sequence, proportion: int, lpf=True) -> list | np.n
 
     """
     if lpf:
-        # # Calculate downsampling factor
-        # downsample_factor = 1 / proportion
-
-        # # Design a low-pass Butterworth filter
-        # order = 4  # Filter order
-        # b, a = butter(order, proportion, btype='low', output="ba", analog=False)  # ba returns IIR filter
-
-        # # Apply the filter
-        # sequence = filtfilt(b, a, sequence)
-
+        # Calculate parameters
         expected_len = int(len(sequence) * proportion)
         downsample_factor = int(np.ceil(1 / proportion))
         N = downsample_factor * 32
-        downsampled_signal = decimate(x=sequence, q=downsample_factor, n=N,
-                                      ftype="fir")  # By default, Hamming window is used
+        if handle_edge_effects:
+            # Apply symmetric extension to mitigate edge effects
+            ext_len = N // 2  # Extend by half the filter order
+            sequence = symmetric_extension(sequence, ext_len)
+
+            # Downsample
+            downsampled_signal = decimate(x=sequence, q=downsample_factor, n=N,
+                                          ftype="fir")  # By default, Hamming window is used
+
+            # Trim extended regions and ensure correct length
+            start_idx = ext_len // downsample_factor
+            downsampled_signal = downsampled_signal[start_idx:start_idx + expected_len]
+
+
+        else:
+            downsampled_signal = decimate(x=sequence, q=downsample_factor, n=N,
+                                          ftype="fir")  # By default, Hamming window is used
         return downsampled_signal[:expected_len]
     else:
         return list(islice(sequence, 0, len(sequence), int(1 / proportion)))
@@ -222,7 +235,7 @@ def upsample_to_proportion(sequence, proportion: int, extra_smoothing=False) -> 
         # prop = fs / fc
         # 1 / prop = fc / fs
         # 2 / prop = fc / (fs/2)
-        b, a = butter(N=4, Wn=2/proportion, btype='low')
+        b, a = butter(N=4, Wn=2 / proportion, btype='low')
         upsampled_signal = filtfilt(b, a, upsampled_signal)
     return upsampled_signal
 
