@@ -26,8 +26,9 @@ from common import Subject
 from object_loader import all_subjects_generator, get_subjects_by_ids_generator, get_subject_by_id, get_all_ids
 
 # --- START OF CONSTANTS --- #
-SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE", "SpO2"]
-REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN = True
+# SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE", "SpO2"]
+SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "SpO2"]
+CLEAN_SPO2 = True
 EXCLUDE_LOW_SQI_SUBJECTS_FROM_TRAIN = True
 EXCLUDE_LOW_TST_SUBJECTS_FROM_TRAIN = True
 SUBSET = 8
@@ -231,7 +232,7 @@ def get_subject_windows(subject: Subject, train=True) \
         -> tuple[Any, Any]:
     sub_df = subject.export_to_dataframe(signal_labels=SIGNALS, print_downsampling_details=False,
                                          anti_aliasing=True, frequency=SIGNALS_FREQUENCY, trim_signals=TRIM,
-                                         median_to_low_spo2_values=REPLACE_IRREGULAR_SPO2_VALS_WITH_MEDIAN,
+                                         clean_spo2=CLEAN_SPO2,
                                          detrend_ppg=True)
     sub_df.drop(["time_secs"], axis=1, inplace=True)
 

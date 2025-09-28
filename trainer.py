@@ -966,6 +966,7 @@ if __name__ == "__main__":
 
                 # Save model:
                 save_checkpoint(batch=batches_in_epoch - 1, test_metrics=metrics, test_cm=cm, roc_info=roc_info,
+                                pr_info=pr_info,
                                 running_loss=last_running_loss, running_accuracy=last_running_acc, **checkpoint_kwargs)
 
                 if EARLY_STOPPING:
