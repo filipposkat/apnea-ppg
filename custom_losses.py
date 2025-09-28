@@ -1,0 +1,146 @@
+import torch
+import torch.nn as nn
+from monai.losses import GeneralizedDiceLoss, DiceLoss, GeneralizedWassersteinDiceLoss
+
+
+class CceDlLoss(nn.Module):
+    """
+    Combined Categorical Cross-Entropy (CCE) and Dice Loss.
+
+    This loss function combines CCE for probabilistic accuracy with Generalized Dice Loss
+    for handling class imbalance and overlap in multiclass segmentation tasks.
+
+    Args:
+        weight_cce (float): Weighting factor for balancing CCE and Dice losses (default: 0.5).
+        weight (Tensor): Class weights for CCE and DL.
+        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
+        reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+    """
+
+    def __init__(self, weight_cce=0.5, weight=None, to_onehot_y=True, softmax=True, reduction='mean'):
+        super(CceDlLoss, self).__init__()
+        self.weight_cce = weight_cce
+        self.weight = weight
+        self.to_onehot_y = to_onehot_y
+        self.ce = nn.CrossEntropyLoss(weight=weight, reduction=reduction)
+        self.dice = DiceLoss(
+            include_background=True,
+            to_onehot_y=to_onehot_y,  # Automatically convert y_true to one-hot if needed
+            softmax=softmax,  # Apply softmax to y_pred (assumes y_pred are logits)
+            weight=weight,  # 'square' for generalized weighting based on class frequencies
+            reduction=reduction,
+            smooth_nr=1e-5,  # Smoothing for numerator
+            smooth_dr=1e-5  # Smoothing for denominator
+        )
+
+    def forward(self, y_pred, y_true):
+        """
+        Forward pass.
+
+        Args:
+            y_pred (torch.Tensor): Predicted logits with shape (B, C, L), where B is batch size,
+                                   C is number of classes, L is sequence length.
+            y_true (torch.Tensor): Ground-truth labels with shape (B, L) (class indices) or one-hot (B, C, L).
+
+        Returns:
+            torch.Tensor: Combined loss value.
+        """
+        loss_ce = self.ce(y_pred, y_true)
+        if self.to_onehot_y:
+            y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
+        loss_dice = self.dice(y_pred, y_true)
+        return self.weight_cce * loss_ce + (1 - self.weight_cce) * loss_dice
+
+
+class CceGdlLoss(nn.Module):
+    """
+    Combined Categorical Cross-Entropy (CCE) and Generalized Dice Loss.
+
+    This loss function combines CCE for probabilistic accuracy with Generalized Dice Loss
+    for handling class imbalance and overlap in multiclass segmentation tasks.
+
+    Args:
+        weight_cce (float): Weighting factor for balancing CCE and Dice losses (default: 0.5).
+        weight (Tensor): Class weights for CCE.
+        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
+        reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+    """
+
+    def __init__(self, weight_cce=0.5, weight=None, to_onehot_y=True, softmax=True, w_type='square', reduction='mean'):
+        super(CceGdlLoss, self).__init__()
+        self.weight_cce = weight_cce
+        self.weight = weight
+        self.to_onehot_y = to_onehot_y
+        self.ce = nn.CrossEntropyLoss(weight=weight, reduction=reduction)
+        self.dice = GeneralizedDiceLoss(
+            include_background=True,
+            to_onehot_y=to_onehot_y,  # Automatically convert y_true to one-hot if needed
+            softmax=softmax,  # Apply softmax to y_pred (assumes y_pred are logits)
+            w_type=w_type,  # 'square' for generalized weighting based on class frequencies
+            reduction=reduction,
+            smooth_nr=1e-5,  # Smoothing for numerator
+            smooth_dr=1e-5  # Smoothing for denominator
+        )
+
+    def forward(self, y_pred, y_true):
+        """
+        Forward pass.
+
+        Args:
+            y_pred (torch.Tensor): Predicted logits with shape (B, C, L), where B is batch size,
+                                   C is number of classes, L is sequence length.
+            y_true (torch.Tensor): Ground-truth labels with shape (B, L) (class indices) or one-hot (B, C, L).
+
+        Returns:
+            torch.Tensor: Combined loss value.
+        """
+        loss_ce = self.ce(y_pred, y_true)
+        if self.to_onehot_y:
+            y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
+        loss_dice = self.dice(y_pred, y_true)
+        return self.weight_cce * loss_ce + (1 - self.weight_cce) * loss_dice
+
+
+class CceGwdlLoss(nn.Module):
+    """
+    Combined Categorical Cross-Entropy (CCE) and Generalized Wasserstein Dice Loss.
+
+    This loss function combines CCE for probabilistic accuracy with Generalized Dice Loss
+    for handling class imbalance and overlap in multiclass segmentation tasks.
+
+    Args:
+        dist_matrix (2D Tensor): Classes distance matrix.
+        weight_cce (float): Weighting factor for balancing CCE and Dice losses (default: 0.5).
+        weight (Tensor): Class weights for CCE.
+        weighting_mode (str): Weighting mode for GWDL, ('default' for original paper implementation, 'GDL' for GDL like implementation.
+        reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+    """
+
+    def __init__(self, dist_matrix, weight_cce=0.5, weight=None, weighting_mode="default", reduction='mean'):
+        super(CceGwdlLoss, self).__init__()
+        self.weight_cce = weight_cce
+        self.weight = weight
+        self.ce = nn.CrossEntropyLoss(weight=weight, reduction=reduction)
+        self.dice = GeneralizedWassersteinDiceLoss(
+            dist_matrix=dist_matrix,
+            weighting_mode=weighting_mode,  # 'square' for generalized weighting based on class frequencies
+            reduction=reduction,
+            smooth_nr=1e-5,  # Smoothing for numerator
+            smooth_dr=1e-5  # Smoothing for denominator
+        )
+
+    def forward(self, y_pred, y_true):
+        """
+        Forward pass.
+
+        Args:
+            y_pred (torch.Tensor): Predicted logits with shape (B, C, L), where B is batch size,
+                                   C is number of classes, L is sequence length.
+            y_true (torch.Tensor): Ground-truth labels with shape (B, L) (class indices)
+
+        Returns:
+            torch.Tensor: Combined loss value.
+        """
+        loss_ce = self.ce(y_pred, y_true)
+        loss_dice = self.dice(y_pred, y_true)
+        return self.weight_cce * loss_ce + (1 - self.weight_cce) * loss_dice

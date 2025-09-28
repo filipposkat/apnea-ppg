@@ -47,6 +47,7 @@ LR_WARMUP = False
 LR_WARMUP_ASCENDING = True
 LR_WARMUP_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
+CCE_WEIGHT = 0.7  # Weight of the CCE in the combined losses (cce_dl, cce_gdl, cce_gwdl)
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 999999999
 SAVE_MODEL_EVERY_EPOCH = True
@@ -165,10 +166,11 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 if LOSS_FUNCTION != "cel":
     import monai
 
-    if LOSS_FUNCTION == "gwdl":
+    if "gwdl" in LOSS_FUNCTION:
         # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
         # from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
         from monai.losses import GeneralizedWassersteinDiceLoss
+        from custom_losses import CceGwdlLoss
 
         if use_weighted_loss:
             print("WARNING: Loss function GWDL uses inherently weights which are calculated automatically. "
@@ -177,12 +179,14 @@ if LOSS_FUNCTION != "cel":
         else:
             print("WARNING: Loss function GDL uses inherently weights which are calculated automatically."
                   " Using default weighting scheme.")
-    elif LOSS_FUNCTION == "dl":
+    elif "dl" in LOSS_FUNCTION:
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
         from monai.losses import DiceLoss
-    elif LOSS_FUNCTION == "gdl":
+        from custom_losses import CceDlLoss
+    elif "gdl" in LOSS_FUNCTION:
         from monai.losses import GeneralizedDiceLoss
+        from custom_losses import CceGdlLoss
 
         if use_weighted_loss:
             print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given class "
@@ -808,17 +812,26 @@ if __name__ == "__main__":
         start_from_batch = 0
 
         # Define loss:
-        if LOSS_FUNCTION == "dl":
+        if "dl" in LOSS_FUNCTION:
             if weights is not None:
                 loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean", "to_onehot_y": True}
-                loss = DiceLoss(**loss_kwargs)
+                if LOSS_FUNCTION == "cce_dl":
+                    loss_kwargs["weight_cce"] = CCE_WEIGHT
+                    loss = CceDlLoss(**loss_kwargs)
+                else:
+                    loss = DiceLoss(**loss_kwargs)
             else:
                 loss_kwargs = None
                 loss = nn.CrossEntropyLoss()
-        elif LOSS_FUNCTION == "gdl":
+        elif "gdl" in LOSS_FUNCTION:
             loss_kwargs = {"softmax": True, "reduction": "mean", "to_onehot_y": True}
-            loss = GeneralizedDiceLoss(**loss_kwargs)
-        elif LOSS_FUNCTION == "gwdl":
+            if LOSS_FUNCTION == "cce_gdl":
+                loss_kwargs["weight_cce"] = CCE_WEIGHT
+                loss = CceGdlLoss(**loss_kwargs)
+            else:
+                loss = GeneralizedDiceLoss(**loss_kwargs)
+
+        elif "gwdl" in LOSS_FUNCTION:
             # Generalized-Wasserstein-Dice-Loss
             if N_CLASSES == 5:
                 M = torch.tensor([[0.0, 2.0, 2.0, 1.7, 0.3],
@@ -836,8 +849,11 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
             else:
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
-
-            loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
+            if LOSS_FUNCTION == "cce_gdl":
+                loss_kwargs["weight_cce"] = CCE_WEIGHT
+                loss = CceGwdlLoss(**loss_kwargs)
+            else:
+                loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
         elif LOSS_FUNCTION == "fl":
             if weights is not None:
                 loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights, "reduction": "mean",
