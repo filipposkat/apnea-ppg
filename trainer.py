@@ -172,13 +172,12 @@ if LOSS_FUNCTION != "cel":
         from monai.losses import GeneralizedWassersteinDiceLoss
         from custom_losses import CelGwdlLoss
 
-        if use_weighted_loss:
-            print("WARNING: Loss function GWDL uses inherently weights which are calculated automatically. "
-                  "'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
+        print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
+        if use_weighted_loss and LOSS_FUNCTION=="gwdl":
+            print("'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
                   "(inversly proportional to class size)!")
         else:
-            print("WARNING: Loss function GDL uses inherently weights which are calculated automatically."
-                  " Using default weighting scheme.")
+            print(" Using default weighting scheme.")
     elif "dl" in LOSS_FUNCTION:
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
