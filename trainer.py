@@ -828,6 +828,7 @@ if __name__ == "__main__":
                 loss = GeneralizedDiceLoss(**loss_kwargs)
             elif LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                loss_kwargs["scale_losses"] = True
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
             elif LOSS_FUNCTION == "fl_dl":
@@ -861,6 +862,7 @@ if __name__ == "__main__":
                 if LOSS_FUNCTION == "cel_gdwl":
                     loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                     loss_kwargs["weighting_mode"] = "default"
+                    loss_kwargs["scale_losses"] = True
                     print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                     loss = CelGwdlLoss(**loss_kwargs)
                 else:
