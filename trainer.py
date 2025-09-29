@@ -165,33 +165,33 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
     import monai
-
-    if "gwdl" in LOSS_FUNCTION:
-        # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
-        # from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
-        from monai.losses import GeneralizedWassersteinDiceLoss
-        from custom_losses import CelGwdlLoss
-
-        print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
-        if use_weighted_loss and LOSS_FUNCTION=="gwdl":
-            print("'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
-                  "(inversly proportional to class size)!")
-        else:
-            print(" Using default weighting scheme.")
-    elif "dl" in LOSS_FUNCTION:
+    if "dl" in LOSS_FUNCTION:
+        # Dice Loss family
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
         from monai.losses import DiceLoss
-        from custom_losses import CelDlLoss
-    elif "gdl" in LOSS_FUNCTION:
-        from monai.losses import GeneralizedDiceLoss
-        from custom_losses import CelGdlLoss
+        from custom_losses import CelDlLoss, FlDlLoss, FlGdlLoss
+        if "gdl" in LOSS_FUNCTION:
+            from monai.losses import GeneralizedDiceLoss
+            from custom_losses import CelGdlLoss, FlGdlLoss
+            if use_weighted_loss:
+                print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given "
+                      "class"
+                      "weights!")
+            else:
+                print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
+        elif "gwdl" in LOSS_FUNCTION:
+            # pip install git+https://github.com/LucasFidon/GeneralizedWassersteinDiceLoss.git
+            # from generalized_wasserstein_dice_loss.loss import GeneralizedWassersteinDiceLoss
+            from monai.losses import GeneralizedWassersteinDiceLoss
+            from custom_losses import CelGwdlLoss
 
-        if use_weighted_loss:
-            print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given class "
-                  "weights!")
-        else:
             print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
+            if use_weighted_loss and LOSS_FUNCTION == "gwdl":
+                print("'use_weighted_loss': True, changes weighting scheme to the same used in GDL "
+                      "(inversly proportional to class size)!")
+            else:
+                print(" Using default weighting scheme.")
     elif "fl" in LOSS_FUNCTION:
         from monai.losses import FocalLoss
         from custom_losses import FlGdlLoss
@@ -813,56 +813,60 @@ if __name__ == "__main__":
 
         # Define loss:
         if "dl" in LOSS_FUNCTION:
+            # Dice Loss family
             if weights is not None:
                 loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean", "to_onehot_y": True}
-                if LOSS_FUNCTION == "cel_dl":
-                    loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
-                    print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
-                    loss = CelDlLoss(**loss_kwargs)
-                elif LOSS_FUNCTION == "fl_gdl":
-                    loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
-                    loss_kwargs["gamma"] = 2.0
-                    print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
-                    loss = FlGdlLoss(**loss_kwargs)
-                else:
-                    loss = DiceLoss(**loss_kwargs)
             else:
-                loss_kwargs = None
-                loss = nn.CrossEntropyLoss()
-        elif "gdl" in LOSS_FUNCTION:
-            loss_kwargs = {"softmax": True, "reduction": "mean", "to_onehot_y": True}
-            if LOSS_FUNCTION == "cel_gdl":
+                loss_kwargs = {"weight": None, "softmax": True, "reduction": "mean", "to_onehot_y": True}
+
+            if LOSS_FUNCTION == "cel_dl":
+                loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
+                loss = CelDlLoss(**loss_kwargs)
+            elif LOSS_FUNCTION == "gdl":
+                loss = GeneralizedDiceLoss(**loss_kwargs)
+            elif LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
-            else:
-                loss = GeneralizedDiceLoss(**loss_kwargs)
-
-        elif "gwdl" in LOSS_FUNCTION:
-            # Generalized-Wasserstein-Dice-Loss
-            if N_CLASSES == 5:
-                M = torch.tensor([[0.0, 2.0, 2.0, 1.7, 0.3],
-                                  [2.0, 0.0, 0.3, 0.5, 2.0],
-                                  [2.0, 0.3, 0.0, 0.5, 2.0],
-                                  [1.7, 0.5, 0.5, 0.0, 1.5],
-                                  [0.3, 2.0, 2.0, 1.5, 0.0]], dtype=torch.float32).to(device)
-            else:
-                assert N_CLASSES == 4
-                M = torch.tensor([[0.0, 2.0, 2.0, 1.7],
-                                  [2.0, 0.0, 0.3, 0.5],
-                                  [2.0, 0.3, 0.0, 0.5],
-                                  [1.7, 0.5, 0.5, 0.0]], dtype=torch.float32).to(device)
-            if use_weighted_loss:
-                loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
-            else:
-                loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
-            if LOSS_FUNCTION == "cel_gdwl":
-                loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
-                loss_kwargs["weighting_mode"] = "default"
+            elif LOSS_FUNCTION == "fl_dl":
+                loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
+                loss_kwargs["gamma"] = 2.0
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
-                loss = CelGwdlLoss(**loss_kwargs)
+                loss = FlDlLoss(**loss_kwargs)
+            elif LOSS_FUNCTION == "fl_gdl":
+                loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
+                loss_kwargs["gamma"] = 2.0
+                print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
+                loss = FlGdlLoss(**loss_kwargs)
+            elif "gwdl" in LOSS_FUNCTION:
+                # Generalized-Wasserstein-Dice-Loss
+                if N_CLASSES == 5:
+                    M = torch.tensor([[0.0, 2.0, 2.0, 1.7, 0.3],
+                                      [2.0, 0.0, 0.3, 0.5, 2.0],
+                                      [2.0, 0.3, 0.0, 0.5, 2.0],
+                                      [1.7, 0.5, 0.5, 0.0, 1.5],
+                                      [0.3, 2.0, 2.0, 1.5, 0.0]], dtype=torch.float32).to(device)
+                else:
+                    assert N_CLASSES == 4
+                    M = torch.tensor([[0.0, 2.0, 2.0, 1.7],
+                                      [2.0, 0.0, 0.3, 0.5],
+                                      [2.0, 0.3, 0.0, 0.5],
+                                      [1.7, 0.5, 0.5, 0.0]], dtype=torch.float32).to(device)
+                if use_weighted_loss:
+                    loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
+                else:
+                    loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
+                if LOSS_FUNCTION == "cel_gdwl":
+                    loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                    loss_kwargs["weighting_mode"] = "default"
+                    print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
+                    loss = CelGwdlLoss(**loss_kwargs)
+                else:
+                    loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
             else:
-                loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
+                loss = DiceLoss(**loss_kwargs)
+
         elif "fl" in LOSS_FUNCTION:
             if weights is not None:
                 loss_kwargs = {"gamma": 2.0, "weight": weights, "reduction": "mean",
