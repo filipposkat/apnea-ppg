@@ -47,7 +47,7 @@ LR_WARMUP = False
 LR_WARMUP_ASCENDING = True
 LR_WARMUP_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
-CEL_WEIGHT = 0.7  # Weight of the CCE in the combined losses (cce_dl, cce_gdl, cce_gwdl)
+CEL_FL_WEIGHT = 0.7  # Weight of the CEL or FL in the combined losses (cce_dl, cce_gdl, cce_gwdl, fl_gdl)
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 999999999
 SAVE_MODEL_EVERY_EPOCH = True
@@ -193,8 +193,9 @@ if LOSS_FUNCTION != "cel":
                   "weights!")
         else:
             print("WARNING: Loss function GDL uses inherently weights which are calculated automatically.")
-    elif LOSS_FUNCTION == "fl":
+    elif "fl" in LOSS_FUNCTION:
         from monai.losses import FocalLoss
+        from custom_losses import FlGdlLoss
         # from kornia.losses import FocalLoss
 
 
@@ -816,8 +817,8 @@ if __name__ == "__main__":
             if weights is not None:
                 loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean", "to_onehot_y": True}
                 if LOSS_FUNCTION == "cel_dl":
-                    loss_kwargs["weight_cel"] = CEL_WEIGHT
-                    print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
+                    loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                    print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                     loss = CelDlLoss(**loss_kwargs)
                 else:
                     loss = DiceLoss(**loss_kwargs)
@@ -827,8 +828,8 @@ if __name__ == "__main__":
         elif "gdl" in LOSS_FUNCTION:
             loss_kwargs = {"softmax": True, "reduction": "mean", "to_onehot_y": True}
             if LOSS_FUNCTION == "cel_gdl":
-                loss_kwargs["weight_cel"] = CEL_WEIGHT
-                print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
+                loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
             else:
                 loss = GeneralizedDiceLoss(**loss_kwargs)
@@ -852,20 +853,26 @@ if __name__ == "__main__":
             else:
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
             if LOSS_FUNCTION == "cel_gdl":
-                loss_kwargs["weight_cel"] = CEL_WEIGHT
-                print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
+                loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGwdlLoss(**loss_kwargs)
             else:
                 loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
-        elif LOSS_FUNCTION == "fl":
+        elif "fl" in LOSS_FUNCTION:
             if weights is not None:
-                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "weight": weights, "reduction": "mean",
+                loss_kwargs = {"gamma": 2.0, "weight": weights, "reduction": "mean",
                                "to_onehot_y": True,
                                "use_softmax": True}
             else:
-                loss_kwargs = {"alpha": 0.25, "gamma": 2.0, "reduction": "mean", "to_onehot_y": True,
+                loss_kwargs = {"gamma": 2.0, "reduction": "mean", "to_onehot_y": True,
                                "use_softmax": True}
-            loss = FocalLoss(**loss_kwargs)
+            if LOSS_FUNCTION == "fl_gdl":
+                loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
+                loss_kwargs["softmax"] = True
+                loss_kwargs.pop("use_softmax")
+                loss = FlGdlLoss
+            else:
+                loss = FocalLoss(**loss_kwargs)
         else:
             # cel
             if weights is not None:

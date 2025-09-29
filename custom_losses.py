@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from monai.losses import DiceCELoss, GeneralizedDiceLoss, GeneralizedWassersteinDiceLoss
+from monai.losses import DiceCELoss, GeneralizedDiceLoss, GeneralizedWassersteinDiceLoss, GeneralizedDiceFocalLoss
 
 
 class CelDlLoss(DiceCELoss):
@@ -13,7 +13,6 @@ class CelDlLoss(DiceCELoss):
     Args:
         weight_cel (float): Weighting factor for balancing CEL and Dice losses (default: 0.5).
         weight (Tensor): Class weights for CEL and DL.
-        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
     """
 
@@ -128,3 +127,39 @@ class CelGwdlLoss(nn.Module):
         loss_ce = self.ce(y_pred, y_true)
         loss_dice = self.dice(y_pred, y_true)
         return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
+
+
+class FlGdlLoss(GeneralizedDiceFocalLoss):
+    """
+    Combined Focal Loss and Dice Loss.
+
+    This loss function combines Fl for probabilistic accuracy with Generalized Dice Loss
+    for handling class imbalance and overlap in multiclass segmentation tasks.
+
+    Args:
+        weight_fl (float): Weighting factor for balancing FL and Dice losses (default: 0.5).
+        weight (Tensor): Class weights for FL and DL.
+        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
+        gamma (float): Focal gamma parameter.
+        reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+    """
+
+    def __init__(self, weight_fl=0.5, weight=None, gamma=2.0, w_type='square', to_onehot_y=True, softmax=True,
+                 reduction='mean'):
+        super().__init__(lambda_focal=weight_fl, lambda_gdl=1 - weight_fl,
+                         weight=weight, w_type=w_type, gamma=gamma, to_onehot_y=to_onehot_y,
+                         softmax=softmax, reduction=reduction)
+
+    def forward(self, y_pred, y_true):
+        """
+        Forward pass.
+
+        Args:
+            y_pred (torch.Tensor): Predicted logits with shape (B, C, L), where B is batch size,
+                                   C is number of classes, L is sequence length.
+            y_true (torch.Tensor): Ground-truth labels with shape (B, L) (class indices) or one-hot (B, C, L).
+
+        Returns:
+            torch.Tensor: Combined loss value.
+        """
+        return super().forward(y_pred, y_true)
