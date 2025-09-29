@@ -65,6 +65,12 @@ class CelGdlLoss(nn.Module):
             smooth_dr=1e-5  # Smoothing for denominator
         )
 
+        # For loss scaling:
+        self.ema_decay = 0.99
+        # Initialize EMA as floats (not tensors) to avoid CUDA issues
+        self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
+        self.register_buffer('ema_dice', torch.tensor(1.0))
+
     def forward(self, y_pred, y_true):
         """
         Forward pass.
@@ -81,7 +87,17 @@ class CelGdlLoss(nn.Module):
         if self.to_onehot_y:
             y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
         loss_dice = self.dice(y_pred, y_true)
-        return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
+
+        # Update EMAs (use .item() to detach and convert to scalar)
+        with torch.no_grad():  # Ensure no gradients for EMA updates
+            self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
+            self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
+
+        # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
+        norm_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
+        norm_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+
+        return self.weight_cel * norm_ce + (1 - self.weight_cel) * norm_dice
 
 
 class CelGwdlLoss(nn.Module):
@@ -112,6 +128,12 @@ class CelGwdlLoss(nn.Module):
             smooth_dr=1e-5  # Smoothing for denominator
         )
 
+        # For loss scaling:
+        self.ema_decay = 0.99
+        # Initialize EMA as floats (not tensors) to avoid CUDA issues
+        self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
+        self.register_buffer('ema_dice', torch.tensor(1.0))
+
     def forward(self, y_pred, y_true):
         """
         Forward pass.
@@ -126,7 +148,17 @@ class CelGwdlLoss(nn.Module):
         """
         loss_ce = self.ce(y_pred, y_true)
         loss_dice = self.dice(y_pred, y_true)
-        return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
+
+        # Update EMAs (use .item() to detach and convert to scalar)
+        with torch.no_grad():  # Ensure no gradients for EMA updates
+            self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
+            self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
+
+        # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
+        norm_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
+        norm_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+
+        return self.weight_cel * norm_ce + (1 - self.weight_cel) * norm_dice
 
 
 class FlGdlLoss(GeneralizedDiceFocalLoss):
