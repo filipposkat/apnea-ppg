@@ -48,6 +48,7 @@ LR_WARMUP_ASCENDING = True
 LR_WARMUP_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 CEL_FL_WEIGHT = 0.7  # Weight of the CEL or FL in the combined losses (cce_dl, cce_gdl, cce_gwdl, fl_gdl)
+LEARNABLE_CEL_WEIGHT = False # Supported only for cel_gdl and cel_gwdl
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 999999999
 SAVE_MODEL_EVERY_EPOCH = True
@@ -371,16 +372,6 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     model.load_state_dict(net_state)
     model = model.to(device)
 
-    # Initialize Optimizer:
-    if "optimizer_kwargs" in state.keys() and state["optimizer_kwargs"] is not None:
-        optimizer_kwargs = state["optimizer_kwargs"]
-        optimizer = optimizer_class(model.parameters(), **optimizer_kwargs)
-    else:
-        optimizer_kwargs = None
-        optimizer = optimizer_class(model.parameters())
-
-    optimizer.load_state_dict(optimizer_state_dict)
-
     # Initialize Loss:
     if "criterion_kwargs" in state.keys() and state["criterion_kwargs"] is not None:
         criterion_kwargs = state["criterion_kwargs"]
@@ -402,6 +393,21 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
             # print("INFO: Failed to load state_dict to checkpoint criterion. Skipping state loading.")
             pass
 
+    # Initialize Optimizer:
+    # Define optimizer:
+    if len(list(criterion.parameters())) > 0:
+        optim_params = list(model.parameters()) + list(criterion.parameters())
+    else:
+        optim_params = model.parameters()
+
+    if "optimizer_kwargs" in state.keys() and state["optimizer_kwargs"] is not None:
+        optimizer_kwargs = state["optimizer_kwargs"]
+        optimizer = optimizer_class(optim_params, **optimizer_kwargs)
+    else:
+        optimizer_kwargs = None
+        optimizer = optimizer_class(optim_params)
+
+    optimizer.load_state_dict(optimizer_state_dict)
 
     lr_scheduler = None
     lr_scheduler_kwargs = None
@@ -829,6 +835,7 @@ if __name__ == "__main__":
             elif LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                 loss_kwargs["scale_losses"] = True
+                loss_kwargs["learn_weight_cel"] = LEARNABLE_CEL_WEIGHT
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
             elif LOSS_FUNCTION == "fl_dl":
@@ -861,6 +868,7 @@ if __name__ == "__main__":
                     loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
                 if LOSS_FUNCTION == "cel_gdwl":
                     loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
+                    loss_kwargs["learn_weight_cel"] = LEARNABLE_CEL_WEIGHT
                     loss_kwargs["weighting_mode"] = "default"
                     loss_kwargs["scale_losses"] = True
                     print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
@@ -903,12 +911,16 @@ if __name__ == "__main__":
         net = net.to(device)
 
         # Define optimizer:
+        if len(list(loss.parameters())) > 0:
+            optim_learnable_params = list(net.parameters()) + list(loss.parameters())
+        else:
+            optim_learnable_params = net.parameters()
         if OPTIMIZER == "adam":
             optim_kwargs = {"lr": lr, "betas": (0.9, 0.999), "eps": 1e-08}
-            optimizer = optim.Adam(net.parameters(), **optim_kwargs)
+            optimizer = optim.Adam(optim_learnable_params, **optim_kwargs)
         else:  # sgd
             optim_kwargs = {"lr": lr, "momentum": 0.7}
-            optimizer = optim.SGD(net.parameters(), **optim_kwargs)
+            optimizer = optim.SGD(optim_learnable_params, **optim_kwargs)
 
     # torchinfo summary
     print(f"Subset: {subset_id}")
