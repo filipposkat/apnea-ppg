@@ -817,6 +817,7 @@ if __name__ == "__main__":
                 loss_kwargs = {"weight": weights, "softmax": True, "reduction": "mean", "to_onehot_y": True}
                 if LOSS_FUNCTION == "cel_dl":
                     loss_kwargs["weight_cel"] = CEL_WEIGHT
+                    print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
                     loss = CelDlLoss(**loss_kwargs)
                 else:
                     loss = DiceLoss(**loss_kwargs)
@@ -827,6 +828,7 @@ if __name__ == "__main__":
             loss_kwargs = {"softmax": True, "reduction": "mean", "to_onehot_y": True}
             if LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_WEIGHT
+                print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
             else:
                 loss = GeneralizedDiceLoss(**loss_kwargs)
@@ -851,6 +853,7 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
             if LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_WEIGHT
+                print(f"Using combine loss with CEL weight: {CEL_WEIGHT}")
                 loss = CelGwdlLoss(**loss_kwargs)
             else:
                 loss = GeneralizedWassersteinDiceLoss(**loss_kwargs)
