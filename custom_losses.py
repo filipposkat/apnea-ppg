@@ -56,9 +56,11 @@ class CelGdlLoss(nn.Module):
         to_onehot_y (bool): Must be set to True if y_true shape is (B, L) (default: True)
         softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+        scale_losses (bool): If True both losses are scaled using their EMA.
     """
 
-    def __init__(self, weight_cel=0.5, weight=None, w_type='square', to_onehot_y=True, softmax=True, reduction='mean'):
+    def __init__(self, weight_cel=0.5, weight=None, w_type='square', to_onehot_y=True, softmax=True, reduction='mean',
+                 scale_losses=True):
         super(CelGdlLoss, self).__init__()
         self.weight_cel = weight_cel
         self.weight = weight
@@ -75,10 +77,12 @@ class CelGdlLoss(nn.Module):
         )
 
         # For loss scaling:
-        self.ema_decay = 0.999
-        # Initialize EMA as floats (not tensors) to avoid CUDA issues
-        self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
-        self.register_buffer('ema_dice', torch.tensor(1.0))
+        self.scale_losses = scale_losses
+        if scale_losses:
+            self.ema_decay = 0.999
+            # Initialize EMA as floats (not tensors) to avoid CUDA issues
+            self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
+            self.register_buffer('ema_dice', torch.tensor(1.0))
 
     def forward(self, y_pred, y_true):
         """
@@ -97,16 +101,17 @@ class CelGdlLoss(nn.Module):
             y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
         loss_dice = self.dice(y_pred, y_true)
 
-        # Update EMAs (use .item() to detach and convert to scalar)
-        with torch.no_grad():  # Ensure no gradients for EMA updates
-            self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
-            self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
+        if self.scale_losses:
+            # Update EMAs (use .item() to detach and convert to scalar)
+            with torch.no_grad():  # Ensure no gradients for EMA updates
+                self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
+                self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
 
-        # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
-        norm_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
-        norm_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+            # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
+            loss_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
+            loss_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
 
-        return self.weight_cel * norm_ce + (1 - self.weight_cel) * norm_dice
+        return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
 
 
 class CelGwdlLoss(nn.Module):
@@ -122,9 +127,11 @@ class CelGwdlLoss(nn.Module):
         weight (Tensor): Class weights for CEL.
         weighting_mode (str): Weighting mode for GWDL, ('default' for original paper implementation, 'GDL' for GDL like implementation.
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
+        scale_losses (bool): If True both losses are scaled using their EMA.
     """
 
-    def __init__(self, dist_matrix, weight_cel=0.5, weight=None, weighting_mode="default", reduction='mean'):
+    def __init__(self, dist_matrix, weight_cel=0.5, weight=None, weighting_mode="default", reduction='mean',
+                 scale_losses=True):
         super(CelGwdlLoss, self).__init__()
         self.weight_cel = weight_cel
         self.weight = weight
@@ -138,10 +145,12 @@ class CelGwdlLoss(nn.Module):
         )
 
         # For loss scaling:
-        self.ema_decay = 0.999
-        # Initialize EMA as floats (not tensors) to avoid CUDA issues
-        self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
-        self.register_buffer('ema_dice', torch.tensor(1.0))
+        self.scale_losses = scale_losses
+        if scale_losses:
+            self.ema_decay = 0.999
+            # Initialize EMA as floats (not tensors) to avoid CUDA issues
+            self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
+            self.register_buffer('ema_dice', torch.tensor(1.0))
 
     def forward(self, y_pred, y_true):
         """
@@ -158,16 +167,17 @@ class CelGwdlLoss(nn.Module):
         loss_ce = self.ce(y_pred, y_true)
         loss_dice = self.dice(y_pred, y_true)
 
-        # Update EMAs (use .item() to detach and convert to scalar)
-        with torch.no_grad():  # Ensure no gradients for EMA updates
-            self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
-            self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
+        if self.scale_losses:
+            # Update EMAs (use .item() to detach and convert to scalar)
+            with torch.no_grad():  # Ensure no gradients for EMA updates
+                self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
+                self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
 
-        # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
-        norm_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
-        norm_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+            # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
+            loss_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
+            loss_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
 
-        return self.weight_cel * norm_ce + (1 - self.weight_cel) * norm_dice
+        return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
 
 
 class FlDlLoss(DiceFocalLoss):
