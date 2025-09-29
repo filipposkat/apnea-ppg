@@ -32,6 +32,8 @@ class CelDlLoss(DiceCELoss):
         Returns:
             torch.Tensor: Combined loss value.
         """
+        if self.to_onehot_y:
+            y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
         return super().forward(y_pred, y_true)
 
 
@@ -194,4 +196,6 @@ class FlGdlLoss(GeneralizedDiceFocalLoss):
         Returns:
             torch.Tensor: Combined loss value.
         """
+        if self.to_onehot_y:
+            y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
         return super().forward(y_pred, y_true)
