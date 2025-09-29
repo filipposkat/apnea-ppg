@@ -831,6 +831,7 @@ if __name__ == "__main__":
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelDlLoss(**loss_kwargs)
             elif LOSS_FUNCTION == "gdl":
+                loss_kwargs.pop("weight")
                 loss = GeneralizedDiceLoss(**loss_kwargs)
             elif LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
