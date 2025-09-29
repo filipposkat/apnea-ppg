@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from monai.losses import GeneralizedDiceLoss, DiceLoss, GeneralizedWassersteinDiceLoss
+from monai.losses import DiceCELoss, GeneralizedDiceLoss, GeneralizedWassersteinDiceLoss
 
 
-class CelDlLoss(nn.Module):
+class CelDlLoss(DiceCELoss):
     """
     Combined Categorical Cross-Entropy and Dice Loss.
 
@@ -18,20 +18,8 @@ class CelDlLoss(nn.Module):
     """
 
     def __init__(self, weight_cel=0.5, weight=None, to_onehot_y=True, softmax=True, reduction='mean'):
-        super(CelDlLoss, self).__init__()
-        self.weight_cel = weight_cel
-        self.weight = weight
-        self.to_onehot_y = to_onehot_y
-        self.ce = nn.CrossEntropyLoss(weight=weight, reduction=reduction)
-        self.dice = DiceLoss(
-            include_background=True,
-            to_onehot_y=to_onehot_y,  # Automatically convert y_true to one-hot if needed
-            softmax=softmax,  # Apply softmax to y_pred (assumes y_pred are logits)
-            weight=weight,  # 'square' for generalized weighting based on class frequencies
-            reduction=reduction,
-            smooth_nr=1e-5,  # Smoothing for numerator
-            smooth_dr=1e-5  # Smoothing for denominator
-        )
+        super().__init__(lambda_ce=weight_cel, lambda_dice=1 - weight_cel,
+                         weight=weight, to_onehot_y=to_onehot_y, softmax=softmax, reduction=reduction)
 
     def forward(self, y_pred, y_true):
         """
@@ -45,11 +33,7 @@ class CelDlLoss(nn.Module):
         Returns:
             torch.Tensor: Combined loss value.
         """
-        loss_ce = self.ce(y_pred, y_true)
-        if self.to_onehot_y:
-            y_true = y_true.view(y_true.shape[0], 1, y_true.shape[1])
-        loss_dice = self.dice(y_pred, y_true)
-        return self.weight_cel * loss_ce + (1 - self.weight_cel) * loss_dice
+        return super().forward(y_pred, y_true)
 
 
 class CelGdlLoss(nn.Module):
