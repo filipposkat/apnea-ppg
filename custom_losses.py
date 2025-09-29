@@ -17,6 +17,7 @@ class CelDlLoss(DiceCELoss):
     """
 
     def __init__(self, weight_cel=0.5, weight=None, to_onehot_y=True, softmax=True, reduction='mean'):
+        self.to_onehot_y = to_onehot_y
         super().__init__(lambda_ce=weight_cel, lambda_dice=1 - weight_cel,
                          weight=weight, to_onehot_y=to_onehot_y, softmax=softmax, reduction=reduction)
 
@@ -180,6 +181,7 @@ class FlGdlLoss(GeneralizedDiceFocalLoss):
 
     def __init__(self, weight_fl=0.5, weight=None, gamma=2.0, w_type='square', to_onehot_y=True, softmax=True,
                  reduction='mean'):
+        self.to_onehot_y = to_onehot_y
         super().__init__(lambda_focal=weight_fl, lambda_gdl=1 - weight_fl,
                          weight=weight, w_type=w_type, gamma=gamma, to_onehot_y=to_onehot_y,
                          softmax=softmax, reduction=reduction)
