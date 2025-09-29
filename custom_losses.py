@@ -75,7 +75,7 @@ class CelGdlLoss(nn.Module):
         )
 
         # For loss scaling:
-        self.ema_decay = 0.99
+        self.ema_decay = 0.995
         # Initialize EMA as floats (not tensors) to avoid CUDA issues
         self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
         self.register_buffer('ema_dice', torch.tensor(1.0))
@@ -138,7 +138,7 @@ class CelGwdlLoss(nn.Module):
         )
 
         # For loss scaling:
-        self.ema_decay = 0.99
+        self.ema_decay = 0.995
         # Initialize EMA as floats (not tensors) to avoid CUDA issues
         self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
         self.register_buffer('ema_dice', torch.tensor(1.0))
