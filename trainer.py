@@ -867,7 +867,7 @@ if __name__ == "__main__":
                     loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
                 else:
                     loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
-                if LOSS_FUNCTION == "cel_gdwl":
+                if LOSS_FUNCTION == "cel_gwdl":
                     loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                     loss_kwargs["learn_weight_cel"] = LEARNABLE_CEL_WEIGHT
                     loss_kwargs["weighting_mode"] = "default"
