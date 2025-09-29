@@ -851,7 +851,7 @@ if __name__ == "__main__":
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "GDL", "reduction": "mean"}
             else:
                 loss_kwargs = {"dist_matrix": M, "weighting_mode": "default", "reduction": "mean"}
-            if LOSS_FUNCTION == "cel_gdl":
+            if LOSS_FUNCTION == "cel_gdwl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                 loss_kwargs["weighting_mode"] = "default"
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
