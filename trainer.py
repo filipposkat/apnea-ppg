@@ -819,6 +819,11 @@ if __name__ == "__main__":
                     loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                     print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                     loss = CelDlLoss(**loss_kwargs)
+                elif LOSS_FUNCTION == "fl_gdl":
+                    loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
+                    loss_kwargs["gamma"] = 2.0
+                    print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
+                    loss = FlGdlLoss(**loss_kwargs)
                 else:
                     loss = DiceLoss(**loss_kwargs)
             else:
@@ -870,7 +875,7 @@ if __name__ == "__main__":
                 loss_kwargs["weight_fl"] = CEL_FL_WEIGHT
                 loss_kwargs["softmax"] = True
                 loss_kwargs.pop("use_softmax")
-                loss = FlGdlLoss
+                loss = FlGdlLoss(**loss_kwargs)
             else:
                 loss = FocalLoss(**loss_kwargs)
         else:

@@ -13,6 +13,8 @@ class CelDlLoss(DiceCELoss):
     Args:
         weight_cel (float): Weighting factor for balancing CEL and Dice losses (default: 0.5).
         weight (Tensor): Class weights for CEL and DL.
+        to_onehot_y (bool): Must be set to True if y_true shape is (B, L) (default: True)
+        softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
     """
 
@@ -48,11 +50,14 @@ class CelGdlLoss(nn.Module):
     Args:
         weight_cel (float): Weighting factor for balancing CEL and Dice losses (default: 0.5).
         weight (Tensor): Class weights for CEL.
-        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
+        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform'
+        for equal weights).
+        to_onehot_y (bool): Must be set to True if y_true shape is (B, L) (default: True)
+        softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
     """
 
-    def __init__(self, weight_cel=0.5, weight=None, to_onehot_y=True, softmax=True, w_type='square', reduction='mean'):
+    def __init__(self, weight_cel=0.5, weight=None,  w_type='square', to_onehot_y=True, softmax=True, reduction='mean'):
         super(CelGdlLoss, self).__init__()
         self.weight_cel = weight_cel
         self.weight = weight
@@ -174,8 +179,10 @@ class FlGdlLoss(GeneralizedDiceFocalLoss):
     Args:
         weight_fl (float): Weighting factor for balancing FL and Dice losses (default: 0.5).
         weight (Tensor): Class weights for FL and DL.
-        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
         gamma (float): Focal gamma parameter.
+        w_type (str): Weighting type for Generalized Dice ('square' for 1/sum(g^2), 'simple' for 1/sum(g), 'uniform' for equal weights).
+        to_onehot_y (bool): Must be set to True if y_true shape is (B, L) (default: True)
+        softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
     """
 
