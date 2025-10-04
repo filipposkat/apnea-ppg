@@ -74,7 +74,7 @@ if config is not None:
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
-    if "convert_spo2_to_dst_labels" in config["variabels"]["dataset"]:
+    if "convert_spo2_to_dst_labels" in config["variables"]["dataset"]:
         CONVERT_SPO2_TO_DST_LABELS = config["variables"]["dataset"]["convert_spo2_to_dst_labels"]
     else:
         CONVERT_SPO2_TO_DST_LABELS = False

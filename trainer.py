@@ -145,7 +145,7 @@ if config is not None:
     else:
         NEG_SLOPE = 0.2
 
-    if "convert_spo2_to_dst_labels" in config["variabels"]["dataset"]:
+    if "convert_spo2_to_dst_labels" in config["variables"]["dataset"]:
         CONVERT_SPO2_TO_DST_LABELS = config["variables"]["dataset"]["convert_spo2_to_dst_labels"]
     else:
         CONVERT_SPO2_TO_DST_LABELS = False
