@@ -827,9 +827,9 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 else:
                     rate = 32.0
 
-                for b in range(inputs.shape[0]):
-                    dst_lbls = detect_desaturations_profusion_torch(inputs[b, spo2_i, :], sampling_rate=rate)
-                    inputs[b, spo2_i, :] = dst_lbls
+                for b in range(batch_inputs.shape[0]):
+                    _, dst_lbls = detect_desaturations_profusion_torch(batch_inputs[b, spo2_i, :], sampling_rate=rate)
+                    batch_inputs[b, spo2_i, :] = dst_lbls
 
             # Predictions:
             batch_outputs = model(batch_inputs)  # (bs, classes, L)
