@@ -326,7 +326,7 @@ class UResIncNet(nn.Module):
         out_chans = self.first_out_chans
 
         # First block is special, input channel dimensionality has to be adjusted otherwise residual block will fail.
-        # Also, the first block should not do any downsampling (stride = 1):
+        # Also, the first block should not do any down-sampling (stride = 1):
         self.encoder.append(EncoderBlock(self.in_chans, out_chans,
                                          kernel_size=self.kernel_size,
                                          layers=self.layers,

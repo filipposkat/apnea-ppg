@@ -777,6 +777,14 @@ if __name__ == "__main__":
                              skip_connection=True, extra_final_conv=False,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
+        elif NET_TYPE == "AttUResIncNet":
+            net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, first_out_chans=FIRST_OUT_CHANS,
+                             max_channels=512, depth=DEPTH, layers=LAYERS,
+                             kernel_size=KERNEL_SIZE,
+                             sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
+                             skip_connection=True, extra_final_conv=False, attention=True,
+                             custom_weight_init=CUSTOM_WEIGHT_INIT)
+            net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet-2":
             net = UResIncNet(nclass=N_CLASSES, in_chans=N_INPUT_CHANNELS, first_out_chans=FIRST_OUT_CHANS,
                              max_channels=512, depth=DEPTH, layers=LAYERS,
