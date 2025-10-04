@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+SLOPE = 0.1
+
 
 def init_weights(module):
     if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
@@ -27,21 +29,21 @@ class DilatedResidualInceptionBlock(nn.Module):
         self.dilated_conv_block1 = nn.Sequential(
             nn.Conv1d(in_chans, out_chans, kernel_size=1, padding=self.padding),
             nn.BatchNorm1d(out_chans),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(SLOPE),
             nn.Conv1d(out_chans, out_chans, kernel_size=kernel_size, padding=self.padding, dilation=8),
             nn.BatchNorm1d(out_chans)
         )
         self.dilated_conv_block2 = nn.Sequential(
             nn.Conv1d(in_chans, out_chans, kernel_size=1, padding=self.padding),
             nn.BatchNorm1d(out_chans),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(SLOPE),
             nn.Conv1d(out_chans, out_chans, kernel_size=kernel_size, padding=self.padding, dilation=4),
             nn.BatchNorm1d(out_chans)
         )
         self.dilated_conv_block3 = nn.Sequential(
             nn.Conv1d(in_chans, out_chans, kernel_size=1, padding=self.padding),
             nn.BatchNorm1d(out_chans),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(SLOPE),
             nn.Conv1d(out_chans, out_chans, kernel_size=kernel_size, padding=self.padding, dilation=2),
             nn.BatchNorm1d(out_chans)
         )
@@ -61,11 +63,11 @@ class DilatedResidualInceptionBlock(nn.Module):
         x_conv_cat = torch.cat((x1, x2, x3, x4), dim=1)
 
         # Feature map addition:
-        return F.leaky_relu(x_conv_cat + x, 0.2)
+        return F.leaky_relu(x_conv_cat + x, SLOPE)
 
 
 class ConvolutionBlock(nn.Module):
-    # Consists of Conv -> BatchNorm -> LeakyReLU(0.2)
+    # Consists of Conv -> BatchNorm -> LeakyReLU(SLOPE)
     def __init__(self, in_chans, out_chans, kernel_size=4, sampling_factor=2, sampling_method="conv_stride",
                  dropout: float = 0.0):
         super().__init__()
@@ -83,7 +85,7 @@ class ConvolutionBlock(nn.Module):
         self.block_list = nn.ModuleList(
             [nn.Conv1d(in_chans, out_chans, kernel_size=kernel_size, stride=stride, padding="same"),
              nn.BatchNorm1d(out_chans),
-             nn.LeakyReLU(0.2)]
+             nn.LeakyReLU(SLOPE)]
         )
 
         if dropout > 0.0:
@@ -150,7 +152,7 @@ class TransposeConvolutionBlock(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    # Consists of Conv -> LeakyReLU(0.2) -> MaxPool
+    # Consists of Conv -> LeakyReLU(SLOPE) -> MaxPool
     def __init__(self, in_chans, out_chans, kernel_size=3, layers=1, sampling_factor=2, sampling_method="conv_stride",
                  dropout: float = 0.0):
         super().__init__()
@@ -181,7 +183,7 @@ class EncoderBlock(nn.Module):
         # Simple convolution for channel adjustment and for downscaling (if not max pooling):
         self.encoder.append(nn.Conv1d(in_chans, out_chans, ks, stride=stride, padding=pad))
         self.encoder.append(nn.BatchNorm1d(out_chans))
-        self.encoder.append(nn.LeakyReLU(0.2))
+        self.encoder.append(nn.LeakyReLU(SLOPE))
 
         for _ in range(layers):
             # Dilated Residual Inception block:
@@ -197,10 +199,40 @@ class EncoderBlock(nn.Module):
         return x
 
 
+class AttnGatingBlock(nn.Module):
+    def __init__(self, x_chans, g_chans):
+        super().__init__()
+        self.x_chans = x_chans
+        self.g_chans = g_chans
+
+        inter_chans = max(1, min(x_chans, g_chans)//2)
+        self.inter_chans = inter_chans
+
+        # Normally x.shape==g.shape, as g is already up-sampled from a level lower and x is skip connection
+
+        self.phi_g = nn.Sequential(nn.Conv1d(in_channels=g_chans, out_channels=inter_chans, kernel_size=1, stride=1),
+                                   nn.BatchNorm1d(inter_chans))
+        self.theta_x = nn.Sequential(nn.Conv1d(in_channels=x_chans, out_channels=inter_chans, kernel_size=1, stride=1),
+                                     nn.BatchNorm1d(inter_chans))
+
+        self.psi = nn.Sequential(nn.Conv1d(in_channels=inter_chans, out_channels=1, kernel_size=1),
+                                 nn.BatchNorm1d(1),
+                                 nn.Sigmoid())
+        self.relu = nn.LeakyReLU(negative_slope=SLOPE, inplace=True)
+
+    def forward(self, x, g):
+        assert x.shape == g.shape
+        x1 = self.theta_x(x)
+        g1 = self.phi_g(g)
+        psi = self.psi(self.relu(x1 + g1))
+        out = x * psi
+        return out
+
+
 class DecoderBlock(nn.Module):
-    # Consists of 2x2 transposed convolution -> Conv -> LeakyReLU(0.2)
-    def __init__(self, in_chans, out_chans, kernel_size=4, layers=1, sampling_factor=2, dropout=0.0,
-                 skip_connection=True, expected_skip_connection_chans=None):
+    # Consists of transposed convolution -> Conv -> LeakyReLU(SLOPE)
+    def __init__(self, in_chans, out_chans, kernel_size=3, layers=1, sampling_factor=2, dropout=0.0,
+                 skip_connection=True, expected_skip_connection_chans=None, attention=False):
         super().__init__()
         self.in_chans = in_chans
         self.out_chans = out_chans
@@ -208,6 +240,7 @@ class DecoderBlock(nn.Module):
         self.sampling_factor = sampling_factor
         self.dropout = dropout
         self.skip_connection = skip_connection
+        self.attention = attention
 
         if skip_connection:
             if expected_skip_connection_chans is None:
@@ -215,6 +248,7 @@ class DecoderBlock(nn.Module):
                 # If max_channels was not reached during encoding then: skip_conn_chans == in_chans // 2
                 # in_chans // 2 + in_chans // 2 = in_chans
                 chans_after_connection = in_chans
+                expected_skip_connection_chans = in_chans // 2
             else:
                 # skip_conn_chans + in_chans // 2 = in_chans (should be equal in most cases)
                 chans_after_connection = expected_skip_connection_chans + in_chans // 2
@@ -226,12 +260,14 @@ class DecoderBlock(nn.Module):
         # Up-sampling:
         self.upsample = TransposeConvolutionBlock(in_chans, in_chans // 2, kernel_size=kernel_size,
                                                   sampling_factor=sampling_factor)
+        if attention:
+            self.att = AttnGatingBlock(x_chans=expected_skip_connection_chans, g_chans=in_chans//2)
 
         # Simple convolution for channel adjustment:
         self.decoder.append(
             nn.Conv1d(chans_after_connection, out_chans, kernel_size=kernel_size, stride=1, padding="same"))
         self.decoder.append(nn.BatchNorm1d(out_chans))
-        self.decoder.append(nn.LeakyReLU(0.2))
+        self.decoder.append(nn.LeakyReLU(SLOPE))
 
         for _ in range(layers):
             # Dilated Residual Inception block:
@@ -244,6 +280,9 @@ class DecoderBlock(nn.Module):
     def forward(self, x, enc_features=None):
         x = self.upsample(x)
 
+        if self.attention:
+            enc_features = self.att(x=enc_features, g=x)
+
         if self.skip_connection:
             x = torch.cat((enc_features, x), dim=1)
 
@@ -254,7 +293,7 @@ class DecoderBlock(nn.Module):
 
 class UResIncNet(nn.Module):
     def __init__(self, nclass=5, in_chans=1, first_out_chans=4, max_channels=512, depth=8, kernel_size=4, layers=1,
-                 sampling_factor=2, sampling_method="conv_stride", dropout=0.0, skip_connection=True,
+                 sampling_factor=2, sampling_method="conv_stride", dropout=0.0, skip_connection=True, attention=False,
                  extra_final_conv=False,
                  custom_weight_init=False):
         super().__init__()
@@ -273,6 +312,7 @@ class UResIncNet(nn.Module):
         self.sampling_method = sampling_method
         self.dropout = dropout
         self.skip_connection = skip_connection
+        self.attention = attention
         self.encoder = nn.ModuleList()
         self.decoder = nn.ModuleList()
         self.extra_final_conv = extra_final_conv
@@ -322,6 +362,7 @@ class UResIncNet(nn.Module):
                                              skip_connection=self.skip_connection,
                                              expected_skip_connection_chans=expected_skip_conn_chans,
                                              sampling_factor=self.sampling_factor,
+                                             attention=attention,
                                              dropout=self.dropout))
 
         if self.extra_final_conv:
@@ -384,9 +425,15 @@ class UResIncNet(nn.Module):
         else:
             extra_final_conv = False
 
+        if hasattr(self, "attention"):
+            attention = self.attention
+        else:
+            attention = False
+
         return (
             f"FirstOutChans {first_out_chans} - MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-            f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}")
+            f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv} "
+            f"- Attention {attention}")
 
     def get_kwargs(self):
         # For backwards compatibility with older class which did not have layers attribute:
@@ -410,12 +457,17 @@ class UResIncNet(nn.Module):
         else:
             extra_final_conv = False
 
+        if hasattr(self, "attention"):
+            attention = self.attention
+        else:
+            attention = False
+
         kwargs = {"nclass": self.nclass, "in_chans": self.in_chans, "first_out_chans": first_out_chans,
                   "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
                   "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
                   "skip_connection": self.skip_connection, "dropout": dropout,
-                  "extra_final_conv": extra_final_conv}
+                  "extra_final_conv": extra_final_conv, "attention": attention}
         return kwargs
 
 
@@ -466,10 +518,10 @@ class ResIncNet(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
             nn.BatchNorm1d(out_chans * out_size),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(SLOPE),
             nn.Linear(in_features=out_chans * out_size, out_features=out_chans * out_size),
             nn.BatchNorm1d(out_chans * out_size),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(SLOPE),
         )
 
         self.logits = nn.Linear(out_chans * out_size, nclass)
