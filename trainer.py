@@ -139,7 +139,10 @@ if config is not None:
     if "custom_net_weight_init" in config["variables"]["models"]:
         if config["variables"]["models"]["custom_net_weight_init"]:
             CUSTOM_WEIGHT_INIT = True
-
+    if "neg_slope" in config["variables"]["models"]:
+        NEG_SLOPE = config["variables"]["models"]["neg_slope"]
+    else:
+        NEG_SLOPE = 0.2
 else:
     subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
@@ -148,13 +151,14 @@ else:
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
     MODELS_PATH = PATH_TO_SUBSET_TRAINING.joinpath("saved-models")
     COMPUTE_PLATFORM = "cpu"
-    NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
+    NET_TYPE: str = "UResIncNet"  # UNET, UResIncNet
     IDENTIFIER: str = "ks3-depth8-strided-0"  # ks5-depth5-layers2-strided-0 or ks3-depth8-strided-0
     KERNEL_SIZE = 3
     DEPTH = 8
     LAYERS = 1
     SAMPLING_METHOD = "conv_stride"
     DROPOUT = 0.0
+    NEG_SLOPE = 0.2
     LSTM_MAX_FEATURES = 128
     LSTM_LAYERS = 2
     LSTM_DROPOUT = 0.1
@@ -774,7 +778,7 @@ if __name__ == "__main__":
                              max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
-                             skip_connection=True, extra_final_conv=False,
+                             skip_connection=True, extra_final_conv=False, neg_slope=NEG_SLOPE,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "AttUResIncNet":
@@ -782,7 +786,7 @@ if __name__ == "__main__":
                              max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
-                             skip_connection=True, extra_final_conv=False, attention=True,
+                             skip_connection=True, extra_final_conv=False, attention=True, neg_slope=NEG_SLOPE,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "UResIncNet-2":
@@ -790,7 +794,7 @@ if __name__ == "__main__":
                              max_channels=512, depth=DEPTH, layers=LAYERS,
                              kernel_size=KERNEL_SIZE,
                              sampling_factor=2, sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
-                             skip_connection=True, extra_final_conv=True,
+                             skip_connection=True, extra_final_conv=True, neg_slope=NEG_SLOPE,
                              custom_weight_init=CUSTOM_WEIGHT_INIT)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "ConvNet":
@@ -803,7 +807,7 @@ if __name__ == "__main__":
             net = ResIncNet(nclass=N_CLASSES, in_size=window_size, in_chans=N_INPUT_CHANNELS, max_channels=512,
                             depth=DEPTH,
                             layers=LAYERS,
-                            kernel_size=KERNEL_SIZE,
+                            kernel_size=KERNEL_SIZE, neg_slope=NEG_SLOPE,
                             sampling_factor=2, sampling_method=SAMPLING_METHOD, skip_connection=True)
             net_kwargs = net.get_kwargs()
         elif NET_TYPE == "CombinedNet":

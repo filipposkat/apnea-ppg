@@ -83,7 +83,7 @@ class CombinedNet(nn.Module):
     def __init__(self, nclass=5, in_size=512, in_chans=1, first_out_chans=4, max_channels=512,
                  depth=8, kernel_size=4, layers=1,
                  sampling_factor=2,
-                 sampling_method="conv_stride", dropout=0.0, skip_connection=True,
+                 sampling_method="conv_stride", dropout=0.0, skip_connection=True, neg_slope=0.2,
                  lstm_max_features=512, lstm_layers=2, lstm_dropout: float = 0.1, lstm_bidirectional=True,
                  lstm_depth=1, custom_weight_init=False, split_channels_into_branches=False):
         super().__init__()
@@ -99,6 +99,7 @@ class CombinedNet(nn.Module):
         self.sampling_method = sampling_method
         self.dropout = dropout
         self.skip_connection = skip_connection
+        self.neg_slope = neg_slope
 
         self.lstm_max_features = lstm_max_features
         self.lstm_layers = lstm_layers
@@ -116,7 +117,7 @@ class CombinedNet(nn.Module):
                                            max_channels=max_channels, depth=depth,
                                            kernel_size=kernel_size, layers=layers,
                                            sampling_factor=sampling_factor, sampling_method=sampling_method,
-                                           dropout=dropout, skip_connection=skip_connection)
+                                           dropout=dropout, neg_slope=neg_slope, skip_connection=skip_connection)
         self.LSTMBranch = RNN(nclass=nclass, in_chans=in_chans, lstm_max_features=lstm_max_features,
                               lstm_layers=lstm_layers,
                               lstm_dropout=lstm_dropout,
@@ -124,7 +125,7 @@ class CombinedNet(nn.Module):
 
         self.logits = nn.Sequential(
             nn.BatchNorm1d(2 * nclass),
-            nn.LeakyReLU(0.2),
+            nn.LeakyReLU(neg_slope),
             nn.Conv1d(2 * nclass, nclass, kernel_size=1, stride=1)
         )
 
@@ -172,11 +173,19 @@ class CombinedNet(nn.Module):
         else:
             split_channels_into_branches = False
 
-        return (f"FirstOutChans {first_out_chans} - MaxCH {self.max_channels} - Depth {self.depth} - Kernel {self.kernel_size} "
-                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} - ExtraFinalConv {extra_final_conv}"
+        if hasattr(self, "neg_slope"):
+            neg_slope = self.neg_slope
+        else:
+            neg_slope = 0.2
+
+        return (f"FirstOutChans {first_out_chans} - MaxCH {self.max_channels} - Depth {self.depth} "
+                f"- Kernel {self.kernel_size} "
+                f"- Layers {layers} - Sampling {self.sampling_method} - Dropout {dropout} "
+                f"- ExtraFinalConv {extra_final_conv} - LeakyReLU Slope {neg_slope}"
                 f"- lstm_MaxCH {self.max_channels} - "
                 f"lstm_Bidirectional {self.lstm_bidirectional} "
-                f"- lstm_Layers {self.lstm_layers} - lstm_Dropout {self.lstm_dropout} - split_channels_into_branches {split_channels_into_branches}")
+                f"- lstm_Layers {self.lstm_layers} - lstm_Dropout {self.lstm_dropout} "
+                f"- split_channels_into_branches {split_channels_into_branches}")
 
     def get_kwargs(self):
         # For backwards compatibility with older class which did not have layers attribute:
@@ -205,10 +214,15 @@ class CombinedNet(nn.Module):
         else:
             split_channels_into_branches = False
 
+        if hasattr(self, "neg_slope"):
+            neg_slope = self.neg_slope
+        else:
+            neg_slope = 0.2
+
         kwargs = {"nclass": self.nclass, "in_size": self.in_size, "in_chans": self.in_chans,
                   "first_out_chans": first_out_chans, "max_channels": self.max_channels,
                   "depth": self.depth, "kernel_size": self.kernel_size, "layers": layers,
-                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method,
+                  "sampling_factor": self.sampling_factor, "sampling_method": self.sampling_method, "neg_slope": neg_slope,
                   "dropout": dropout, "skip_connection": self.skip_connection, "extra_final_conv": extra_final_conv,
                   "lstm_max_channels": self.max_channels, "lstm_layers": self.lstm_layers,
                   "lstm_dropout": self.lstm_dropout, "lstm_bidirectional": self.lstm_bidirectional,

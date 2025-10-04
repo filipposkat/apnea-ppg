@@ -30,7 +30,7 @@ variables:
     convert_spo2desat_to_normal: False
     n_input_channels: 1
   models:
-    net_type: # UNET or UResIncNet or ConvNet or ResIncNet
+    net_type: # UNET, UResIncNet, AttUResIncNet, ConvNet or ResIncNet
     net_identifier:
     first_out_chans: 8  # multiple of 4
     kernel_size: 3
@@ -38,6 +38,7 @@ variables:
     layers: 2
     sampling_method: conv_stride
     dropout: 0.0
+    neg_slope: 0.2
     lstm_max_features: 128
     lstm_layers: 2
     lstm_dropout: 0.1
