@@ -673,7 +673,7 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                     rate = 32.0
 
                 for b in range(inputs.shape[0]):
-                    dst_lbls = detect_desaturations_profusion_torch(inputs[b, spo2_i, :], sampling_rate=rate)
+                    _, dst_lbls = detect_desaturations_profusion_torch(inputs[b, spo2_i, :], sampling_rate=rate)
                     inputs[b, spo2_i, :] = dst_lbls
 
             # zero the parameter gradients
