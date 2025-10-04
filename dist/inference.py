@@ -211,8 +211,8 @@ def get_metamodel_input_vars(predicted_probabilities: np.ndarray, descriptive_me
                                                         max_plateau=60,
                                                         max_fall_rate=4,
                                                         max_drop_threshold=50,
-                                                        min_event_duration=1,
-                                                        max_event_duration=None)
+                                                        min_drop_duration=1,
+                                                        max_drop_duration=None)
         est_desat3_per_hour = ndesat3 / est_sleep_hours
         tmp_list.append(est_desat3_per_hour)
 

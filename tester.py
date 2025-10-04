@@ -24,7 +24,8 @@ from pre_batched_dataloader import get_pre_batched_test_loader, get_pre_batched_
     get_available_batch_sizes
 
 if __name__ == "__main__":
-    from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint
+    from trainer import get_saved_epochs, get_saved_batches, get_last_batch, get_last_epoch, load_checkpoint,\
+        detect_desaturations_profusion_torch
 
 # --- START OF CONSTANTS --- #
 EPOCHS = 20
@@ -73,6 +74,10 @@ if config is not None:
     COMPUTE_PLATFORM = config["system"]["specs"]["compute_platform"]
     NET_TYPE = config["variables"]["models"]["net_type"]
     IDENTIFIER = config["variables"]["models"]["net_identifier"]
+    if "convert_spo2_to_dst_labels" in config["variabels"]["dataset"]:
+        CONVERT_SPO2_TO_DST_LABELS = config["variables"]["dataset"]["convert_spo2_to_dst_labels"]
+    else:
+        CONVERT_SPO2_TO_DST_LABELS = False
 else:
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", "subset-1")
     PATH_TO_SUBSET_TRAINING = PATH_TO_SUBSET
@@ -82,6 +87,7 @@ else:
     COMPUTE_PLATFORM = "cpu"
     NET_TYPE: str = "UResIncNet"  # UNET or UResIncNet
     IDENTIFIER: str = "ks3-depth8-strided-0"  # "ks5-depth5-layers2-strided-0" or "ks3-depth8-strided-0"
+    CONVERT_SPO2_TO_DST_LABELS = False
 
 MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -807,6 +813,23 @@ def test_loop(model: nn.Module, test_dataloader: DataLoader, n_class=5, device="
                 else:
                     # Excees channels have been detected, keep the first n_channels
                     batch_inputs = batch_inputs[:, :N_INPUT_CHANNELS, :]
+
+            if CONVERT_SPO2_TO_DST_LABELS and n_channels_found > 1:
+                if subset_id <= 7:
+                    # SpO2 is first
+                    spo2_i = 0
+                else:
+                    # SpO2 is last
+                    spo2_i = N_INPUT_CHANNELS - 1
+
+                if subset_id == 6:
+                    rate = 64.0
+                else:
+                    rate = 32.0
+
+                for b in range(inputs.shape[0]):
+                    dst_lbls = detect_desaturations_profusion_torch(inputs[b, spo2_i, :], sampling_rate=rate)
+                    inputs[b, spo2_i, :] = dst_lbls
 
             # Predictions:
             batch_outputs = model(batch_inputs)  # (bs, classes, L)

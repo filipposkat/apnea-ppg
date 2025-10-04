@@ -19,6 +19,7 @@ from data_loaders_iterable import IterDataset, get_saved_train_loader, get_saved
 from pre_batched_dataloader import get_pre_batched_train_loader, get_pre_batched_test_loader, \
     get_pre_batched_test_cross_sub_loader, get_available_batch_sizes
 
+from common import detect_desaturations_profusion
 from UNet import UNet, ConvNet
 from UResIncNet import UResIncNet, ResIncNet
 from CombinedNet import CombinedNet
@@ -48,7 +49,7 @@ LR_WARMUP_ASCENDING = True
 LR_WARMUP_DURATION = 3
 LR_WARMUP_STEP_EPOCH_INTERVAL = 1
 CEL_FL_WEIGHT = 0.7  # Weight of the CEL or FL in the combined losses (cce_dl, cce_gdl, cce_gwdl, fl_gdl)
-LEARNABLE_CEL_WEIGHT = False # Supported only for cel_gdl and cel_gwdl
+LEARNABLE_CEL_WEIGHT = False  # Supported only for cel_gdl and cel_gwdl
 OPTIMIZER = "adam"  # sgd, adam
 SAVE_MODEL_BATCH_INTERVAL = 999999999
 SAVE_MODEL_EVERY_EPOCH = True
@@ -140,9 +141,14 @@ if config is not None:
         if config["variables"]["models"]["custom_net_weight_init"]:
             CUSTOM_WEIGHT_INIT = True
     if "neg_slope" in config["variables"]["models"]:
-        NEG_SLOPE = config["variables"]["models"]["neg_slope"]
+        NEG_SLOPE = float(config["variables"]["models"]["neg_slope"])
     else:
         NEG_SLOPE = 0.2
+
+    if "convert_spo2_to_dst_labels" in config["variabels"]["dataset"]:
+        CONVERT_SPO2_TO_DST_LABELS = config["variables"]["dataset"]["convert_spo2_to_dst_labels"]
+    else:
+        CONVERT_SPO2_TO_DST_LABELS = False
 else:
     subset_id = 1
     CONVERT_SPO2DESAT_TO_NORMAL = False
@@ -170,15 +176,18 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 
 if LOSS_FUNCTION != "cel":
     import monai
+
     if "dl" in LOSS_FUNCTION:
         # Dice Loss family
         # from dice_loss import DiceLoss
         # from kornia.losses import DiceLoss
         from monai.losses import DiceLoss
         from custom_losses import CelDlLoss, FlDlLoss, FlGdlLoss
+
         if "gdl" in LOSS_FUNCTION:
             from monai.losses import GeneralizedDiceLoss
             from custom_losses import CelGdlLoss, FlGdlLoss
+
             if use_weighted_loss:
                 print("Loss function GDL uses inherently weights which are calculated automatically. Ignoring given "
                       "class"
@@ -519,6 +528,74 @@ def get_window_label(window_labels: torch.tensor) -> tuple[torch.tensor, float]:
         return prominent_event.type(torch.int64), float(confidence)
 
 
+def detect_desaturations_profusion_torch(
+        spo2_values: torch.Tensor,
+        sampling_rate: float,
+        min_drop: float = 3,
+        max_fall_rate: float = 4,
+        max_plateau: float = 60,
+        max_drop_threshold: float = 50,
+        min_drop_duration: float = 1,
+        max_drop_duration: float = None
+):
+    """
+    Tensor-based version of detect_desaturations_profusion().
+    Works with torch tensors on any device (CPU or CUDA).
+    """
+
+    device = spo2_values.device
+
+    dst_lbls = torch.zeros(spo2_values.shape.numel(), dtype=torch.uint8, device=device)
+
+    desaturation_events = 0
+    min_drop_samples = int(min_drop_duration * sampling_rate)
+    max_drop_samples = int(max_drop_duration * sampling_rate) if max_drop_duration else spo2_values.shape[0]
+    max_plateau_samples = int(max_plateau * sampling_rate)
+
+    i = 0
+    length = spo2_values.shape[0]
+
+    # Iterative loop (cannot be vectorized trivially because of local min/max search)
+    while i < length - 1:
+        # Look for a local zenith
+        while i < length - 1 and (spo2_values[i + 1] >= spo2_values[i] or spo2_values[i] > 100):
+            i += 1
+        zenith = spo2_values[i].item()
+
+        # Start looking for a desaturation event
+        start = i
+        while i < length - 1 and (spo2_values[i + 1] <= spo2_values[i] or spo2_values[i] < 50):
+            i += 1
+
+        nadir = spo2_values[i].item()
+        end = i
+
+        for j in range(i + 1, i + max_plateau_samples):
+            if j >= length:
+                break
+            val = spo2_values[j].item()
+            if 100 > val > zenith:
+                break
+            elif nadir >= val > 50:
+                nadir = val
+                i = j
+                end = j
+            elif (zenith - min_drop) >= val > 50:
+                end = j
+
+        drop_length = i - start
+        if min_drop_samples <= drop_length <= max_drop_samples:
+            drop = zenith - spo2_values[i].item()
+            duration_seconds = drop_length / sampling_rate
+            drop_rate = drop / duration_seconds
+
+            if min_drop <= drop <= max_drop_threshold and drop_rate <= max_fall_rate:
+                desaturation_events += 1
+                dst_lbls[start:end] = 1
+                i = end
+    return desaturation_events, dst_lbls
+
+
 def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
                device="cpu", first_batch: int = 0, init_running_losses: list[float] = None,
                print_batch_interval: int = None, checkpoint_batch_interval: int = None,
@@ -581,6 +658,23 @@ def train_loop(train_dataloader: DataLoader, model: nn.Module, optimizer: torch.
                 else:
                     # Excees channels have been detected, keep the first n_channels
                     inputs = inputs[:, :N_INPUT_CHANNELS, :]
+
+            if CONVERT_SPO2_TO_DST_LABELS and n_channels_found > 1:
+                if subset_id <= 7:
+                    # SpO2 is first
+                    spo2_i = 0
+                else:
+                    # SpO2 is last
+                    spo2_i = N_INPUT_CHANNELS - 1
+
+                if subset_id == 6:
+                    rate = 64.0
+                else:
+                    rate = 32.0
+
+                for b in range(inputs.shape[0]):
+                    dst_lbls = detect_desaturations_profusion_torch(inputs[b, spo2_i, :], sampling_rate=rate)
+                    inputs[b, spo2_i, :] = dst_lbls
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -820,8 +914,6 @@ if __name__ == "__main__":
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
                               lstm_dropout=LSTM_DROPOUT, lstm_bidirectional=True,
                               lstm_depth=1, custom_weight_init=CUSTOM_WEIGHT_INIT)
-        # elif NET_TYPE == "UResIncNetAtt":
-        # Under developement
 
         net_kwargs = net.get_kwargs()
         initial_running_losses = None

@@ -253,8 +253,8 @@ if __name__ == "__main__":
                                                                max_fall_rate=4,
                                                                max_plateau=60,
                                                                max_drop_threshold=50,
-                                                               min_event_duration=1,
-                                                               max_event_duration=None)
+                                                               min_drop_duration=1,
+                                                               max_drop_duration=None)
 
     print(f"Estimated desat3: {desat3}")
     print(f"Estimated (zenith method) desat3: {desat3_zenith}")

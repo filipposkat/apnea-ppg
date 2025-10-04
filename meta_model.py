@@ -229,8 +229,8 @@ def get_columns_of_subject(sub_id: int) -> (int, list):
     odi3 = float(metadata_df["odi35"])
     desat3_per_hour = float(metadata_df["ndes3ph5"]) / est_sleep_hours
     desat3 = common.detect_desaturations_profusion(spo2, sampling_rate=1, min_drop=3, max_plateau=60,
-                                                           max_fall_rate=4, max_drop_threshold=50,
-                                                           min_event_duration=1, max_event_duration=None)
+                                                   max_fall_rate=4, max_drop_threshold=50,
+                                                   min_drop_duration=1, max_drop_duration=None)
     est_desat3_per_hour = desat3 / est_sleep_hours
 
     # Output stats:
@@ -425,8 +425,8 @@ if __name__ == "__main__":
             spo2 = np.trim_zeros(sub.signals[1])
             # spo2 = np.array(dfilter(spo2))
             desat3 = detect_desaturations_profusion(spo2, sampling_rate=1, min_drop=3, max_plateau=60,
-                                                           max_fall_rate=4, max_drop_threshold=50,
-                                                           min_event_duration=1, max_event_duration=None)
+                                                    max_fall_rate=4, max_drop_threshold=50,
+                                                    min_drop_duration=1, max_drop_duration=None)
             # spo2_md = median_spo2(spo2)
             # desat3_pobm = desat_tool.compute(spo2_md)
             # desat3_pobm = len(desat3_pobm.begin)

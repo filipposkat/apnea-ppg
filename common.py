@@ -6,10 +6,13 @@ from pathlib import Path
 
 
 def detect_desaturations_profusion(spo2_values, sampling_rate, min_drop=3, max_fall_rate=4, max_plateau=60,
-                                   max_drop_threshold=50, min_event_duration=1, max_event_duration=None):
+                                   max_drop_threshold=50, min_drop_duration=1, max_drop_duration=None,
+                                   return_label_series=False):
+    if return_label_series:
+        dst_lbls = np.zeros(len(spo2_values), dtype="uint8")
     desaturation_events = 0
-    min_event_samples = min_event_duration * sampling_rate
-    max_event_samples = max_event_duration * sampling_rate if max_event_duration else len(spo2_values)
+    min_drop_samples = min_drop_duration * sampling_rate
+    max_drop_samples = max_drop_duration * sampling_rate if max_drop_duration else len(spo2_values)
     max_plateau_samples = max_plateau * sampling_rate
     i = 0
     while i < len(spo2_values) - 1:
@@ -24,6 +27,7 @@ def detect_desaturations_profusion(spo2_values, sampling_rate, min_drop=3, max_f
             i += 1
 
         nadir = spo2_values[i]
+        end = i
         for j in range(i + 1, i + max_plateau_samples):
             if j >= len(spo2_values):
                 break
@@ -33,11 +37,15 @@ def detect_desaturations_profusion(spo2_values, sampling_rate, min_drop=3, max_f
             elif nadir >= val > 50:
                 nadir = val
                 i = j
+                end = j
+            elif (zenith - min_drop) >= val > 50:
+                # No lower nadir, but values still attributed to current dst event
+                end = j
 
-        event_length = i - start
-        if min_event_samples <= event_length <= max_event_samples:
+        drop_length = i - start
+        if min_drop_samples <= drop_length <= max_drop_samples:
             drop = zenith - spo2_values[i]
-            duration_seconds = event_length / sampling_rate
+            duration_seconds = drop_length / sampling_rate
 
             # Calculate drop rate
             drop_rate = drop / duration_seconds
@@ -45,8 +53,12 @@ def detect_desaturations_profusion(spo2_values, sampling_rate, min_drop=3, max_f
             # Check desaturation criteria
             if min_drop <= drop <= max_drop_threshold and drop_rate <= max_fall_rate:
                 desaturation_events += 1
-
-    return desaturation_events
+                if return_label_series:
+                    dst_lbls[start:end] = 1
+    if return_label_series:
+        return desaturation_events, dst_lbls
+    else:
+        return desaturation_events
 
 
 def detect_desaturations_simple(spo2_values, min_length=3, max_duration_samples=120):
