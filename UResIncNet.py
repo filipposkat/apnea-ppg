@@ -209,20 +209,20 @@ class AttnGatingBlock(nn.Module):
         inter_chans = max(1, min(x_chans, g_chans) // 2)
         self.inter_chans = inter_chans
 
-        # Normally x.shape==g.shape, as g is already up-sampled from a level lower and x is skip connection
+        # Normally Cx==Cg and Lx==Lg, as g is already up-sampled from a level lower and x is skip connection
 
         self.phi_g = nn.Sequential(nn.Conv1d(in_channels=g_chans, out_channels=inter_chans, kernel_size=1, stride=1),
                                    nn.BatchNorm1d(inter_chans))
         self.theta_x = nn.Sequential(nn.Conv1d(in_channels=x_chans, out_channels=inter_chans, kernel_size=1, stride=1),
                                      nn.BatchNorm1d(inter_chans))
 
-        self.psi = nn.Sequential(nn.Conv1d(in_channels=inter_chans, out_channels=1, kernel_size=1),
+        self.psi = nn.Sequential(nn.Conv1d(in_channels=inter_chans, out_channels=1, kernel_size=1, stride=1),
                                  nn.BatchNorm1d(1),
                                  nn.Sigmoid())
         self.relu = nn.LeakyReLU(negative_slope=neg_slope, inplace=True)
 
     def forward(self, x, g):
-        assert x.shape == g.shape
+        assert x.shape[1:] == g.shape[1:]
         x1 = self.theta_x(x)
         g1 = self.phi_g(g)
         psi = self.psi(self.relu(x1 + g1))
@@ -283,7 +283,7 @@ class DecoderBlock(nn.Module):
     def forward(self, x, enc_features=None):
         x = self.upsample(x)
 
-        if self.attention:
+        if self.attention and self.skip_connection:
             enc_features = self.att(x=enc_features, g=x)
 
         if self.skip_connection:
