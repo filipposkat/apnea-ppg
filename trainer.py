@@ -816,7 +816,7 @@ if __name__ == "__main__":
                               max_channels=512,
                               depth=DEPTH,
                               kernel_size=KERNEL_SIZE, layers=LAYERS, sampling_factor=2,
-                              sampling_method=SAMPLING_METHOD, dropout=DROPOUT,
+                              sampling_method=SAMPLING_METHOD, dropout=DROPOUT, neg_slope=NEG_SLOPE,
                               skip_connection=True, lstm_max_features=LSTM_MAX_FEATURES, lstm_layers=LSTM_LAYERS,
                               lstm_dropout=LSTM_DROPOUT, lstm_bidirectional=True,
                               lstm_depth=1, custom_weight_init=CUSTOM_WEIGHT_INIT)
