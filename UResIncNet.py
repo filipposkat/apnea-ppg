@@ -222,6 +222,8 @@ class AttnGatingBlock(nn.Module):
         self.relu = nn.LeakyReLU(negative_slope=neg_slope, inplace=True)
 
     def forward(self, x, g):
+        print(x.shape)
+        print(g.shape)
         assert x.shape[1:] == g.shape[1:]
         x1 = self.theta_x(x)
         g1 = self.phi_g(g)
