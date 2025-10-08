@@ -56,7 +56,7 @@ class CelGdlLoss(nn.Module):
         to_onehot_y (bool): Must be set to True if y_true shape is (B, L) (default: True)
         softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
-        scale_losses (bool): If True both losses are scaled using their EMA.
+        scale_losses (bool): If True both losses are scaled using their EMA or with first batch loss values.
         ema_scaling (bool): if True losses are scaled using their EMA, else they are scale with the first batch loss values
         learn_weight_cel (bool): Makes weight_cel learnable starting with the given initial value.
     """
