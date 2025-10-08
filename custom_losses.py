@@ -115,8 +115,13 @@ class CelGdlLoss(nn.Module):
 
         if self.scale_losses:
             if self.first_batch_losses is None:
+                # This is the first batch
                 self.first_batch_losses = (loss_ce.item(), loss_dice.item())
-            if self.ema_scaling:
+                if self.ema_scaling:
+                    # Set initial values of EMAs to the first batch losses
+                    self.ema_ce.add_(loss_ce.item()-1.0)
+                    self.ema_dice.add_(loss_dice.item()-1.0)
+            elif self.ema_scaling:
                 # Update EMAs (use .item() to detach and convert to scalar)
                 with torch.no_grad():  # Ensure no gradients for EMA updates
                     self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
