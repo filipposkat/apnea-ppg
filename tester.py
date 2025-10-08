@@ -181,7 +181,7 @@ def save_confusion_matrix(confusion_matrix: list[list[float]], net_type: str, id
         json.dump(confusion_matrix, file)
 
     if True:
-        normalize = "true"
+        normalize = "all"
         if cross_subject:
             plot_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}",
                                              f"batch-{batch}-cross_test_cm.png")

@@ -57,13 +57,12 @@ class CelGdlLoss(nn.Module):
         softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
         scale_losses (bool): If True both losses are scaled using their EMA.
-        ema_scaling (bool): if True losses are scaled using their EMA, else they are scale with the first batch loss
-        values
-        learn_weight_cel (bool): Makes weight_cel learnable starting with the given intial value.
+        ema_scaling (bool): if True losses are scaled using their EMA, else they are scale with the first batch loss values
+        learn_weight_cel (bool): Makes weight_cel learnable starting with the given initial value.
     """
 
     def __init__(self, weight_cel=0.5, weight=None, w_type='square', to_onehot_y=True, softmax=True, reduction='mean',
-                 scale_losses=True, ema_scaling=True, learn_weight_cel=False):
+                 scale_losses=True, ema_scaling=False, learn_weight_cel=False):
         super(CelGdlLoss, self).__init__()
         self.weight_cel = weight_cel
         self.weight = weight
@@ -116,7 +115,7 @@ class CelGdlLoss(nn.Module):
 
         if self.scale_losses:
             if self.first_batch_losses is None:
-                self.first_batch_losses = (loss_ce, loss_dice)
+                self.first_batch_losses = (loss_ce.item(), loss_dice.item())
             if self.ema_scaling:
                 # Update EMAs (use .item() to detach and convert to scalar)
                 with torch.no_grad():  # Ensure no gradients for EMA updates
