@@ -940,6 +940,7 @@ if __name__ == "__main__":
             elif LOSS_FUNCTION == "cel_gdl":
                 loss_kwargs["weight_cel"] = CEL_FL_WEIGHT
                 loss_kwargs["scale_losses"] = True
+                loss_kwargs["ema_scaling"] = False
                 loss_kwargs["learn_weight_cel"] = LEARNABLE_CEL_WEIGHT
                 print(f"Using combine loss with CEL weight: {CEL_FL_WEIGHT}")
                 loss = CelGdlLoss(**loss_kwargs)
