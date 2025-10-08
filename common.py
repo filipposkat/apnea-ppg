@@ -238,8 +238,13 @@ def upsample_to_proportion(sequence, proportion: int, extra_smoothing=False) -> 
     #     # Apply the filter to smooth the upsampled signal
     #     upsampled_signal = filtfilt(b, a, upsampled_signal)
 
+    # Very important to handle it as float:
+    sequence = np.asarray(sequence, dtype="float32")
+
     N = int(32 * proportion) + 1
     window = get_window(window="hamming", Nx=N, fftbins=False)
+    window /= np.sum(window)
+
     upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, window=window, padtype="median")
     # upsampled_signal = resample_poly(x=sequence, up=proportion, down=1, padtype="median")
 
@@ -656,6 +661,11 @@ class Subject:
                 if ("Pleth_KTE" in signal_labels) or ("PPG_KTE" in signal_labels):
                     df["Pleth_KTE"] = get_kte(signal, fs=frequency, smooth=True, normalize=scale_ppg_signals)
                     df["Pleth_KTE"] = df["Pleth_KTE"].astype("float32")
+            elif label == "SpO2" and "DST_Labels" in signal_labels:
+                _, lbls = detect_desaturations_profusion(spo2_values=signal, sampling_rate=frequency,
+                                                         return_label_series=True)
+                df["DST_Labels"] = lbls
+                df["DST_Labels"] = df["DST_Labels"].astype("uint8")
 
             df[label] = signal
             df[label] = df[label].astype("float32")  # Set type to 32 bit instead of 64 to save memory

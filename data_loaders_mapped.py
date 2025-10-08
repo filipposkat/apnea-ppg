@@ -20,7 +20,7 @@ SEED = 33
 NUM_WORKERS = 2  # better to use power of two, otherwise each worker will have different number of subject ids
 PREFETCH_FACTOR = 1
 INCLUDE_TRAIN_IN_CROSS_SUB_TESTING = False
-SAVE_BATCH_INDICES_TRAIN = False
+SAVE_BATCH_INDICES_TRAIN = True
 SAVE_BATCH_INDICES_TEST = True
 SAVE_BATCH_INDICES_CROSS_TEST = True
 

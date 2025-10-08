@@ -57,11 +57,13 @@ class CelGdlLoss(nn.Module):
         softmax (bool): Whether to apply softmax to y_pred. (default: True)
         reduction (str): Reduction method for the losses ('mean', 'sum', or 'none').
         scale_losses (bool): If True both losses are scaled using their EMA.
+        ema_scaling (bool): if True losses are scaled using their EMA, else they are scale with the first batch loss
+        values
         learn_weight_cel (bool): Makes weight_cel learnable starting with the given intial value.
     """
 
     def __init__(self, weight_cel=0.5, weight=None, w_type='square', to_onehot_y=True, softmax=True, reduction='mean',
-                 scale_losses=True, learn_weight_cel=False):
+                 scale_losses=True, ema_scaling=True, learn_weight_cel=False):
         super(CelGdlLoss, self).__init__()
         self.weight_cel = weight_cel
         self.weight = weight
@@ -79,11 +81,14 @@ class CelGdlLoss(nn.Module):
 
         # For loss scaling:
         self.scale_losses = scale_losses
+        self.ema_scaling = ema_scaling
         if scale_losses:
-            self.ema_decay = 0.999
-            # Initialize EMA as floats (not tensors) to avoid CUDA issues
-            self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
-            self.register_buffer('ema_dice', torch.tensor(1.0))
+            self.first_batch_losses = None
+            if ema_scaling:
+                self.ema_decay = 0.999
+                # Initialize EMA as floats (not tensors) to avoid CUDA issues
+                self.register_buffer('ema_ce', torch.tensor(1.0))  # Stored on same device as model
+                self.register_buffer('ema_dice', torch.tensor(1.0))
 
         self.learn_weight_cel = learn_weight_cel
         if learn_weight_cel:
@@ -110,14 +115,20 @@ class CelGdlLoss(nn.Module):
         loss_dice = self.dice(y_pred, y_true)
 
         if self.scale_losses:
-            # Update EMAs (use .item() to detach and convert to scalar)
-            with torch.no_grad():  # Ensure no gradients for EMA updates
-                self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
-                self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
+            if self.first_batch_losses is None:
+                self.first_batch_losses = (loss_ce, loss_dice)
+            if self.ema_scaling:
+                # Update EMAs (use .item() to detach and convert to scalar)
+                with torch.no_grad():  # Ensure no gradients for EMA updates
+                    self.ema_ce.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_ce.item())
+                    self.ema_dice.mul_(self.ema_decay).add_((1 - self.ema_decay) * loss_dice.item())
 
-            # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
-            loss_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
-            loss_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+                # Normalize losses using EMAs (ensure min_ema to avoid division by zero)
+                loss_ce = loss_ce / self.ema_ce.clamp(min=1e-5)
+                loss_dice = loss_dice / self.ema_dice.clamp(min=1e-5)
+            else:
+                loss_ce = loss_ce / self.first_batch_losses[0]
+                loss_dice = loss_dice / self.first_batch_losses[1]
 
         if self.learn_weight_cel:
             weight_cel = torch.sigmoid(self.log_weight_cel)  # Bound between 0 and 1

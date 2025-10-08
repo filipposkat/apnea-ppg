@@ -214,6 +214,10 @@ def get_subjects_by_ids_generator(subject_ids: list[int], progress_bar=True) -> 
 
 if __name__ == "__main__":
     (id, sub) = get_subject_by_id(989)  # 4389
+    spo2 = np.trim_zeros(sub.signals[1])
+    plt.subplots()
+    plt.plot(spo2)
+
     print(len(sub.signals))
     print(sub.signal_headers)
     print(len(sub.signals[2]))
@@ -222,6 +226,19 @@ if __name__ == "__main__":
     print(np.max(sub.signals[2]))
     print(np.std(sub.signals[2]))
 
+    df = sub.export_to_dataframe(signal_labels=["Pleth", "Slow_Pleth", "Pleth_Envelope", "SpO2"],
+                                 frequency=32.0,
+                                 anti_aliasing=True, trim_signals=True,
+                                 clean_spo2=True, detrend_ppg=True, median_to_low_spo2_values=True,
+                                 scale_ppg_signals=True)
+    mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
+    dfm = df.loc[mask, :]
+    dfm.plot(x="time_secs", y="Pleth")
+    dfm.plot(x="time_secs", y="Slow_Pleth")
+    dfm.plot(x="time_secs", y="Pleth_Envelope")
+    dfm.plot(x="time_secs", y="SpO2")
+    plt.show()
+    exit()
     # df = sub.export_to_dataframe(signal_labels=["SpO2"], frequency=32, anti_aliasing=True, trim_signals=True)
     # mask = (16840 < df["time_secs"]) & (df["time_secs"] < 16960)
     # dfm = df.loc[mask, :]

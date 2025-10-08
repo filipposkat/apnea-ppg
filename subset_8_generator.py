@@ -22,19 +22,20 @@ import json
 from sklearn.model_selection import train_test_split
 
 # Local imports:
-from common import Subject
+from common import Subject, detect_desaturations_profusion
 from object_loader import all_subjects_generator, get_subjects_by_ids_generator, get_subject_by_id, get_all_ids
 
 # --- START OF CONSTANTS --- #
 # SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "Pleth_KTE", "SpO2"]
 SIGNALS = ["Pleth", "Slow_Pleth", "Pleth_Envelope", "SpO2"]
 CLEAN_SPO2 = True
+CONVERT_SPO2_TO_DST_LABELS = True
 EXCLUDE_LOW_SQI_SUBJECTS_FROM_TRAIN = True
 EXCLUDE_LOW_TST_SUBJECTS_FROM_TRAIN = True
 SUBSET = 8
 SUBSET_SIZE = "all"  # The number of subjects that will remain after screening down the whole dataset
 CREATE_ARRAYS = True
-SKIP_EXISTING_IDS = True  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
+SKIP_EXISTING_IDS = False  # NOT RECOMMENDED, does not yield the same train-test splits in subjects!
 WINDOW_SEC_SIZE = 60
 SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 ANTI_ALIASING = True
@@ -100,8 +101,9 @@ def get_ids():
             split_dict = json.load(file)
     else:
         df: pd.DataFrame = pd.read_csv(PATH_TO_METADATA, sep=',')
-        df.dropna(subset=["slpprdp5", "qupleth5", "ahi_a0h3a", "ahi_o0h3a", "ahi_c0h3a", "gender1", "race1c", "sleepage5c"],
-                  inplace=True, ignore_index=True)
+        df.dropna(
+            subset=["slpprdp5", "qupleth5", "ahi_a0h3a", "ahi_o0h3a", "ahi_c0h3a", "gender1", "race1c", "sleepage5c"],
+            inplace=True, ignore_index=True)
         df.set_index(keys="mesaid", drop=False, inplace=True)
         df.index.names = [None]
         all_sub_ids = get_all_ids()
@@ -239,6 +241,13 @@ def get_subject_windows(subject: Subject, train=True) \
     # Ensure correct order of signals:
     sub_df = sub_df.loc[:, [*SIGNALS, "event_index"]]
 
+    if CONVERT_SPO2_TO_DST_LABELS:
+        _, dst_lbls = detect_desaturations_profusion(sub_df["SpO2"], sampling_rate=SIGNALS_FREQUENCY,
+                                                     return_label_series=True)
+        sub_df.drop(["SpO2"], axis=1, inplace=True)
+        sub_df["DST_Labels"] = dst_lbls
+        sub_df["DST_Labels"] = sub_df["DST_Labels"].astype("uint8")
+
     samples_to_exclude = []
     if train and EXCLUDE_10s_AFTER_EVENT:
         # 1. Drop no-event train samples within 10s (= 320 samples) after an event:
@@ -322,6 +331,7 @@ def get_subject_windows(subject: Subject, train=True) \
                                 combined_xy))
             X, y = zip(*combined_xy)  # separate Xy again
             return X, y
+
         if train:
             X, y = window_dropping_continuous(X, y)
     else:
