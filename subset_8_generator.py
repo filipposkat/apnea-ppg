@@ -58,12 +58,10 @@ with open("config.yml", 'r') as f:
     config = yaml.safe_load(f)
 
 if config is not None:
-    PATH_TO_OBJECTS = Path(config["paths"]["local"]["subject_objects_directory"])
     PATH_TO_SUBSET = Path(config["paths"]["local"][f"subset_{SUBSET}_directory"])
     PATH_TO_SUBSET_TRAINING = Path(config["paths"]["local"][f"subset_{SUBSET}_training_directory"])
     PATH_TO_METADATA = Path(config["paths"]["local"]["subject_metadata_file"])
 else:
-    PATH_TO_OBJECTS = Path(__file__).parent.joinpath("data", "serialized-objects")
     PATH_TO_SUBSET = Path(__file__).parent.joinpath("data", f"subset-{SUBSET}")
     PATH_TO_SUBSET_TRAINING = Path(__file__).parent.joinpath("data", f"subset-{SUBSET}")
     PATH_TO_METADATA = Path(__file__).parent.joinpath("data", "mesa-original", "datasets",

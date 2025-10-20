@@ -18,21 +18,20 @@ import torch.nn.functional as F
 
 # Local imports:
 from common import Subject
-from object_loader import get_subject_by_id, get_subjects_by_ids_generator
 from trainer import load_checkpoint, get_last_batch, get_last_epoch
 from data_loaders_mapped import get_subject_train_test_split
 
 # --- START OF CONSTANTS --- #
-TESTING_SUBSET = "0w60s"
+TESTING_SUBSET = "8"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 6
-CREATE_ARRAYS = True
-GET_CONTINUOUS_PREDICTIONS = False
+EPOCH = 5
+CREATE_ARRAYS = False
+GET_CONTINUOUS_PREDICTIONS = True
 SKIP_EXISTING_IDS = True
 
 # CREATE ARRAYS PARAMS:
 WINDOW_SEC_SIZE = 60  # The window size
-SIGNALS_FREQUENCY = 64  # The frequency used in the exported signals
+SIGNALS_FREQUENCY = 32  # The frequency used in the exported signals
 TEST_SIZE = 0.3
 TEST_SEARCH_SAMPLE_STEP = 512  # Make sure to use the same as trainedOn subset
 EXAMINED_TEST_SETS_SUBSAMPLE = 0.7  # Ratio of randomly selected test set candidates to all possible candidates
@@ -345,6 +344,8 @@ if __name__ == "__main__":
     print(train_ids)
 
     if CREATE_ARRAYS:
+        from object_loader import get_subject_by_id, get_subjects_by_ids_generator
+
         random.seed(SEED)  # Set the seed
         PATH_TO_SUBSET_CONT_TESTING.mkdir(exist_ok=True)
         PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-arrays").mkdir(exist_ok=True)
