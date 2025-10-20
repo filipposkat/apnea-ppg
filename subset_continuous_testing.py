@@ -420,6 +420,11 @@ if __name__ == "__main__":
         else:
             exit(1)
 
+        if TESTING_SUBSET in (8):
+            print(f"In testing subset={TESTING_SUBSET}, "
+                  f"using original subject arrays is permitted (due to continuity).")
+            cont_arrays_dir = PATH_TO_SUBSET / "arrays"
+            print(f"May use cont-test-arrays path: {str(cont_arrays_dir)}")
         for sub_id in tqdm(sub_ids):
             results_path = PATH_TO_SUBSET_CONT_TESTING.joinpath("cont-test-results", str(NET_TYPE), str(IDENTIFIER),
                                                                 f"epoch-{EPOCH}")
@@ -438,12 +443,10 @@ if __name__ == "__main__":
 
             cont_arrays_dir = PATH_TO_SUBSET_CONT_TESTING / "cont-test-arrays"
             if not cont_arrays_dir.exists():
-                print(f"Warning! Default path for cont-test-arrays does not exist")
                 if TESTING_SUBSET in (8):
-                    print(f"In testing subset={TESTING_SUBSET}, "
-                          f"using original subject arrays is permitted (due to continuity).")
                     cont_arrays_dir = PATH_TO_SUBSET / "arrays"
-                    print(f"Setting cont-test-arrays path to: {str(cont_arrays_dir)}")
+                else:
+                    print(f"Error! Default path for cont-test-arrays does not exist")
 
             subject_arrs_path = cont_arrays_dir.joinpath(str(sub_id).zfill(4))
             X_path = subject_arrs_path.joinpath("X_test.npy")
