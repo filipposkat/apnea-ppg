@@ -24,9 +24,9 @@ from data_loaders_mapped import get_subject_train_test_split
 # --- START OF CONSTANTS --- #
 TESTING_SUBSET = "8"
 SUBJECT_ID = "all"  # 1212 lots obstructive, 5232 lots central
-EPOCH = 5
+EPOCH = 3
 CREATE_ARRAYS = False
-GET_CONTINUOUS_PREDICTIONS = True
+GET_CONTINUOUS_PREDICTIONS = False
 SKIP_EXISTING_IDS = True
 
 # CREATE ARRAYS PARAMS:
@@ -421,7 +421,7 @@ if __name__ == "__main__":
         else:
             exit(1)
 
-        if TESTING_SUBSET in (8):
+        if TESTING_SUBSET == '8':
             print(f"In testing subset={TESTING_SUBSET}, "
                   f"using original subject arrays is permitted (due to continuity).")
             cont_arrays_dir = PATH_TO_SUBSET / "arrays"
@@ -444,10 +444,11 @@ if __name__ == "__main__":
 
             cont_arrays_dir = PATH_TO_SUBSET_CONT_TESTING / "cont-test-arrays"
             if not cont_arrays_dir.exists():
-                if TESTING_SUBSET in (8):
+                if TESTING_SUBSET == '8':
                     cont_arrays_dir = PATH_TO_SUBSET / "arrays"
                 else:
                     print(f"Error! Default path for cont-test-arrays does not exist")
+                    exit(1)
 
             subject_arrs_path = cont_arrays_dir.joinpath(str(sub_id).zfill(4))
             X_path = subject_arrs_path.joinpath("X_test.npy")
@@ -513,8 +514,12 @@ if __name__ == "__main__":
                     if n_channels_found != N_INPUT_CHANNELS:
                         diff = n_channels_found - N_INPUT_CHANNELS
                         assert diff > 0
-                        # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
-                        batch_inputs = batch_inputs[:, diff:, :]
+                        if TESTING_SUBSET == "0":
+                            # Excess channels have been detected, exclude the first (typically SpO2 or Flow)
+                            batch_inputs = batch_inputs[:, diff:, :]
+                        else:
+                            # Excees channels have been detected, keep the first n_channels
+                            batch_inputs = batch_inputs[:, :N_INPUT_CHANNELS, :]
 
                     # Predictions:
                     batch_outputs = net(batch_inputs)
@@ -710,12 +715,14 @@ if __name__ == "__main__":
             # test_tprs_by_class = {}
             # test_fprs_by_class = {}
             # test_aucs_by_class = {}
-
             for sub_id in tqdm(sub_ids):
                 if sub_id in validation_ids:
                     sub_path = results_path.joinpath("validation-subjects")
-                else:
+                elif sub_id in cross_test_ids:
                     sub_path = results_path.joinpath("cross-test-subjects")
+                else:
+                    print(f"Skipping subject {sub_id}! ID neither in validation nor in cross-test set")
+                    continue
 
                 assert sub_path.exists()
 

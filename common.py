@@ -648,13 +648,13 @@ class Subject:
                 signal = upsample_to_proportion(retained_signals[i], proportion, extra_smoothing=clean_spo2)
 
             if label == "Pleth":
+                if ("Slow_Pleth" in signal_labels) or ("Slow_PPG" in signal_labels):
+                    df["Slow_Pleth"] = get_slow_ppg(signal, fs=frequency, normalize=scale_ppg_signals)
+                    df["Slow_Pleth"] = df["Slow_Pleth"].astype("float32")
                 if detrend_ppg:
                     signal = get_detrended_ppg(signal, fs=frequency)
                 if scale_ppg_signals:
                     signal = signal / (np.percentile(signal, 99) + 1e-8)
-                if ("Slow_Pleth" in signal_labels) or ("Slow_PPG" in signal_labels):
-                    df["Slow_Pleth"] = get_slow_ppg(signal, fs=frequency, normalize=scale_ppg_signals)
-                    df["Slow_Pleth"] = df["Slow_Pleth"].astype("float32")
                 if ("Pleth_Envelope" in signal_labels) or ("PPG_Envelope" in signal_labels):
                     df["Pleth_Envelope"] = get_envelope(signal, fs=frequency, smooth=True, normalize=scale_ppg_signals)
                     df["Pleth_Envelope"] = df["Pleth_Envelope"].astype("float32")

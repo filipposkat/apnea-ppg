@@ -17,53 +17,73 @@ import common
 
 
 def preprocess_signals(ppg: np.ndarray, ppg_frequency: int, spo2: np.ndarray = None, spo2_frequency: int = 1,
-                       target_frequency=64, trim=True) -> tuple[np.ndarray, np.ndarray | None]:
-    if trim:
-        # Trim zeros from front:
-        original_length = len(ppg)
-        ppg = np.trim_zeros(ppg, trim='f')
-        front_zeros = original_length - len(ppg)
+                       target_frequency=64,
+                       detrend_ppg=False, scale_ppg=False, produce_ppg_derived_signals=False) -> dict[str, np.ndarray]:
+    # Trim zeros from front:
+    original_length = len(ppg)
+    ppg = np.trim_zeros(ppg, trim='f')
+    front_zeros = original_length - len(ppg)
 
-        # Trim zeros from back:
-        tmp_len = len(ppg)
-        ppg = np.trim_zeros(ppg, trim='b')
-        back_zeros = tmp_len - len(ppg)
+    # Trim zeros from back:
+    tmp_len = len(ppg)
+    ppg = np.trim_zeros(ppg, trim='b')
+    back_zeros = tmp_len - len(ppg)
 
-        # Adjust the SpO2 accordingly:
-        if spo2 is not None:
-            assert ppg_frequency % spo2_frequency == 0
-            proportion = ppg_frequency // spo2_frequency
-            assert proportion == len(spo2) // original_length
-            front_zeros_to_drop = front_zeros * int(proportion)
-            back_zeros_to_drop = back_zeros * int(proportion)
-            if back_zeros_to_drop == 0:
-                spo2 = spo2[front_zeros_to_drop:]
-            else:
-                spo2 = spo2[front_zeros_to_drop:-back_zeros_to_drop]
-            assert proportion == len(spo2) / len(ppg)
+    # Adjust the SpO2 accordingly:
+    if spo2 is not None:
+        assert ppg_frequency % spo2_frequency == 0
+        proportion = ppg_frequency // spo2_frequency
+        assert proportion == len(spo2) // original_length
+        front_zeros_to_drop = front_zeros * int(proportion)
+        back_zeros_to_drop = back_zeros * int(proportion)
+        if back_zeros_to_drop == 0:
+            spo2 = spo2[front_zeros_to_drop:]
+        else:
+            spo2 = spo2[front_zeros_to_drop:-back_zeros_to_drop]
+        assert proportion == len(spo2) / len(ppg)
 
-        # Resample PPG:
-        proportion = target_frequency // ppg_frequency
+    # Resample PPG:
+    proportion = target_frequency // ppg_frequency
+    if proportion < 1.0:
+        ppg = common.downsample_to_proportion(ppg, proportion, lpf=True)
+    elif proportion > 1.0:
+        ppg = common.upsample_to_proportion(ppg, proportion)
+    ppg = ppg.astype("float32")  # Set type to 32 bit instead of 64 to save memory
+
+    signals = {}
+
+    if produce_ppg_derived_signals:
+        slow_ppg = common.get_slow_ppg(ppg, fs=target_frequency, normalize=scale_ppg)
+        slow_ppg = slow_ppg.astype("float32")
+        signals["slow_ppg"] = slow_ppg
+    if detrend_ppg:
+        ppg = common.get_detrended_ppg(ppg, fs=ppg_frequency)
+    if scale_ppg:
+        ppg = ppg / (np.percentile(ppg, 99) + 1e-8)
+    if produce_ppg_derived_signals:
+        # These work better if ppg is detrended
+        ppg_envelope = common.get_envelope(ppg, fs=target_frequency, smooth=True, normalize=scale_ppg)
+        ppg_envelope = ppg_envelope.astype("float32")
+        ppg_kte = common.get_kte(ppg, fs=target_frequency, smooth=True, normalize=scale_ppg)
+        ppg_kte = ppg_kte.astype("float32")
+        signals["ppg_envelope"] = ppg_envelope
+        signals["ppg_kte"] = ppg_kte
+    signals["ppg"] = ppg
+
+    # Resample SpO2
+    if spo2 is not None:
+        median_spo2_value = np.median(spo2)
+        spo2[spo2 <= 60] = median_spo2_value
+
+        proportion = target_frequency // spo2_frequency
         if proportion < 1.0:
-            ppg = common.downsample_to_proportion(ppg, proportion, lpf=True)
+            spo2 = common.downsample_to_proportion(spo2, proportion, lpf=True)
         elif proportion > 1.0:
-            ppg = common.upsample_to_proportion(ppg, proportion)
-        ppg = ppg.astype("float32")  # Set type to 32 bit instead of 64 to save memory
+            spo2 = common.upsample_to_proportion(spo2, proportion)
 
-        # Resample SpO2
-        if spo2 is not None:
-            median_spo2_value = np.median(spo2)
-            spo2[spo2 <= 60] = median_spo2_value
-
-            proportion = target_frequency // spo2_frequency
-            if proportion < 1.0:
-                spo2 = common.downsample_to_proportion(spo2, proportion, lpf=True)
-            elif proportion > 1.0:
-                spo2 = common.upsample_to_proportion(spo2, proportion)
-
-            spo2 = spo2.astype("float32")
-
-    return ppg, spo2
+        spo2 = spo2.astype("float32")
+        signals["spo2"] = spo2
+    return signals
 
 
 def get_windows(preprocessed_ppg: np.ndarray, preprocessed_spo2=None, window_samples_size=60 * 64):
