@@ -361,9 +361,10 @@ def load_checkpoint(net_type: str, identifier: str, epoch: int, batch: int, devi
     model_path = MODELS_PATH.joinpath(f"{net_type}", identifier, f"epoch-{epoch}", f"batch-{batch}.pt")
 
     if isinstance(device, str) and "ocl" in device:
-        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": "cpu"}, weights_only=False)
+        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": "cpu", "cuda:1": "cpu"}, weights_only=False)
     else:
-        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": str(device)}, weights_only=False)
+        state = torch.load(model_path, map_location={"cpu": "cpu", "cuda:0": str(device), "cuda:1": str(device)}, weights_only=False)
+
 
     if "batch_size" in state.keys():
         batch_size = int(state["batch_size"])
